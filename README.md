@@ -99,9 +99,7 @@ Runtime behaviour can be tweaked with environment variables:
 ### Synology NAS Deployment (POC)
 
 The following steps describe how to deploy Tokenlysis on a Synology NAS and let
-Docker Compose fetch the source code automatically. Replace `<owner>` in the
-commands and URLs with the GitHub organisation or user that hosts this
-repository.
+Docker Compose fetch the source code automatically.
 
 1. **Install Container Manager** – from the Synology Package Center install the
    *Container Manager* application (formerly called *Docker*).
@@ -109,7 +107,7 @@ repository.
    **Create** → **Import from URL** and paste:
 
    ```text
-   https://raw.githubusercontent.com/<owner>/Tokenlysis/main/docker-compose.synology.yml
+   https://raw.githubusercontent.com/Tomp0uce/Tokenlysis/main/docker-compose.synology.yml
    ```
 
    This compose file contains a `build` section pointing directly to the Git
