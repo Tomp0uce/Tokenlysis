@@ -6,6 +6,8 @@ services:
       context: https://github.com/Tomp0uce/Tokenlysis.git#main
     environment:
       - CORS_ORIGINS=http://localhost
+      - APP_VERSION=123456789
+      - COINGECKO_API_KEY=XXXXX
     ports:
       - "8002:8000"
     restart: unless-stopped
