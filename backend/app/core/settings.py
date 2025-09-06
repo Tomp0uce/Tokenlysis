@@ -11,7 +11,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     """Application settings loaded from environment and optional files."""
 
-    cors_origins: List[str] = ["http://localhost"]
+    cors_origins: List[str] | str = ["http://localhost"]
     cg_top_n: int = 20
     cg_days: int = 14
     coingecko_api_key: Optional[str] = None

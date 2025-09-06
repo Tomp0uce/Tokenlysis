@@ -22,3 +22,15 @@ def test_api_key_from_secret_file(monkeypatch):
         assert get_coingecko_headers(cfg) == {"x-cg-pro-api-key": "file-key"}
     finally:
         secret_file.unlink()
+
+
+def test_cors_origins_parsing(monkeypatch):
+    monkeypatch.setenv("CORS_ORIGINS", "http://a.com, http://b.com")
+    cfg = Settings()
+    assert cfg.cors_origins == ["http://a.com", "http://b.com"]
+
+
+def test_empty_cors_origins(monkeypatch):
+    monkeypatch.setenv("CORS_ORIGINS", "")
+    cfg = Settings()
+    assert cfg.cors_origins == []
