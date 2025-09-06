@@ -7,7 +7,6 @@ from typing import Dict, List
 from fastapi import APIRouter, Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
 
 from .etl.run import run_etl
 from .schemas.crypto import (
@@ -31,8 +30,6 @@ app.add_middleware(
     allow_methods=["GET"],
     allow_headers=["*"],
 )
-
-static_dir = Path(__file__).resolve().parents[2] / "frontend"
 
 
 @lru_cache
@@ -164,12 +161,8 @@ def crypto_history(
 app.include_router(api)
 
 
-@app.get("/")
-def read_index() -> FileResponse:
-    return FileResponse(static_dir / "index.html")
-
-
-app.mount("/static", StaticFiles(directory=static_dir, html=True), name="static")
+static_dir = Path(__file__).resolve().parents[2] / "frontend"
+app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
 
 
 @app.on_event("startup")
