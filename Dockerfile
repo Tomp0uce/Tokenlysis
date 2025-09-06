@@ -7,12 +7,18 @@ WORKDIR /app
 # APP_VERSION build argument is provided it is used instead.
 COPY .git /tmp/git
 RUN if [ "$APP_VERSION" = "dev" ]; then \
-      python - <<'PY' > VERSION
+        python - <<'PY' > VERSION
 import pathlib
-head = pathlib.Path('/tmp/git/HEAD').read_text().strip().split(' ')[1]
-print((pathlib.Path('/tmp/git') / head).read_text().strip())
+
+root = pathlib.Path('/tmp/git')
+head = (root / 'HEAD').read_text().strip()
+if head.startswith('ref:'):
+    ref = head.split(' ', 1)[1]
+    print((root / ref).read_text().strip())
+else:
+    print(head)
 PY
-    ; else echo "$APP_VERSION" > VERSION; fi && rm -rf /tmp/git
+      ; else echo "$APP_VERSION" > VERSION; fi && rm -rf /tmp/git
 COPY backend/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 COPY backend ./backend
