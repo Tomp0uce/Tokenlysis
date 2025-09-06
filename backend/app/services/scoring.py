@@ -33,11 +33,15 @@ def _normalize(values: List[float], log: bool = False) -> List[int]:
     return scores
 
 
-def score_liquidite(volume: List[float], market_cap: List[float], listings: List[int]) -> List[int]:
+def score_liquidite(
+    volume: List[float], market_cap: List[float], listings: List[int]
+) -> List[int]:
     sv = _normalize(volume, log=True)
     sm = _normalize(market_cap, log=True)
     sl = _normalize(listings, log=False)
-    return [round(0.45 * v + 0.35 * m + 0.20 * l) for v, m, l in zip(sv, sm, sl)]
+    return [
+        round(0.45 * v + 0.35 * m + 0.20 * listing) for v, m, listing in zip(sv, sm, sl)
+    ]
 
 
 def score_opportunite(rsi: List[float], vol_change: List[float]) -> List[int]:
@@ -46,10 +50,12 @@ def score_opportunite(rsi: List[float], vol_change: List[float]) -> List[int]:
     return [round(100 * (0.60 * r + 0.40 * v)) for r, v in zip(s_rsi, s_vol)]
 
 
-def score_global(liq: List[Optional[int]], opp: List[Optional[int]]) -> List[Optional[int]]:
+def score_global(
+    liq: List[Optional[int]], opp: List[Optional[int]]
+) -> List[Optional[int]]:
     res: List[Optional[int]] = []
-    for l, o in zip(liq, opp):
-        parts = [p for p in (l, o) if p is not None]
+    for liq_score, opp_score in zip(liq, opp):
+        parts = [p for p in (liq_score, opp_score) if p is not None]
         if not parts:
             res.append(None)
         else:
