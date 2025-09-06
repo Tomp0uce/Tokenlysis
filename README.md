@@ -125,7 +125,7 @@ image, ensuring the container runs the newest version of Tokenlysis.
 ### Testing
 
 ```bash
-pytest
+PYTHONPATH=. pytest
 ```
 
 ## License
