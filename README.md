@@ -136,6 +136,25 @@ image, ensuring the container runs the newest version of Tokenlysis.
 pytest
 ```
 
+### Image Version
+
+Docker images embed a version string that defaults to the short Git commit SHA.
+The value is passed at build time through the `APP_VERSION` build argument and is
+exposed inside the container as the `APP_VERSION` environment variable. The same
+value is also written to the `org.opencontainers.image.version` and
+`org.opencontainers.image.revision` OCI labels for traceability.
+
+GitHub Actions computes the value from `GITHUB_SHA` and injects it with
+`--build-arg APP_VERSION=${APP_VERSION_SHORT}` during the build. When building
+locally you can override the version:
+
+```bash
+docker build --build-arg APP_VERSION=abcdef1 -t tokenlysis:test -f ./Dockerfile .
+```
+
+At runtime the container exposes `APP_VERSION` so it can be inspected with
+`docker run --rm tokenlysis:test env | grep APP_VERSION`.
+
 ## License
 
 This project is licensed under the MIT License.

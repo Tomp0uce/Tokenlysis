@@ -2,7 +2,10 @@ version: '3'
 services:
   tokenlysis:
     container_name: tokenlysis
-    build: .
+    build:
+      context: .
+      args:
+        APP_VERSION: ${APP_VERSION:-dev}
     environment:
       - CORS_ORIGINS=http://localhost
     ports:
