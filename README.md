@@ -89,8 +89,8 @@ are exposed under `/api`.
 
 #### Configuration
 
-Copy `.env.example` to `.env` and adjust the values as needed. Runtime
-behaviour can be tweaked with environment variables:
+Copy `.env.example` to `.env` and adjust the values as needed. This file holds sensitive settings such as API keys and database passwords. Keep it outside version control (it is ignored by `.gitignore`) and restrict access on your NAS, for example with `chmod 600 .env`.
+Runtime behaviour can be tweaked with environment variables:
 
 - `CORS_ORIGINS` – comma-separated list of allowed origins (default:
   `http://localhost`)
@@ -110,6 +110,13 @@ the local source code.
    ```bash
    git clone https://github.com/Tomp0uce/Tokenlysis.git
    cd Tokenlysis
+   ```
+
+   Create a `.env` file from the example and secure it on the NAS:
+
+   ```bash
+   cp .env.example .env
+   chmod 600 .env
    ```
 
 3. **Create the project** – in **Container Manager**, go to **Project** →
