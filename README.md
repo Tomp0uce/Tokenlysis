@@ -34,22 +34,33 @@ For a full overview of features and architecture, see the [functional specificat
 ### Tokenomics
 - Metrics: supply distribution (40%), inflation rate (30%), vesting/unlock schedule (30%).
 
-## Feature Status
+## Development Phases
 
+### POC
 - [x] Liquidity scoring
 - [x] Opportunity scoring
 - [x] Global score aggregation
 - [x] Mock ETL generating sample data
-- [x] REST API for listing assets, details and history
-- [x] Static frontend table
+- [x] REST API for `/ranking`, `/asset/{id}` and `/history/{id}`
+- [x] Static frontend table served by the backend
+- [x] Docker Compose setup for backend and frontend (deployable on Synology NAS)
+
+### MVP
 - [ ] Community scoring
 - [ ] Security scoring
 - [ ] Technology scoring
 - [ ] Tokenomics scoring
 - [ ] Trending asset detection
-- [ ] Persistent database storage
-- [ ] User‑defined weighting
+- [ ] Persistent PostgreSQL storage
+- [ ] User-defined weighting UI
 - [ ] Interactive charts and comparisons
+
+### EVT
+- [ ] User accounts, authentication and watchlists
+- [ ] Worker queue, caching layer and API rate limiting
+- [ ] Historical score charts with price overlays and CSV export
+- [ ] CI/CD pipeline with staging environment
+- [ ] 80 %+ test coverage and load testing
 
 ## Architecture
 
@@ -74,6 +85,13 @@ uvicorn backend.app.main:app --reload
 ```
 
 The frontend is served statically by the API under `/`.
+
+### Synology NAS Deployment (POC)
+
+1. Copy the project to your NAS and open **Container Manager**.
+2. Go to **Project** → **Create**, then import the provided `docker-compose.yml`.
+3. Set the project directory and keep port `8000` exposed.
+4. Start the project; the application will be available at `http://<NAS_IP>:8000`.
 
 ### Testing
 
