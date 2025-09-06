@@ -1,6 +1,5 @@
 from functools import lru_cache
 import asyncio
-import os
 from pathlib import Path
 from typing import Dict, List
 
@@ -21,13 +20,13 @@ from .schemas.crypto import (
 from .schemas.price import PriceResponse
 from .schemas.version import VersionResponse
 from .core.version import get_version
+from .core.settings import settings
 from .services.coingecko import CoinGeckoClient
 
 app = FastAPI(title="Tokenlysis")
-origins = os.getenv("CORS_ORIGINS", "http://localhost").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["GET"],
     allow_headers=["*"],
