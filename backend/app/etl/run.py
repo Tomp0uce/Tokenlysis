@@ -40,7 +40,6 @@ def _top_coins(limit: int) -> List[dict]:
             "page": 1,
         },
         timeout=30,
-        proxies={"http": None, "https": None},
     )
     resp.raise_for_status()
     return resp.json()
@@ -51,7 +50,6 @@ def _coin_history(coin_id: str, days: int) -> dict:
         f"{COINGECKO_API}/coins/{coin_id}/market_chart",
         params={"vs_currency": "usd", "days": days, "interval": "daily"},
         timeout=30,
-        proxies={"http": None, "https": None},
     )
     resp.raise_for_status()
     return resp.json()
