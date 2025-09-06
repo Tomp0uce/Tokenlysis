@@ -19,6 +19,8 @@ from .schemas.crypto import (
     Scores,
 )
 from .schemas.price import PriceResponse
+from .schemas.version import VersionResponse
+from .core.version import get_version
 from .services.coingecko import CoinGeckoClient
 
 app = FastAPI(title="Tokenlysis")
@@ -47,6 +49,12 @@ def get_coingecko_client() -> CoinGeckoClient:
 
 
 api = APIRouter(prefix="/api")
+
+
+@api.get("/version", response_model=VersionResponse)
+def read_version() -> VersionResponse:
+    """Return application version."""
+    return VersionResponse(version=get_version())
 
 
 @api.get("/price/{coin_id}", response_model=PriceResponse)
