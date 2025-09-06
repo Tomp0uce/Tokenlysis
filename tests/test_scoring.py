@@ -1,5 +1,9 @@
-
-from backend.app.services.scoring import _normalize, score_liquidite, score_opportunite, score_global
+from backend.app.services.scoring import (
+    _normalize,
+    score_liquidite,
+    score_opportunite,
+    score_global,
+)
 
 
 def test_normalization_clamps_and_scales():
@@ -23,7 +27,7 @@ def test_scoring_categories_and_global():
     glob = score_global(liq, opp)
 
     assert len(liq) == len(opp) == len(glob) == 20
-    for l, o, g in zip(liq, opp, glob):
-        assert 0 <= l <= 100
-        assert 0 <= o <= 100
-        assert g == round((l + o) / 2)
+    for liq_score, opp_score, glob_score in zip(liq, opp, glob):
+        assert 0 <= liq_score <= 100
+        assert 0 <= opp_score <= 100
+        assert glob_score == round((liq_score + opp_score) / 2)

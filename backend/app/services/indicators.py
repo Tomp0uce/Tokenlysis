@@ -1,5 +1,6 @@
 from typing import Iterable, List
 
+
 def rsi(prices: Iterable[float], period: int = 14) -> List[float]:
     prices = list(prices)
     n = len(prices)
@@ -28,5 +29,6 @@ def rsi(prices: Iterable[float], period: int = 14) -> List[float]:
         rsi_values.append(100 - 100 / (1 + rs))
     prefix = [0.0] * (n - len(rsi_values))
     return prefix + rsi_values
+
 
 __all__ = ["rsi"]
