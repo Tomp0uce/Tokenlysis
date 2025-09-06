@@ -80,23 +80,29 @@ Approximately 100 raw metrics are gathered daily for each asset from sources inc
 | DevOps | Docker, Docker Compose, GitHub Actions |
 
 ## 6. Development Phases
-### 6.1 MVP
-Focus on ranking and visualisation for a subset of metrics to validate concept.
-1. Ingest CoinGecko market data, compute Liquidity and Opportunity scores.
-2. Implement global score as average of existing categories.
-3. FastAPI backend with endpoints: `/ranking`, `/asset/{id}`, `/history/{id}`.
-4. React frontend: ranking table, asset detail page, simple line chart.
-5. Basic tests and 60 % coverage.
-6. Deployed via Docker Compose on a single VM.
+### 6.1 Proof of Concept (POC)
+Demonstrate the scoring concept with a minimal feature set deployable via Docker Compose.
+1. Ingest CoinGecko market data and compute **Liquidity** and **Opportunity** scores.
+2. Aggregate a global score from the available categories.
+3. Expose FastAPI endpoints: `/ranking`, `/asset/{id}`, and `/history/{id}`.
+4. Serve a static frontend table from the backend.
+5. Provide a `docker-compose.yml` that runs the backend and frontend together, including an example for Synology NAS Container Manager.
 
-### 6.2 Full Specification
-1. Add remaining categories (Community, Security, Technology, Tokenomics) and trending list.
-2. Implement custom weight UI and persistence.
-3. Historical score charts with price overlay and CSV export.
-4. User accounts, authentication, and watchlists.
-5. Worker queue for data collection, caching layer, and API rate limiting.
-6. Expand tests to 80 % coverage; load tests for ranking endpoint.
-7. CI/CD pipeline with staging environment and automated deployments.
+### 6.2 Minimum Viable Product (MVP)
+Build a usable platform with core functionality and persistent storage.
+1. Add remaining score categories (Community, Security, Technology, Tokenomics).
+2. Detect and display 100 trending assets outside the top 1,000.
+3. Introduce PostgreSQL persistence for metrics and scores.
+4. Implement basic charts and user-defined weighting in the frontend.
+5. Ensure 60 % test coverage and nightly data refresh jobs.
+
+### 6.3 Engineering Validation Test (EVT)
+Harden the system for wider adoption and prepare for production.
+1. Add user accounts, authentication, and watchlists.
+2. Implement a worker queue, caching layer, and API rate limiting.
+3. Provide historical score charts with price overlays and CSV export.
+4. Expand tests to 80 % coverage and add load testing for ranking endpoints.
+5. Set up a CI/CD pipeline with staging environment and automated deployments.
 
 ## 7. Coding Standards & Guidelines
 - **Style**: PEP 8 for Python (enforced by `ruff` and `black`); ESLint + Prettier for TypeScript.
