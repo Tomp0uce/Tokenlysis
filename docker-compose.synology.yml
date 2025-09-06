@@ -4,7 +4,7 @@ services:
     container_name: tokenlysis
     build:
       context: https://github.com/Tomp0uce/Tokenlysis.git#main
-      dockerfile: Dockerfile.synology
+      dockerfile: Dockerfile
       args:
         APP_VERSION: "${APP_VERSION:-dev}"
     environment:
