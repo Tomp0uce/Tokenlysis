@@ -4,6 +4,8 @@ services:
     container_name: tokenlysis
     build:
       context: https://github.com/<owner>/Tokenlysis.git#main
+    environment:
+      - CORS_ORIGINS=http://localhost
     ports:
       - "8000:8000"
     restart: unless-stopped

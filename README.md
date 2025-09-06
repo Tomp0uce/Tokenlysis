@@ -84,7 +84,17 @@ For a full overview of features and architecture, see the [functional specificat
 uvicorn backend.app.main:app --reload
 ```
 
-The frontend is served statically by the API under `/`.
+The frontend is served statically by the API under `/` while the REST endpoints
+are exposed under `/api`.
+
+#### Configuration
+
+Runtime behaviour can be tweaked with environment variables:
+
+- `CORS_ORIGINS` – comma-separated list of allowed origins (default:
+  `http://localhost`)
+- `CG_TOP_N` – number of assets fetched from CoinGecko (default: `20`)
+- `CG_DAYS` – number of days of history to retrieve (default: `14`)
 
 ### Synology NAS Deployment (POC)
 
@@ -125,7 +135,7 @@ image, ensuring the container runs the newest version of Tokenlysis.
 ### Testing
 
 ```bash
-PYTHONPATH=. pytest
+pytest
 ```
 
 ## License

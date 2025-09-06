@@ -1,8 +1,10 @@
 from functools import lru_cache
+import asyncio
+import os
 from pathlib import Path
 from typing import Dict, List
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import APIRouter, Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -18,7 +20,7 @@ from .schemas.crypto import (
 )
 
 app = FastAPI(title="Tokenlysis")
-origins = ["http://localhost"]
+origins = os.getenv("CORS_ORIGINS", "http://localhost").split(",")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
@@ -40,7 +42,10 @@ def _latest_record(history: List[dict]) -> dict:
     return history[-1]
 
 
-@app.get("/ranking", response_model=RankingResponse)
+api = APIRouter(prefix="/api")
+
+
+@api.get("/ranking", response_model=RankingResponse)
 def list_cryptos(
     limit: int = 20,
     sort: str = "score_global",
@@ -90,7 +95,7 @@ def list_cryptos(
     return RankingResponse(total=total, page=page, page_size=limit, items=paginated)
 
 
-@app.get("/asset/{crypto_id}", response_model=CryptoDetail)
+@api.get("/asset/{crypto_id}", response_model=CryptoDetail)
 def get_crypto(
     crypto_id: int, data: Dict[int, dict] = Depends(get_data)
 ) -> CryptoDetail:
@@ -116,7 +121,7 @@ def get_crypto(
     )
 
 
-@app.get("/history/{crypto_id}", response_model=HistoryResponse)
+@api.get("/history/{crypto_id}", response_model=HistoryResponse)
 def crypto_history(
     crypto_id: int,
     fields: str = "score_global,price_usd",
@@ -136,6 +141,22 @@ def crypto_history(
                 item[f] = h["metrics"][f]
         series.append(item)
     return HistoryResponse(series=[HistoryPoint(**s) for s in series])
+
+
+app.include_router(api)
+
+
+@app.on_event("startup")
+async def refresh_cache() -> None:
+    get_data()
+
+    async def _refresh_loop() -> None:
+        while True:
+            await asyncio.sleep(24 * 60 * 60)
+            get_data.cache_clear()
+            get_data()
+
+    asyncio.create_task(_refresh_loop())
 
 
 __all__ = ["app"]
