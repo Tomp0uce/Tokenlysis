@@ -6,7 +6,7 @@ services:
       context: https://github.com/Tomp0uce/Tokenlysis.git#main
       dockerfile: Dockerfile.synology
       args:
-        APP_VERSION: ${APP_VERSION:-dev}
+        APP_VERSION: "${APP_VERSION:-dev}"
     environment:
       - CORS_ORIGINS=http://localhost
       - COINGECKO_API_KEY=${COINGECKO_API_KEY}
