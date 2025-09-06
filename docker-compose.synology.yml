@@ -3,7 +3,7 @@ services:
   tokenlysis:
     container_name: tokenlysis
     build:
-      context: https://github.com/<owner>/Tokenlysis.git#main
+      context: https://github.com/Tomp0uce/Tokenlysis.git#main
     environment:
       - CORS_ORIGINS=http://localhost
     ports:
