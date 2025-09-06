@@ -98,27 +98,31 @@ Runtime behaviour can be tweaked with environment variables:
 
 ### Synology NAS Deployment (POC)
 
-The following steps describe how to deploy Tokenlysis on a Synology NAS and let
-Docker Compose fetch the source code automatically.
+The following steps describe how to deploy Tokenlysis on a Synology NAS using
+the local source code.
 
 1. **Install Container Manager** – from the Synology Package Center install the
    *Container Manager* application (formerly called *Docker*).
-2. **Create a project** – open **Container Manager**, go to **Project** →
-   **Create** → **Import from URL** and paste:
+2. **Clone the project** – obtain the Tokenlysis repository on your NAS, e.g.:
 
-   ```text
-   https://raw.githubusercontent.com/Tomp0uce/Tokenlysis/main/docker-compose.synology.yml
+   ```bash
+   git clone https://github.com/Tomp0uce/Tokenlysis.git
+   cd Tokenlysis
    ```
 
-   This compose file contains a `build` section pointing directly to the Git
-   repository so the code is downloaded during the first build. It uses the
-   repository's standard `Dockerfile` and forwards an optional
+3. **Create the project** – in **Container Manager**, go to **Project** →
+   **Create** and select the `docker-compose.synology.yml` file from the cloned
+   folder.
+4. **Build and start** – from the NAS terminal or the Synology UI run:
+
+   ```bash
+   docker compose -f docker-compose.synology.yml up -d --build
+   ```
+
+   This builds the image using the local `Dockerfile` and forwards an optional
    `APP_VERSION` build argument. Define `APP_VERSION` to pin a specific version
    or let it default to `dev`. The legacy `Dockerfile.synology` is deprecated.
-3. **Confirm settings** – keep port `8002` exposed (or change if needed) and
-   create the project. The initial `docker compose up` will clone the
-   repository, build the image and start the container.
-4. **Access the app** – once running the interface is available at
+5. **Access the app** – once running the interface is available at
    `http://<NAS_IP>:8002`.
 
 #### Updating
