@@ -1,11 +1,18 @@
 # syntax=docker/dockerfile:1
 FROM python:3.11-slim
 ARG APP_VERSION=dev
-ENV APP_VERSION="${APP_VERSION}"
-LABEL org.opencontainers.image.version="${APP_VERSION}"
-LABEL org.opencontainers.image.revision="${APP_VERSION}"
 WORKDIR /app
-ENV COINGECKO_API_KEY="XXXXX"
+
+# Generate a VERSION file containing the current commit hash. When a specific
+# APP_VERSION build argument is provided it is used instead.
+COPY .git /tmp/git
+RUN if [ "$APP_VERSION" = "dev" ]; then \
+      python - <<'PY' > VERSION
+import pathlib
+head = pathlib.Path('/tmp/git/HEAD').read_text().strip().split(' ')[1]
+print((pathlib.Path('/tmp/git') / head).read_text().strip())
+PY
+    ; else echo "$APP_VERSION" > VERSION; fi && rm -rf /tmp/git
 COPY backend/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 COPY backend ./backend
