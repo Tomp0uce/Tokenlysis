@@ -12,7 +12,9 @@ import pathlib
 head = pathlib.Path('/tmp/git/HEAD').read_text().strip().split(' ')[1]
 print((pathlib.Path('/tmp/git') / head).read_text().strip())
 PY
-    ; else echo "$APP_VERSION" > VERSION; fi && rm -rf /tmp/git
+    else \
+      echo "$APP_VERSION" > VERSION; \
+    fi && rm -rf /tmp/git
 COPY backend/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 COPY backend ./backend
