@@ -89,12 +89,14 @@ are exposed under `/api`.
 
 #### Configuration
 
-Runtime behaviour can be tweaked with environment variables:
+Copy `.env.example` to `.env` and adjust the values as needed. Runtime
+behaviour can be tweaked with environment variables:
 
 - `CORS_ORIGINS` – comma-separated list of allowed origins (default:
   `http://localhost`)
 - `CG_TOP_N` – number of assets fetched from CoinGecko (default: `20`)
 - `CG_DAYS` – number of days of history to retrieve (default: `14`)
+- `COINGECKO_API_KEY` – optional API key for the CoinGecko Pro plan
 
 ### Synology NAS Deployment (POC)
 
@@ -111,12 +113,13 @@ the local source code.
    ```
 
 3. **Create the project** – in **Container Manager**, go to **Project** →
-   **Create** and select the `docker-compose.synology.yml` file from the cloned
-   folder.
-4. **Build and start** – from the NAS terminal or the Synology UI run:
+   **Create** and select the `docker-compose.yml` file from the cloned folder.
+   Add `docker-compose.synology.yml` as an additional compose file so the image
+   is built locally.
+4. **Build and start** – from the NAS terminal run:
 
    ```bash
-   docker compose -f docker-compose.synology.yml up -d --build
+   docker compose -f docker-compose.yml -f docker-compose.synology.yml up -d --build
    ```
 
    This builds the image with the main `Dockerfile` and forwards an optional
@@ -131,11 +134,11 @@ When new commits are pushed to the repository you can rebuild the container to
 fetch the latest code. Either use the Synology UI’s **Recreate** option or run:
 
 ```bash
-docker compose -f docker-compose.synology.yml up -d --build
+docker compose -f docker-compose.yml -f docker-compose.synology.yml up -d --build
 ```
 
-The `--build` flag forces Compose to pull the repository again and rebuild the
-image, ensuring the container runs the newest version of Tokenlysis.
+The `--build` flag forces Compose to rebuild the image, ensuring the container
+runs the newest version of Tokenlysis.
 
 ### Testing
 
@@ -148,8 +151,8 @@ pytest
 Docker images embed a version string that defaults to the short Git commit SHA.
 The value is passed at build time through the `APP_VERSION` build argument and is
 exposed inside the container as the `APP_VERSION` environment variable. The same
-value is also written to the `org.opencontainers.image.version` and
-`org.opencontainers.image.revision` OCI labels for traceability.
+value is also written to the `org.opencontainers.image.version` OCI label for
+traceability.
 
 GitHub Actions computes the value from `GITHUB_SHA` and injects it with
 `--build-arg APP_VERSION=${APP_VERSION_SHORT}` during the build. When building
