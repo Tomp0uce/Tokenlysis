@@ -112,11 +112,11 @@ Docker Compose fetch the source code automatically.
 
    This compose file contains a `build` section pointing directly to the Git
    repository so the code is downloaded during the first build.
-3. **Confirm settings** – keep port `8000` exposed (or change if needed) and
+3. **Confirm settings** – keep port `8002` exposed (or change if needed) and
    create the project. The initial `docker compose up` will clone the
    repository, build the image and start the container.
 4. **Access the app** – once running the interface is available at
-   `http://<NAS_IP>:8000`.
+   `http://<NAS_IP>:8002`.
 
 #### Updating
 
