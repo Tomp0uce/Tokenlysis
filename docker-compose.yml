@@ -5,7 +5,7 @@ services:
     build:
       context: .
       args:
-        APP_VERSION: ${APP_VERSION:-dev}
+        APP_VERSION: "${APP_VERSION:-dev}"
     environment:
       - CORS_ORIGINS=http://localhost
       - COINGECKO_API_KEY=${COINGECKO_API_KEY}
