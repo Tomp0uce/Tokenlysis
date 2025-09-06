@@ -44,7 +44,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mapfile -t DFS < <(git ls-files | grep -Ei '(^|/)Dockerfile(\..*)?$' || true)
+          mapfile -t DFS < <(git ls-files | grep -Ei '(^|/)Dockerfile$' || true)
           if [ ${#DFS[@]} -eq 0 ]; then
             echo "No Dockerfile found."; exit 0
           fi
@@ -67,7 +67,7 @@ jobs:
       #   run: |
       #     set -euo pipefail
       #     OWNER_LC="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
-      #     mapfile -t DFS < <(git ls-files | grep -Ei '(^|/)Dockerfile(\..*)?$' || true)
+      #     mapfile -t DFS < <(git ls-files | grep -Ei '(^|/)Dockerfile$' || true)
       #     for DF in "${DFS[@]}"; do
       #       CTX="$(dirname "$DF")"
       #       NAME="$(basename "$CTX")"

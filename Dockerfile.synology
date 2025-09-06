@@ -1,4 +1,6 @@
 # syntax=docker/dockerfile:1
+# DEPRECATED: this file is kept for reference. Use the root Dockerfile with
+# `docker-compose.synology.yml` instead.
 FROM python:3.11-slim
 ARG APP_VERSION=dev
 WORKDIR /app

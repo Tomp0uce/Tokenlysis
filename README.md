@@ -111,7 +111,10 @@ Docker Compose fetch the source code automatically.
    ```
 
    This compose file contains a `build` section pointing directly to the Git
-   repository so the code is downloaded during the first build.
+   repository so the code is downloaded during the first build. It uses the
+   repository's standard `Dockerfile` and forwards an optional
+   `APP_VERSION` build argument. Define `APP_VERSION` to pin a specific version
+   or let it default to `dev`. The legacy `Dockerfile.synology` is deprecated.
 3. **Confirm settings** – keep port `8002` exposed (or change if needed) and
    create the project. The initial `docker compose up` will clone the
    repository, build the image and start the container.
