@@ -21,42 +21,25 @@ import os
 from pathlib import Path
 from typing import Dict, List
 
-import requests
+import logging
 
+from ..services.coingecko import CoinGeckoClient
 from ..services.indicators import rsi
 from ..services.scoring import score_global, score_liquidite, score_opportunite
 
-COINGECKO_API = "https://api.coingecko.com/api/v3"
 SEED_DIR = Path(__file__).resolve().parents[2] / "seed"
 
 
-def _top_coins(limit: int) -> List[dict]:
-    resp = requests.get(
-        f"{COINGECKO_API}/coins/markets",
-        params={
-            "vs_currency": "usd",
-            "order": "market_cap_desc",
-            "per_page": limit,
-            "page": 1,
-        },
-        timeout=30,
-    )
-    resp.raise_for_status()
-    return resp.json()
+def _top_coins(limit: int, client: CoinGeckoClient) -> List[dict]:
+    return client.get_markets(per_page=limit)
 
 
-def _coin_history(coin_id: str, days: int) -> dict:
-    resp = requests.get(
-        f"{COINGECKO_API}/coins/{coin_id}/market_chart",
-        params={"vs_currency": "usd", "days": days, "interval": "daily"},
-        timeout=30,
-    )
-    resp.raise_for_status()
-    return resp.json()
+def _coin_history(coin_id: str, days: int, client: CoinGeckoClient) -> dict:
+    return client.get_market_chart(coin_id, days)
 
 
-def _coingecko_etl(limit: int, days: int) -> Dict[int, Dict]:
-    coins = _top_coins(limit)
+def _coingecko_etl(limit: int, days: int, client: CoinGeckoClient) -> Dict[int, Dict]:
+    coins = _top_coins(limit, client)
 
     prices: Dict[int, List[float]] = {}
     volumes: Dict[int, List[float]] = {}
@@ -64,7 +47,7 @@ def _coingecko_etl(limit: int, days: int) -> Dict[int, Dict]:
     cryptos: Dict[int, dict] = {}
 
     for idx, coin in enumerate(coins, start=1):
-        hist = _coin_history(coin["id"], days)
+        hist = _coin_history(coin["id"], days, client)
         prices[idx] = [p[1] for p in hist.get("prices", [])][:days]
         volumes[idx] = [v[1] for v in hist.get("total_volumes", [])][:days]
         mcaps[idx] = [m[1] for m in hist.get("market_caps", [])][:days]
@@ -203,9 +186,11 @@ def run_etl() -> Dict[int, Dict]:
 
     limit = int(os.getenv("CG_TOP_N", "20"))
     days = int(os.getenv("CG_DAYS", "14"))
+    client = CoinGeckoClient()
     try:
-        return _coingecko_etl(limit, days)
+        return _coingecko_etl(limit, days, client)
     except Exception:
+        logging.exception("Falling back to seed data")
         return _seed_etl()
 
 

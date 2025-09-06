@@ -4,30 +4,31 @@ import os
 from pathlib import Path
 from subprocess import CalledProcessError, check_output
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def get_version() -> str:
     """Return the application version.
 
-    The version is primarily derived from the git commit count. When git is not
-    available (e.g. in production images where the ``.git`` directory is not
-    copied or git isn't installed) the function falls back to the value of the
-    ``APP_VERSION`` environment variable. As a last resort it returns ``"0"``.
+    Prefer the ``APP_VERSION`` environment variable when set to a value other
+    than the placeholder ``dev``. When not provided, attempt to read the
+    version from a VERSION file generated at build time. As a final fallback,
+    retrieve the short git commit hash. If everything fails, return ``"0"``.
     """
 
+    env_version = os.getenv("APP_VERSION")
+    if env_version and env_version != "dev":
+        return env_version
+
+    version_file = REPO_ROOT / "VERSION"
+    if version_file.exists():
+        return version_file.read_text().strip()
+
     try:
-        output = check_output(["git", "rev-list", "--count", "HEAD"], cwd=REPO_ROOT)
+        output = check_output(["git", "rev-parse", "--short", "HEAD"], cwd=REPO_ROOT)
         return output.decode().strip()
     except (CalledProcessError, FileNotFoundError):
-        env_version = os.getenv("APP_VERSION")
-        if env_version:
-            return env_version
-        version_file = REPO_ROOT / "VERSION"
-        if version_file.exists():
-            return version_file.read_text().strip()
-        return "0"
+        return env_version or "0"
 
 
 __all__ = ["get_version"]

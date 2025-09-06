@@ -42,5 +42,36 @@ class CoinGeckoClient:
         resp.raise_for_status()
         return resp.json()
 
+    def get_markets(
+        self,
+        vs_currency: str = "usd",
+        order: str = "market_cap_desc",
+        per_page: int = 20,
+        page: int = 1,
+    ) -> List[dict]:
+        """Return market data for a list of coins."""
+        url = f"{self.base_url}/coins/markets"
+        params = {
+            "vs_currency": vs_currency,
+            "order": order,
+            "per_page": per_page,
+            "page": page,
+        }
+        resp = self.session.get(url, params=params, timeout=30)
+        resp.raise_for_status()
+        return resp.json()
+
+    def get_market_chart(self, coin_id: str, days: int) -> dict:
+        """Return historical market chart for a coin."""
+        url = f"{self.base_url}/coins/{coin_id}/market_chart"
+        params = {
+            "vs_currency": "usd",
+            "days": days,
+            "interval": "daily",
+        }
+        resp = self.session.get(url, params=params, timeout=30)
+        resp.raise_for_status()
+        return resp.json()
+
 
 __all__ = ["CoinGeckoClient", "BASE_URL"]
