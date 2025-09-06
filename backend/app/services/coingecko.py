@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional
 
+import os
+
 import requests
 
 BASE_URL = "https://api.coingecko.com/api/v3"
@@ -14,9 +16,13 @@ class CoinGeckoClient:
         self,
         base_url: str = BASE_URL,
         session: Optional[requests.Session] = None,
+        api_key: Optional[str] = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.session = session or requests.Session()
+        self.api_key = api_key or os.getenv("COINGECKO_API_KEY")
+        if self.api_key:
+            self.session.headers.update({"X-Cg-Pro-Api-Key": self.api_key})
 
     def ping(self) -> str:
         """Check API status."""
@@ -35,6 +41,15 @@ class CoinGeckoClient:
         resp = self.session.get(url, params=params, timeout=10)
         resp.raise_for_status()
         return resp.json()
+
+    def get_price_on_date(self, coin_id: str, date: str, vs_currency: str) -> float:
+        """Fetch historical price for a coin on a specific date."""
+        url = f"{self.base_url}/coins/{coin_id}/history"
+        params = {"date": date, "localization": "false"}
+        resp = self.session.get(url, params=params, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        return float(data["market_data"]["current_price"][vs_currency])
 
 
 __all__ = ["CoinGeckoClient", "BASE_URL"]

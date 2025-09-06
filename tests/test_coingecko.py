@@ -10,6 +10,7 @@ def _mock_session(json_data):
     response.json.return_value = json_data
     response.raise_for_status.return_value = None
     session.get.return_value = response
+    session.headers = {}
     return session
 
 
@@ -29,3 +30,18 @@ def test_get_price_endpoint():
     resp = get_price("bitcoin", client=DummyClient())
     assert resp.coin_id == "bitcoin"
     assert resp.usd == 456.0
+
+
+def test_coingecko_client_adds_api_key(monkeypatch):
+    monkeypatch.setenv("COINGECKO_API_KEY", "secret")
+    session = _mock_session({})
+    client = CoinGeckoClient(session=session)
+    assert client.session.headers["X-Cg-Pro-Api-Key"] == "secret"
+
+
+def test_get_price_on_date():
+    session = _mock_session({"market_data": {"current_price": {"usd": 42.0}}})
+    client = CoinGeckoClient(session=session)
+    price = client.get_price_on_date("bitcoin", "06-06-2025", "usd")
+    assert price == 42.0
+    session.get.assert_called_once()
