@@ -18,6 +18,8 @@ from .schemas.crypto import (
     RankingResponse,
     Scores,
 )
+from .schemas.price import PriceResponse
+from .services.coingecko import CoinGeckoClient
 
 app = FastAPI(title="Tokenlysis")
 origins = os.getenv("CORS_ORIGINS", "http://localhost").split(",")
@@ -42,7 +44,23 @@ def _latest_record(history: List[dict]) -> dict:
     return history[-1]
 
 
+def get_coingecko_client() -> CoinGeckoClient:
+    """Dependency that returns a CoinGeckoClient instance."""
+    return CoinGeckoClient()
+
+
 api = APIRouter(prefix="/api")
+
+
+@api.get("/price/{coin_id}", response_model=PriceResponse)
+def get_price(
+    coin_id: str, client: CoinGeckoClient = Depends(get_coingecko_client)
+) -> PriceResponse:
+    data = client.get_simple_price([coin_id], ["usd"])
+    price = data.get(coin_id, {}).get("usd")
+    if price is None:
+        raise HTTPException(status_code=404, detail="Price not found")
+    return PriceResponse(coin_id=coin_id, usd=price)
 
 
 @api.get("/ranking", response_model=RankingResponse)
