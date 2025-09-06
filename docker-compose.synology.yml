@@ -1,15 +1,7 @@
-version: '3'
 services:
   tokenlysis:
-    container_name: tokenlysis
     build:
       context: .
       dockerfile: Dockerfile
       args:
         APP_VERSION: "${APP_VERSION:-dev}"
-    environment:
-      - CORS_ORIGINS=http://localhost
-      - COINGECKO_API_KEY=${COINGECKO_API_KEY}
-    ports:
-      - "8002:8000"
-    restart: unless-stopped
