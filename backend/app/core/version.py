@@ -18,11 +18,12 @@ def get_version() -> str:
 
     env_version = os.getenv("APP_VERSION")
     if env_version and env_version != "dev":
-        return env_version
+        return env_version[:7] if len(env_version) == 40 else env_version
 
     version_file = REPO_ROOT / "VERSION"
     if version_file.exists():
-        return version_file.read_text().strip()
+        version = version_file.read_text().strip()
+        return version[:7] if len(version) == 40 else version
 
     try:
         output = check_output(["git", "rev-parse", "--short", "HEAD"], cwd=REPO_ROOT)

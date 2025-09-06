@@ -14,9 +14,9 @@ root = pathlib.Path('/tmp/git')
 head = (root / 'HEAD').read_text().strip()
 if head.startswith('ref:'):
     ref = head.split(' ', 1)[1]
-    print((root / ref).read_text().strip())
+    print((root / ref).read_text().strip()[:7])
 else:
-    print(head)
+    print(head[:7])
 PY
       ; else echo "$APP_VERSION" > VERSION; fi && rm -rf /tmp/git
 COPY backend/requirements.txt ./
