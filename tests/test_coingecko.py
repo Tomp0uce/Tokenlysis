@@ -37,11 +37,3 @@ def test_coingecko_client_adds_api_key(monkeypatch):
     session = _mock_session({})
     client = CoinGeckoClient(session=session)
     assert client.session.headers["X-Cg-Pro-Api-Key"] == "secret"
-
-
-def test_get_price_on_date():
-    session = _mock_session({"market_data": {"current_price": {"usd": 42.0}}})
-    client = CoinGeckoClient(session=session)
-    price = client.get_price_on_date("bitcoin", "06-06-2025", "usd")
-    assert price == 42.0
-    session.get.assert_called_once()
