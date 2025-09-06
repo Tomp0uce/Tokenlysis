@@ -42,14 +42,5 @@ class CoinGeckoClient:
         resp.raise_for_status()
         return resp.json()
 
-    def get_price_on_date(self, coin_id: str, date: str, vs_currency: str) -> float:
-        """Fetch historical price for a coin on a specific date."""
-        url = f"{self.base_url}/coins/{coin_id}/history"
-        params = {"date": date, "localization": "false"}
-        resp = self.session.get(url, params=params, timeout=10)
-        resp.raise_for_status()
-        data = resp.json()
-        return float(data["market_data"]["current_price"][vs_currency])
-
 
 __all__ = ["CoinGeckoClient", "BASE_URL"]
