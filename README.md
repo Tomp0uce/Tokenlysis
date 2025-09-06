@@ -2,6 +2,10 @@
 
 Tokenlysis is a cryptocurrency scoring platform that aggregates market, social and on-chain data for thousands of digital assets and computes a daily score for each one.
 
+It ranks more than 1,000 crypto-assets and highlights 100 trending tokens outside the top market-cap list. Users can explore score history, compare assets and, in future releases, customise category weights to suit their strategy.
+
+For a full overview of features and architecture, see the [functional specifications](Functional_specs.md).
+
 ## Overview
 
 - **Universe**: top 1000 cryptocurrencies by market capitalization plus 100 emerging "trending" assets outside the top 1000, selected by 24h volume and social interest.
