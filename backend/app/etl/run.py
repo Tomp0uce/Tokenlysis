@@ -17,13 +17,13 @@ from __future__ import annotations
 
 import datetime as dt
 import json
-import os
 from pathlib import Path
 from typing import Dict, List
 
 import logging
 
 from ..services.coingecko import CoinGeckoClient
+from ..core.settings import settings
 from ..services.indicators import rsi
 from ..services.scoring import score_global, score_liquidite, score_opportunite
 
@@ -184,8 +184,8 @@ def _seed_etl() -> Dict[int, Dict]:
 def run_etl() -> Dict[int, Dict]:
     """Return structured market data for a list of assets."""
 
-    limit = int(os.getenv("CG_TOP_N", "20"))
-    days = int(os.getenv("CG_DAYS", "14"))
+    limit = settings.cg_top_n
+    days = settings.cg_days
     client = CoinGeckoClient()
     try:
         return _coingecko_etl(limit, days, client)

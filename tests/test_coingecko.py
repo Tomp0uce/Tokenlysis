@@ -36,4 +36,4 @@ def test_coingecko_client_adds_api_key(monkeypatch):
     monkeypatch.setenv("COINGECKO_API_KEY", "secret")
     session = _mock_session({})
     client = CoinGeckoClient(session=session)
-    assert client.session.headers["X-Cg-Pro-Api-Key"] == "secret"
+    assert client.session.headers["x-cg-pro-api-key"] == "secret"
