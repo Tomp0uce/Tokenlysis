@@ -40,44 +40,24 @@ jobs:
       #     username: ${{ secrets.DOCKERHUB_USERNAME }}
       #     password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build all Dockerfiles (no push)
-        shell: bash
+      - name: Build Docker image (no push)
         run: |
-          set -euo pipefail
-          mapfile -t DFS < <(git ls-files | grep -Ei '(^|/)Dockerfile$' || true)
-          if [ ${#DFS[@]} -eq 0 ]; then
-            echo "No Dockerfile found."; exit 0
-          fi
-          for DF in "${DFS[@]}"; do
-            CTX="$(dirname "$DF")"
-            NAME="$(basename "$CTX")"
-            [ "$NAME" = "." ] && NAME="tokenlysis"
-            echo ">>> Building $DF (context: $CTX, name: $NAME)"
-            docker buildx build \
-              --build-arg APP_VERSION="${APP_VERSION}" \
-              --label "org.opencontainers.image.revision=${GIT_COMMIT}" \
-              -f "$DF" "$CTX" \
-              --load   # charge l'image localement pour validation (pas de push)
-          done
+          docker buildx build \
+            --build-arg APP_VERSION="${APP_VERSION}" \
+            --label "org.opencontainers.image.revision=${GIT_COMMIT}" \
+            -f Dockerfile . \
+            --load   # charge l'image localement pour validation (pas de push)
 
       # --- Variante PUSH (décommentez pour publier) ---
-      # - name: Build & Push all Dockerfiles
+      # - name: Build & Push Docker image
       #   if: always()
-      #   shell: bash
       #   run: |
-      #     set -euo pipefail
       #     OWNER_LC="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
-      #     mapfile -t DFS < <(git ls-files | grep -Ei '(^|/)Dockerfile$' || true)
-      #     for DF in "${DFS[@]}"; do
-      #       CTX="$(dirname "$DF")"
-      #       NAME="$(basename "$CTX")"
-      #       [ "$NAME" = "." ] && NAME="tokenlysis"
-      #       echo ">>> Build & push $DF (context: $CTX, name: $NAME)"
-      #       docker buildx build \
-      #         --build-arg APP_VERSION="${APP_VERSION}" \
-      #         --label "org.opencontainers.image.revision=${GIT_COMMIT}" \
-      #         -f "$DF" "$CTX" \
-      #         --push \
-      #         -t "ghcr.io/${OWNER_LC}/${NAME}:${APP_VERSION}" \
-      #         -t "ghcr.io/${OWNER_LC}/${NAME}:latest"
+      #     docker buildx build \
+      #       --build-arg APP_VERSION="${APP_VERSION}" \
+      #       --label "org.opencontainers.image.revision=${GIT_COMMIT}" \
+      #       -f Dockerfile . \
+      #       --push \
+      #       -t "ghcr.io/${OWNER_LC}/tokenlysis:${APP_VERSION}" \
+      #       -t "ghcr.io/${OWNER_LC}/tokenlysis:latest"
 

@@ -119,9 +119,9 @@ the local source code.
    docker compose -f docker-compose.synology.yml up -d --build
    ```
 
-   This builds the image using the local `Dockerfile` and forwards an optional
+   This builds the image with the main `Dockerfile` and forwards an optional
    `APP_VERSION` build argument. Define `APP_VERSION` to pin a specific version
-   or let it default to `dev`. The legacy `Dockerfile.synology` is deprecated.
+   or let it default to `dev`.
 5. **Access the app** – once running the interface is available at
    `http://<NAS_IP>:8002`.
 
