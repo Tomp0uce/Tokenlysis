@@ -17,6 +17,10 @@ class FastAPI:
         # middleware ignored for mock
         pass
 
+    def mount(self, path: str, app: Any, name: str | None = None):
+        # static files mounting ignored for mock
+        pass
+
     def get(self, path: str):
         def decorator(func: Callable):
             self.routes.append(("GET", path, func))
