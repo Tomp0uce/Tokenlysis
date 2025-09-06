@@ -88,10 +88,39 @@ The frontend is served statically by the API under `/`.
 
 ### Synology NAS Deployment (POC)
 
-1. Copy the project to your NAS and open **Container Manager**.
-2. Go to **Project** → **Create**, then import the provided `docker-compose.yml`.
-3. Set the project directory and keep port `8000` exposed.
-4. Start the project; the application will be available at `http://<NAS_IP>:8000`.
+The following steps describe how to deploy Tokenlysis on a Synology NAS and let
+Docker Compose fetch the source code automatically. Replace `<owner>` in the
+commands and URLs with the GitHub organisation or user that hosts this
+repository.
+
+1. **Install Container Manager** – from the Synology Package Center install the
+   *Container Manager* application (formerly called *Docker*).
+2. **Create a project** – open **Container Manager**, go to **Project** →
+   **Create** → **Import from URL** and paste:
+
+   ```text
+   https://raw.githubusercontent.com/<owner>/Tokenlysis/main/docker-compose.synology.yml
+   ```
+
+   This compose file contains a `build` section pointing directly to the Git
+   repository so the code is downloaded during the first build.
+3. **Confirm settings** – keep port `8000` exposed (or change if needed) and
+   create the project. The initial `docker compose up` will clone the
+   repository, build the image and start the container.
+4. **Access the app** – once running the interface is available at
+   `http://<NAS_IP>:8000`.
+
+#### Updating
+
+When new commits are pushed to the repository you can rebuild the container to
+fetch the latest code. Either use the Synology UI’s **Recreate** option or run:
+
+```bash
+docker compose -f docker-compose.synology.yml up -d --build
+```
+
+The `--build` flag forces Compose to pull the repository again and rebuild the
+image, ensuring the container runs the newest version of Tokenlysis.
 
 ### Testing
 
