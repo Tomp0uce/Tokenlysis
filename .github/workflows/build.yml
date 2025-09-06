@@ -1,0 +1,83 @@
+name: Build images with commit version
+
+on:
+  push:
+    branches: [ main ]        # adapter si besoin
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write   # requis uniquement si vous poussez vers un registre
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Compute version from commit
+        run: |
+          echo "APP_VERSION_SHORT=${GITHUB_SHA::7}" >> $GITHUB_ENV
+          echo "APP_VERSION_FULL=${GITHUB_SHA}" >> $GITHUB_ENV
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # --- Connexion registre (OPTIONNEL) ---
+      # GHCR :
+      # - name: Login to GHCR
+      #   uses: docker/login-action@v3
+      #   with:
+      #     registry: ghcr.io
+      #     username: ${{ github.actor }}
+      #     password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Docker Hub :
+      # - name: Login to Docker Hub
+      #   uses: docker/login-action@v3
+      #   with:
+      #     username: ${{ secrets.DOCKERHUB_USERNAME }}
+      #     password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build all Dockerfiles (no push)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t DFS < <(git ls-files | grep -Ei '(^|/)Dockerfile(\..*)?$' || true)
+          if [ ${#DFS[@]} -eq 0 ]; then
+            echo "No Dockerfile found."; exit 0
+          fi
+          for DF in "${DFS[@]}"; do
+            CTX="$(dirname "$DF")"
+            NAME="$(basename "$CTX")"
+            [ "$NAME" = "." ] && NAME="tokenlysis"
+            echo ">>> Building $DF (context: $CTX, name: $NAME)"
+            docker buildx build \
+              --build-arg APP_VERSION="${APP_VERSION_SHORT}" \
+              --label "org.opencontainers.image.revision=${APP_VERSION_FULL}" \
+              -f "$DF" "$CTX" \
+              --load   # charge l'image localement pour validation (pas de push)
+          done
+
+      # --- Variante PUSH (décommentez pour publier) ---
+      # - name: Build & Push all Dockerfiles
+      #   if: always()
+      #   shell: bash
+      #   run: |
+      #     set -euo pipefail
+      #     OWNER_LC="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+      #     mapfile -t DFS < <(git ls-files | grep -Ei '(^|/)Dockerfile(\..*)?$' || true)
+      #     for DF in "${DFS[@]}"; do
+      #       CTX="$(dirname "$DF")"
+      #       NAME="$(basename "$CTX")"
+      #       [ "$NAME" = "." ] && NAME="tokenlysis"
+      #       echo ">>> Build & push $DF (context: $CTX, name: $NAME)"
+      #       docker buildx build \
+      #         --build-arg APP_VERSION="${APP_VERSION_SHORT}" \
+      #         --label "org.opencontainers.image.revision=${APP_VERSION_FULL}" \
+      #         -f "$DF" "$CTX" \
+      #         --push \
+      #         -t "ghcr.io/${OWNER_LC}/${NAME}:${APP_VERSION_SHORT}" \
+      #         -t "ghcr.io/${OWNER_LC}/${NAME}:latest"
+

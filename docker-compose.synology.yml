@@ -4,9 +4,11 @@ services:
     container_name: tokenlysis
     build:
       context: https://github.com/Tomp0uce/Tokenlysis.git#main
+      dockerfile: Dockerfile.synology
+      args:
+        APP_VERSION: ${APP_VERSION:-dev}
     environment:
       - CORS_ORIGINS=http://localhost
-      - APP_VERSION=123456789
       - COINGECKO_API_KEY=XXXXX
     ports:
       - "8002:8000"
