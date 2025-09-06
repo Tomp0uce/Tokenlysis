@@ -23,6 +23,7 @@
     </thead>
     <tbody></tbody>
   </table>
+  <p id="version"></p>
   <script>
     async function loadCryptos() {
       try {
@@ -41,7 +42,19 @@
         console.error(err);
       }
     }
+
+    async function loadVersion() {
+      try {
+        const res = await fetch('/api/version');
+        const data = await res.json();
+        document.getElementById('version').textContent = `Version: ${data.version}`;
+      } catch (err) {
+        document.getElementById('version').textContent = 'Version: unknown';
+        console.error(err);
+      }
+    }
     loadCryptos();
+    loadVersion();
   </script>
 </body>
 </html>
