@@ -1,3 +1,7 @@
+import importlib
+import pytest
+
+import backend.app.core.settings as settings_module
 from backend.app.etl.run import _coin_history
 
 
@@ -22,3 +26,29 @@ def test_coin_history_maps_seed_symbol():
     client = DummyClient()
     _coin_history(coin, 14, client)
     assert client.called_with == ("bitcoin", 14)
+
+
+def _boom(*args, **kwargs):  # helper for failing ETL
+    raise RuntimeError("boom")
+
+
+def test_run_etl_seed_fallback(monkeypatch):
+    monkeypatch.setenv("USE_SEED_ON_FAILURE", "true")
+    importlib.reload(settings_module)
+    import backend.app.etl.run as run_module
+
+    importlib.reload(run_module)
+    monkeypatch.setattr(run_module, "_coingecko_etl", _boom)
+    data = run_module.run_etl()
+    assert data
+
+
+def test_run_etl_raises_when_disabled(monkeypatch):
+    monkeypatch.setenv("USE_SEED_ON_FAILURE", "false")
+    importlib.reload(settings_module)
+    import backend.app.etl.run as run_module
+
+    importlib.reload(run_module)
+    monkeypatch.setattr(run_module, "_coingecko_etl", _boom)
+    with pytest.raises(run_module.DataUnavailable):
+        run_module.run_etl()

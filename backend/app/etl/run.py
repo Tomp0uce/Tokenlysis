@@ -187,6 +187,10 @@ def _seed_etl() -> Dict[int, Dict]:
     return data
 
 
+class DataUnavailable(Exception):
+    """Raised when live data could not be fetched."""
+
+
 def run_etl() -> Dict[int, Dict]:
     """Return structured market data for a list of assets."""
 
@@ -195,9 +199,12 @@ def run_etl() -> Dict[int, Dict]:
     client = CoinGeckoClient()
     try:
         return _coingecko_etl(limit, days, client)
-    except Exception:
-        logging.exception("Falling back to seed data")
-        return _seed_etl()
+    except Exception as exc:  # pragma: no cover - network failures
+        if settings.use_seed_on_failure:
+            logging.exception("Falling back to seed data")
+            return _seed_etl()
+        logging.exception("ETL failure")
+        raise DataUnavailable("data unavailable") from exc
 
 
 if __name__ == "__main__":

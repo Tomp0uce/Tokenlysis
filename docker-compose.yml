@@ -5,6 +5,12 @@ services:
     environment:
       - CORS_ORIGINS=${CORS_ORIGINS}
       - COINGECKO_API_KEY=${COINGECKO_API_KEY}
+      - USE_SEED_ON_FAILURE=${USE_SEED_ON_FAILURE}
+      - LOG_LEVEL=${LOG_LEVEL}
     ports:
       - "8002:8000"
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/readyz || exit 1"]
+      interval: 30s
+      retries: 3

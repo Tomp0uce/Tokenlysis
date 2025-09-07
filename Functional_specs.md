@@ -1,19 +1,21 @@
 # Functional Specifications
 
 ## 1. Project Overview
-Tokenlysis is a public web platform that ranks more than 1,000 crypto-assets using daily computed scores. Each asset receives a global score and thematic subscores (Community, Liquidity, Opportunity, Security, Technology, Tokenomics). Users can view score history, compare assets, and adjust score weights to match their own investment strategy. The site also highlights 100 emerging “trending” assets outside the top 1,000 market-cap list.
+Tokenlysis is a public web platform that aims to rank more than 1,000 crypto-assets using daily computed scores. The current proof of concept focuses on a configurable top ``N`` assets (default 20) with **Liquidity**, **Opportunity** and global scores refreshed at 00:00 UTC. Users can view score history and explore a static ranking table. Highlighting 100 trending assets and additional categories are planned for the MVP.
 
 ## 2. Functional Requirements
 ### 2.1 Asset Universe & Trending List
-- Track the top 1,000 crypto-assets by market capitalization.
-- Maintain a secondary list of 100 trending assets outside the top 1,000 using recent activity (price change, volume, search interest, social mentions).
+- **POC**: configurable top ``N`` assets (default 20).
+- **MVP**: track the top 1,000 crypto-assets by market capitalization and maintain a secondary list of 100 trending assets outside the top 1,000 using recent activity (price change, volume, search interest, social mentions).
 
 ### 2.2 Scoring System
 #### 2.2.1 Score Categories
-Each asset receives a 0–100 score in the following categories:
-- **Community** – Twitter followers, engagement, Telegram/Discord activity.
+Each asset receives a 0–100 score. The POC implements the following:
 - **Liquidity** – Market capitalization, 24h volume, number of exchanges, order-book depth.
 - **Opportunity** – Technical indicators such as RSI, recent volatility, distance from ATH/ATL.
+
+The MVP will add the remaining categories:
+- **Community** – Twitter followers, engagement, Telegram/Discord activity.
 - **Security** – Audit history, time since launch without major incidents, decentralisation level.
 - **Technology** – GitHub commits, active contributors, release cadence, documentation quality.
 - **Tokenomics** – Supply distribution, fully-diluted market cap, inflation/burn mechanics, token unlock schedule.
@@ -91,7 +93,7 @@ Demonstrate the scoring concept with a minimal feature set deployable via Docker
 ### 6.2 Minimum Viable Product (MVP)
 Build a usable platform with core functionality and persistent storage.
 1. Add remaining score categories (Community, Security, Technology, Tokenomics).
-2. Detect and display 100 trending assets outside the top 1,000.
+2. Detect and display 100 trending assets outside the top 1,000. *(MVP)*
 3. Introduce PostgreSQL persistence for metrics and scores.
 4. Implement basic charts and user-defined weighting in the frontend.
 5. Ensure 60 % test coverage and nightly data refresh jobs.

@@ -9,11 +9,14 @@
     table { border-collapse: collapse; width: 100%; }
     th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
     th { background-color: #f2f2f2; }
+    #status { margin: 10px 0; }
+    #diag { margin-top: 20px; font-size: 0.9em; color: #555; }
   </style>
 </head>
 <body>
   <h1>Tokenlysis Cryptos</h1>
-  <table id="cryptos">
+  <div id="status">Loading...</div>
+  <table id="cryptos" style="display:none;">
     <thead>
       <tr>
         <th>Symbol</th>
@@ -24,26 +27,43 @@
     </thead>
     <tbody></tbody>
   </table>
-  <p id="version"></p>
+  <div id="version"></div>
+  <div id="diag"></div>
   <script>
     const API_URL = document.querySelector('meta[name="api-url"]')?.content || '';
+    let lastRequest = {};
 
     async function loadCryptos() {
+      const statusEl = document.getElementById('status');
+      statusEl.textContent = 'Loading...';
+      document.getElementById('cryptos').style.display = 'none';
+      const tbody = document.querySelector('#cryptos tbody');
+      tbody.innerHTML = '';
+      const url = `${API_URL}/ranking?limit=20`;
+      const start = performance.now();
       try {
-        const res = await fetch(`${API_URL}/ranking`);
+        const res = await fetch(url);
+        const latency = Math.round(performance.now() - start);
+        lastRequest = { url, status: res.status, latency };
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
-        const tbody = document.querySelector('#cryptos tbody');
-        data.items.forEach(item => {
-          const tr = document.createElement('tr');
-          tr.innerHTML = `<td>${item.symbol}</td><td>${item.name}</td><td>${item.latest.price_usd}</td><td>${item.latest.scores.global}</td>`;
-          tbody.appendChild(tr);
-        });
+        if (!data.items.length) {
+          statusEl.textContent = 'No crypto';
+        } else {
+          data.items.forEach(item => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td>${item.symbol}</td><td>${item.name}</td><td>${item.latest.price_usd}</td><td>${item.latest.scores.global}</td>`;
+            tbody.appendChild(tr);
+          });
+          statusEl.textContent = '';
+          document.getElementById('cryptos').style.display = 'table';
+        }
       } catch (err) {
-        const msg = document.createElement('p');
-        msg.textContent = 'Error fetching data';
-        document.body.appendChild(msg);
+        statusEl.innerHTML = `Error fetching data <button id="retry">Retry</button>`;
+        document.getElementById('retry').onclick = loadCryptos;
         console.error(err);
       }
+      loadDiag();
     }
 
     async function loadVersion() {
@@ -56,8 +76,21 @@
         console.error(err);
       }
     }
-    loadCryptos();
+
+    async function loadDiag() {
+      try {
+        const res = await fetch(`${API_URL}/diag`);
+        const data = await res.json();
+        const diag = `URL: ${lastRequest.url || ''} (${lastRequest.status || ''} in ${lastRequest.latency || 0}ms) | outbound_ok: ${data.outbound_ok} | coingecko_ping: ${data.coingecko_ping} | api_key: ${data.api_key_masked || 'none'}`;
+        document.getElementById('diag').textContent = diag;
+      } catch (err) {
+        document.getElementById('diag').textContent = 'Diag unavailable';
+        console.error(err);
+      }
+    }
+
     loadVersion();
+    loadCryptos();
   </script>
 </body>
 </html>

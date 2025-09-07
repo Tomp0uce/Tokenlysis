@@ -6,6 +6,7 @@ Tokenlysis is a platform that ranks over 1,000 crypto-assets each day. It comput
 ## Build and Test Commands
 - Install backend dependencies: `pip install -r backend/requirements.txt`
 - Run the API locally: `uvicorn backend.app.main:app --reload`
+- Format and lint: `ruff backend && black backend`
 - Run tests: `pytest`
 
 ## Code Style Guidelines
@@ -21,3 +22,7 @@ Tokenlysis is a platform that ranks over 1,000 crypto-assets each day. It comput
 - Never commit secrets or credentials.
 - Use HTTPS in production and apply rate limiting on public APIs.
 - Store passwords hashed and keep dependencies updated with tools like `pip-audit`.
+- Mask secrets in logs and diagnostic endpoints.
+
+## Documentation
+- Update the README when the feature scope evolves.
