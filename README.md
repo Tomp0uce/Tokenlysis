@@ -107,7 +107,8 @@ Runtime behaviour can be tweaked with environment variables:
   `http://localhost`)
 - `CG_TOP_N` – number of assets fetched from CoinGecko (default: `20`)
 - `CG_DAYS` – number of days of history to retrieve (default: `14`)
-- `COINGECKO_API_KEY` – optional API key for the CoinGecko Pro plan
+- `COINGECKO_API_KEY` – optional API key for CoinGecko
+- `COINGECKO_PLAN` – `demo` (default) or `pro` to select the API header
 - `USE_SEED_ON_FAILURE` – fall back to bundled seed data when live ETL fails (default: `false`)
 - `LOG_LEVEL` – base logging level for application and Uvicorn loggers (default: `INFO`).
   Accepts an integer or one of
@@ -132,7 +133,8 @@ seed assets (`C1`, `C2`, …) are mapped to real CoinGecko IDs through
 ### Health & Diagnostics
 
 - `GET /healthz` – basic liveness probe
-- `GET /readyz` – readiness check querying CoinGecko
+- `GET /readyz` – readiness check for the web process
+- `GET /api/markets/basic` – minimal market data fallback
 - `GET /api/diag` – returns app version, outbound status and masked API key
 
 ### Synology NAS Deployment (POC)
