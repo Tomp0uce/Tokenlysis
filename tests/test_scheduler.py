@@ -128,4 +128,28 @@ def test_scheduler_waits_between_runs(monkeypatch, tmp_path):
     with pytest.raises(RuntimeError):
         asyncio.run(tasks[0])
     assert run_calls == [1]
-    assert sleep_args == [12 * 60 * 60]
+    assert sleep_args == [main_module.refresh_interval_seconds()]
+
+
+def test_scheduler_reschedules_on_granularity_change(monkeypatch):
+    import backend.app.main as main_module
+    from backend.app.core.settings import settings
+
+    sleep_calls: list[int] = []
+
+    async def fake_sleep(seconds):
+        sleep_calls.append(seconds)
+        if len(sleep_calls) == 1:
+            settings.REFRESH_GRANULARITY = "1h"
+            return
+        raise RuntimeError
+
+    monkeypatch.setattr(main_module.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(main_module, "run_etl", lambda *_a, **_k: None)
+
+    orig = settings.REFRESH_GRANULARITY
+    settings.REFRESH_GRANULARITY = "2h"
+    with pytest.raises(RuntimeError):
+        asyncio.run(main_module.etl_loop())
+    assert sleep_calls == [2 * 60 * 60, 1 * 60 * 60]
+    settings.REFRESH_GRANULARITY = orig

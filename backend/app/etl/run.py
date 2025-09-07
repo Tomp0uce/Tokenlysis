@@ -5,7 +5,6 @@ from __future__ import annotations
 import datetime as dt
 import json
 import logging
-import math
 from pathlib import Path
 
 import requests
@@ -24,22 +23,36 @@ class DataUnavailable(Exception):
 
 
 def _fetch_markets(
-    client: CoinGeckoClient, limit: int, per_page_max: int
+    client: CoinGeckoClient,
+    limit: int,
+    per_page_max: int,
+    budget: CallBudget | None,
 ) -> tuple[list[dict], int]:
     per_page = min(per_page_max, 250)
     coins: list[dict] = []
     page = 1
     calls = 0
     while len(coins) < limit:
+        if budget and not budget.can_spend(1):
+            logger.warning(
+                "quota exceeded",
+                extra={"monthly_call_count": budget.monthly_call_count},
+            )
+            raise DataUnavailable("quota exceeded")
         try:
             data = client.get_markets(vs="usd", per_page=per_page, page=page)
         except requests.HTTPError as exc:
+            calls += 1
+            if budget:
+                budget.spend(1)
             status = exc.response.status_code if exc.response is not None else 0
             if 400 <= status < 500 and per_page > 100:
                 per_page = 100
                 continue
             raise
         calls += 1
+        if budget:
+            budget.spend(1)
         if not data:
             break
         coins.extend(data)
@@ -70,19 +83,10 @@ def run_etl(
 
     limit = max(10, settings.CG_TOP_N)
     per_page_max = settings.CG_PER_PAGE_MAX
-    required_calls = math.ceil(limit / per_page_max)
-    if budget and not budget.can_spend(required_calls):
-        logger.warning(
-            "quota exceeded",
-            extra={
-                "required_calls": required_calls,
-                "monthly_call_count": budget.monthly_call_count,
-            },
-        )
-        raise DataUnavailable("quota exceeded")
-
     try:
-        markets, calls = _fetch_markets(client, limit, per_page_max)
+        markets, calls = _fetch_markets(client, limit, per_page_max, budget)
+    except DataUnavailable:
+        raise
     except Exception as exc:  # pragma: no cover - network failures
         logger.exception("market fetch failed: %s", exc)
         raise DataUnavailable("fetch failed") from exc
@@ -109,8 +113,8 @@ def run_etl(
         prices_repo.upsert_latest(price_rows)
         prices_repo.insert_snapshot(price_rows)
         meta_repo.set("last_refresh_at", now.isoformat())
+        meta_repo.set("last_etl_items", str(len(price_rows)))
         if budget:
-            budget.spend(calls)
             meta_repo.set("monthly_call_count", str(budget.monthly_call_count))
         meta_repo.set("data_source", "api")
         session.commit()
@@ -160,6 +164,7 @@ def load_seed() -> None:
         prices_repo.upsert_latest(price_rows)
         prices_repo.insert_snapshot(price_rows)
         meta_repo.set("last_refresh_at", now.isoformat())
+        meta_repo.set("last_etl_items", str(len(price_rows)))
         meta_repo.set("data_source", "seed")
         session.commit()
     except Exception:
