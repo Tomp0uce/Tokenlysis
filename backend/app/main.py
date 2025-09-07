@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .core.log import request_id_ctx
 from .core.scheduling import seconds_until_next_midnight_utc
-from .core.settings import COINGECKO_API_KEY, settings
+from .core.settings import settings, mask_secret
 from .core.version import get_version
 from .etl.run import DataUnavailable, run_etl
 from .schemas.crypto import (
@@ -29,8 +29,56 @@ from .services.coingecko import CoinGeckoClient
 
 import logging
 
-log_level = logging.getLevelName(settings.log_level.upper())
-logging.basicConfig(level=log_level, format="%(message)s")
+
+_NAME_MAP = {
+    **logging._nameToLevel,
+    "WARN": logging.WARNING,
+    "FATAL": logging.CRITICAL,
+}
+
+
+def parse_log_level(raw: str | int | None, default: int = logging.INFO) -> int:
+    """Parse log level names or integers, defaulting when unknown."""
+
+    if raw is None:
+        return default
+    if isinstance(raw, int):
+        return raw
+    s = str(raw).strip().upper()
+    if s == "":
+        return default
+    if s.isdigit():
+        return int(s)
+    return _NAME_MAP.get(s, default)
+
+
+logger = logging.getLogger(__name__)
+
+lvl = parse_log_level(settings.log_level)
+if isinstance(settings.log_level, str):
+    s = settings.log_level.strip().upper()
+    if s and not s.isdigit() and s not in _NAME_MAP:
+        logger.warning(
+            "LOG_LEVEL=%r non reconnu, fallback sur %s",
+            settings.log_level,
+            logging.getLevelName(lvl),
+        )
+
+logging.basicConfig(level=lvl, format="%(message)s")
+for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+    logging.getLogger(name).setLevel(lvl)
+
+logger.info(
+    (
+        "Startup config: LOG_LEVEL=%s USE_SEED_ON_FAILURE=%s CG_TOP_N=%s "
+        "CG_DAYS=%s COINGECKO_API_KEY=%s"
+    ),
+    logging.getLevelName(lvl),
+    settings.use_seed_on_failure,
+    settings.cg_top_n,
+    settings.cg_days,
+    mask_secret(settings.coingecko_api_key),
+)
 
 app = FastAPI(title="Tokenlysis")
 app.add_middleware(
@@ -81,11 +129,7 @@ def read_version() -> VersionResponse:
 @api.get("/diag")
 def diag(client: CoinGeckoClient = Depends(get_coingecko_client)) -> dict:
     """Return diagnostic information."""
-    api_key_masked = (
-        ("*" * max(len(COINGECKO_API_KEY) - 4, 0)) + COINGECKO_API_KEY[-4:]
-        if COINGECKO_API_KEY
-        else None
-    )
+    api_key_masked = mask_secret(settings.coingecko_api_key)
     try:
         ping = client.ping()
         outbound_ok = True

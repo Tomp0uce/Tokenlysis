@@ -1,12 +1,9 @@
 from __future__ import annotations
 
-import os
 from typing import Any, List
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
-COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY") or None
 
 
 def mask_secret(value: str | None) -> str:
@@ -19,25 +16,34 @@ def mask_secret(value: str | None) -> str:
     return "*" * (len(value) - 4) + value[-4:]
 
 
-TRUE_VALUES = {"true", "1", "yes", "on"}
-FALSE_VALUES = {"false", "0", "no", "off"}
+TRUE_VALUES = {"1", "true", "t", "yes", "y", "on"}
+FALSE_VALUES = {"0", "false", "f", "no", "n", "off"}
 
 
-def _parse_bool(value: Any, env_name: str, default: bool) -> bool:
+def _coerce_bool(value: Any, default: bool) -> bool:
+    """Coerce various inputs to bool, falling back to default when unknown."""
+
     if value is None:
         return default
-    if isinstance(value, str):
-        stripped = value.strip()
-        if stripped == "":
-            return default
-        lowered = stripped.lower()
-        if lowered in TRUE_VALUES:
-            return True
-        if lowered in FALSE_VALUES:
-            return False
-    elif isinstance(value, bool):
+
+    if isinstance(value, bool):
         return value
-    raise ValueError(f"Invalid boolean '{value}' for {env_name}")
+
+    if isinstance(value, str):
+        s = value.strip()
+        if s == "":
+            return default
+        sl = s.lower()
+        if sl in TRUE_VALUES:
+            return True
+        if sl in FALSE_VALUES:
+            return False
+        return default
+
+    try:
+        return bool(int(value))
+    except Exception:  # pragma: no cover - defensive
+        return default
 
 
 def _parse_int(value: Any, env_name: str, default: int) -> int:
@@ -60,8 +66,16 @@ class Settings(BaseSettings):
     cors_origins: List[str] | str = ["http://localhost"]
     cg_top_n: int = 20
     cg_days: int = 14
-    use_seed_on_failure: bool = False
-    log_level: str = "INFO"
+    use_seed_on_failure: bool = Field(
+        default=False, description="Use seed data when ETL fails"
+    )
+    log_level: str | int | None = Field(
+        default=None, description="Python logging level"
+    )
+    coingecko_api_key: str | None = Field(
+        default=None,
+        description="CoinGecko API key",
+    )
 
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="ignore"
@@ -76,9 +90,9 @@ class Settings(BaseSettings):
 
     @field_validator("use_seed_on_failure", mode="before")
     @classmethod
-    def _validate_bool(cls, v: Any) -> bool:
-        default = cls.model_fields["use_seed_on_failure"].default
-        return _parse_bool(v, "USE_SEED_ON_FAILURE", default)
+    def _v_use_seed_on_failure(cls, v: Any, info) -> bool:  # type: ignore[override]
+        default = cls.model_fields[info.field_name].default
+        return _coerce_bool(v, default)
 
     @field_validator("cg_top_n", "cg_days", mode="before")
     @classmethod
@@ -87,15 +101,33 @@ class Settings(BaseSettings):
         env_name = info.field_name.upper()
         return _parse_int(v, env_name, default)
 
+    @field_validator("log_level", mode="before")
+    @classmethod
+    def _norm_log_level(cls, v: Any) -> Any:
+        if v is None:
+            return None
+        s = str(v).strip()
+        if s == "":
+            return None
+        if s.isdigit():
+            return int(s)
+        return s.upper()
+
+    @field_validator("coingecko_api_key", mode="before")
+    @classmethod
+    def _empty_api_key(cls, v: Any) -> Any:
+        if isinstance(v, str) and v.strip() == "":
+            return None
+        return v
+
 
 settings = Settings()
 
 
 def get_coingecko_headers() -> dict[str, str]:
     """Return CoinGecko API headers if an API key is available."""
-
-    if COINGECKO_API_KEY:
-        return {"x-cg-pro-api-key": COINGECKO_API_KEY}
+    if settings.coingecko_api_key:
+        return {"x-cg-pro-api-key": settings.coingecko_api_key}
     return {}
 
 
@@ -103,6 +135,5 @@ __all__ = [
     "Settings",
     "settings",
     "get_coingecko_headers",
-    "COINGECKO_API_KEY",
     "mask_secret",
 ]

@@ -109,9 +109,21 @@ Runtime behaviour can be tweaked with environment variables:
 - `CG_DAYS` – number of days of history to retrieve (default: `14`)
 - `COINGECKO_API_KEY` – optional API key for the CoinGecko Pro plan
 - `USE_SEED_ON_FAILURE` – fall back to bundled seed data when live ETL fails (default: `false`)
-- `LOG_LEVEL` – set to `DEBUG` for verbose logs (default: `INFO`)
+- `LOG_LEVEL` – base logging level for application and Uvicorn loggers (default: `INFO`).
+  Accepts an integer or one of
+  `DEBUG`, `INFO`, `WARN`, `WARNING`, `ERROR`, `CRITICAL`, `FATAL` or `NOTSET`.
+  Unknown values fall back to `INFO` with a warning. Use `UVICORN_LOG_LEVEL` or
+  `--log-level` to override server log level separately.
 
-Boolean variables accept `true/false/1/0/yes/no/on/off` (case-insensitive). Empty values fall back to defaults, while unrecognised values trigger a startup error. Integer variables behave similarly: empty strings use the default and invalid numbers raise an explicit error.
+Do **not** define environment variables with empty values. If a value is not
+needed, remove the variable or comment it out in `.env`. On Synology, delete the
+variable from the UI instead of leaving the field blank. Quotes around values
+(e.g. `LOG_LEVEL="INFO"`) are ignored.
+
+Boolean variables accept `true/false/1/0/yes/no/on/off` (case-insensitive, surrounding
+whitespace allowed). Empty or unrecognised values fall back to their defaults.
+Integer variables behave similarly: empty strings use the default and invalid numbers
+raise an explicit error.
 
 The ETL fetches market data using CoinGecko's coin IDs. During development the
 seed assets (`C1`, `C2`, …) are mapped to real CoinGecko IDs through
@@ -147,7 +159,11 @@ the local source code.
 3. **Create the project** – in **Container Manager**, go to **Project** →
    **Create** and select the `docker-compose.yml` file from the cloned folder.
    Add `docker-compose.synology.yml` as an additional compose file so the image
-   is built locally.
+   is built locally. When defining environment variables in the Synology UI,
+   never leave a value empty. If you don't have a value, remove the variable
+   instead of leaving it blank. Supported boolean values are `true`, `false`,
+   `1`, `0`, `yes`, `no`, `on` and `off` (case-insensitive); an empty value is
+   treated as unset and defaults are applied.
 4. **Build and start** – from the NAS terminal run:
 
    ```bash
