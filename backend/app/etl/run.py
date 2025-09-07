@@ -32,13 +32,12 @@ SEED_DIR = Path(__file__).resolve().parents[2] / "seed"
 
 
 def _top_coins(limit: int, client: CoinGeckoClient) -> List[dict]:
-    per_page = min(250, max(50, limit)) if limit >= 50 else limit
+    per_page = 50 if limit > 50 else limit
     coins: List[dict] = []
     page = 1
     while len(coins) < limit:
-        remaining = limit - len(coins)
-        take = min(per_page, remaining)
-        data = client.get_markets(per_page=take, page=page)
+        take = min(per_page, limit - len(coins))
+        data = client.get_markets(vs="usd", per_page=take, page=page)
         if not data:
             break
         coins.extend(data)
@@ -54,7 +53,9 @@ def _coin_history(coin: dict, days: int, client: CoinGeckoClient) -> dict:
         or SEED_TO_COINGECKO.get(coin.get("symbol", ""))
         or coin.get("id")
     )
-    return client.get_market_chart(coin_id, days, interval=settings.CG_INTERVAL)
+    return client.get_market_chart(
+        coin_id, days, vs="usd", interval=settings.CG_INTERVAL
+    )
 
 
 def _coingecko_etl(limit: int, days: int, client: CoinGeckoClient) -> Dict[int, Dict]:
@@ -73,9 +74,20 @@ def _coingecko_etl(limit: int, days: int, client: CoinGeckoClient) -> Dict[int, 
             errors += 1
             logging.warning(f"history failed for {coin.get('id')}: {exc}")
             continue
-        prices[idx] = [p[1] for p in hist.get("prices", [])][:days]
-        volumes[idx] = [v[1] for v in hist.get("total_volumes", [])][:days]
-        mcaps[idx] = [m[1] for m in hist.get("market_caps", [])][:days]
+        prices_list = [p[1] for p in hist.get("prices", [])]
+        if len(prices_list) < days:
+            logging.warning(
+                "history too short for %s: %s/%s",
+                coin.get("id"),
+                len(prices_list),
+                days,
+            )
+            continue
+        volumes_list = [v[1] for v in hist.get("total_volumes", [])]
+        mcaps_list = [m[1] for m in hist.get("market_caps", [])]
+        prices[idx] = prices_list[:days]
+        volumes[idx] = volumes_list[:days]
+        mcaps[idx] = mcaps_list[:days]
         cryptos[idx] = {
             "id": idx,
             "symbol": coin.get("symbol", ""),
@@ -84,7 +96,8 @@ def _coingecko_etl(limit: int, days: int, client: CoinGeckoClient) -> Dict[int, 
         }
 
     if not cryptos:
-        raise RuntimeError("Empty ETL result (all history calls failed)")
+        logging.error("Empty ETL result (all history calls failed)")
+        return {}
 
     rsi_map = {cid: rsi(arr) for cid, arr in prices.items()}
     volchg_map: Dict[int, List[float]] = {}

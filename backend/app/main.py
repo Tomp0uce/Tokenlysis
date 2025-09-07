@@ -95,12 +95,14 @@ app.add_middleware(
 
 api_key = settings.COINGECKO_API_KEY or settings.coingecko_api_key
 app.state.cg_client = CoinGeckoClient(
-    base_url=effective_coingecko_base_url(), api_key=api_key
+    api_key=api_key,
+    plan=settings.COINGECKO_PLAN,
+    base_url=effective_coingecko_base_url(),
 )
 masked = mask_secret(api_key)
 logger.info(
     "CG config -> mode=%s base=%s key=%s",
-    "pro" if api_key else "public",
+    settings.COINGECKO_PLAN if api_key else "public",
     app.state.cg_client.base_url,
     masked,
 )
@@ -186,6 +188,28 @@ def get_price(coin_id: str, request: Request) -> PriceResponse:
     if price is None:
         raise HTTPException(status_code=404, detail="Price not found")
     return PriceResponse(coin_id=coin_id, usd=price)
+
+
+@api.get("/markets/basic")
+def markets_basic(
+    request: Request,
+    limit: int = 20,
+    vs: str = "usd",
+    page: int = 1,
+) -> dict:
+    client: CoinGeckoClient = request.app.state.cg_client
+    limit = max(1, min(limit, 50))
+    data = client.get_markets(vs=vs, per_page=limit, page=page)
+    items = [
+        {
+            "name": d.get("name"),
+            "symbol": d.get("symbol", "").upper(),
+            "price": d.get("current_price"),
+            "score": 0,
+        }
+        for d in data
+    ]
+    return {"items": items, "count": len(items)}
 
 
 @api.get("/ranking", response_model=RankingResponse)

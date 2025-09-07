@@ -9,6 +9,7 @@
     table { border-collapse: collapse; width: 100%; }
     th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
     th { background-color: #f2f2f2; }
+    .badge { background-color: #eee; padding: 2px 4px; border-radius: 3px; margin-left: 4px; font-size: 0.8em; }
     #status { margin: 10px 0; }
     #diag { margin-top: 20px; font-size: 0.9em; color: #555; }
   </style>
@@ -19,10 +20,10 @@
   <table id="cryptos" style="display:none;">
     <thead>
       <tr>
-        <th>Symbol</th>
         <th>Name</th>
+        <th>Symbol</th>
         <th>Price (USD)</th>
-        <th>Score Global</th>
+        <th>Score</th>
       </tr>
     </thead>
     <tbody></tbody>
@@ -45,19 +46,52 @@
         const res = await fetch(url);
         const latency = Math.round(performance.now() - start);
         lastRequest = { url, status: res.status, latency };
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) {
+          if (res.status === 503) {
+            await loadBasic();
+            return;
+          }
+          throw new Error(`HTTP ${res.status}`);
+        }
         const data = await res.json();
         if (!data.items.length) {
           statusEl.textContent = 'No crypto';
         } else {
           data.items.forEach(item => {
             const tr = document.createElement('tr');
-            tr.innerHTML = `<td>${item.symbol}</td><td>${item.name}</td><td>${item.latest.price_usd}</td><td>${item.latest.scores.global}</td>`;
+            tr.innerHTML = `<td>${item.name}</td><td>${item.symbol}</td><td>${item.latest.price_usd}</td><td>${item.latest.scores.global}</td>`;
             tbody.appendChild(tr);
           });
           statusEl.textContent = '';
           document.getElementById('cryptos').style.display = 'table';
         }
+      } catch (err) {
+        statusEl.innerHTML = `Error fetching data <button id="retry">Retry</button>`;
+        document.getElementById('retry').onclick = loadCryptos;
+        console.error(err);
+      }
+      loadDiag();
+    }
+
+    async function loadBasic() {
+      const statusEl = document.getElementById('status');
+      const tbody = document.querySelector('#cryptos tbody');
+      tbody.innerHTML = '';
+      const url = `${API_URL}/markets/basic?limit=20`;
+      const start = performance.now();
+      try {
+        const res = await fetch(url);
+        const latency = Math.round(performance.now() - start);
+        lastRequest = { url, status: res.status, latency };
+        const data = await res.json();
+        data.items.forEach(item => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `<td>${item.name}</td><td>${item.symbol}</td><td>${item.price}</td><td>${item.score} <span class="badge">demo</span></td>`;
+          tbody.appendChild(tr);
+        });
+        document.getElementById('cryptos').style.display = 'table';
+        statusEl.innerHTML = `données minimales (ETL indisponible) <button id="retry">Réessayer</button>`;
+        document.getElementById('retry').onclick = loadCryptos;
       } catch (err) {
         statusEl.innerHTML = `Error fetching data <button id="retry">Retry</button>`;
         document.getElementById('retry').onclick = loadCryptos;

@@ -25,9 +25,7 @@ def _mock_session(json_data):
 
 def test_coingecko_client_price():
     session = _mock_session({"bitcoin": {"usd": 123.0}})
-    client = coingecko.CoinGeckoClient(
-        base_url=coingecko.PUB_BASE, api_key=None, session=session
-    )
+    client = coingecko.CoinGeckoClient(api_key=None, session=session)
     data = client.get_simple_price(["bitcoin"], ["usd"])
     assert data["bitcoin"]["usd"] == 123.0
     session.get.assert_called_once()
@@ -48,18 +46,16 @@ def test_get_price_endpoint():
 
 def test_coingecko_client_adds_api_key():
     session = _mock_session({})
-    client = coingecko.CoinGeckoClient(
-        base_url=coingecko.PRO_BASE, api_key="secret", session=session
-    )
+    client = coingecko.CoinGeckoClient(api_key="secret", plan="pro", session=session)
     assert client.session.headers["x-cg-pro-api-key"] == "secret"
-    assert client.base_url == coingecko.PRO_BASE
+    assert client.base_url == coingecko.BASE_URL
+    client_demo = coingecko.CoinGeckoClient(api_key="demo", plan="demo", session=_mock_session({}))
+    assert client_demo.session.headers["x-cg-demo-api-key"] == "demo"
 
 
 def test_get_market_chart_uses_params():
     session = _mock_session({"prices": []})
-    client = coingecko.CoinGeckoClient(
-        base_url=coingecko.PUB_BASE, api_key=None, session=session
-    )
+    client = coingecko.CoinGeckoClient(api_key=None, session=session)
     client.get_market_chart("bitcoin", 14)
     session.get.assert_called()
     url, kwargs = session.get.call_args
@@ -84,9 +80,7 @@ def test_retry_on_429():
     session = Mock()
     session.get.side_effect = [resp1, resp2]
     session.headers = {}
-    client = coingecko.CoinGeckoClient(
-        base_url=coingecko.PUB_BASE, api_key=None, session=session
-    )
+    client = coingecko.CoinGeckoClient(api_key=None, session=session)
     client.get_simple_price(["btc"], ["usd"])
     assert session.get.call_count == 2
 
@@ -98,7 +92,7 @@ def test_diag_cg(monkeypatch):
 
     class DummyClient:
         api_key = "k"
-        base_url = coingecko.PRO_BASE
+        base_url = coingecko.BASE_URL
 
         def _request(self, path, params=None):
             return DummyResp()
@@ -118,7 +112,7 @@ def test_diag_cg(monkeypatch):
     assert resp.status_code == 200
     data = resp.json()
     assert data["mode"] == "pro"
-    assert data["base_url_effective"] == coingecko.PRO_BASE
+    assert data["base_url_effective"] == coingecko.BASE_URL
     assert data["has_api_key"] is True
     assert data["interval_effective"] == "daily"
     assert data["diag"]["chart_points"] == 2

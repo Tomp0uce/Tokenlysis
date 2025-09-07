@@ -66,6 +66,7 @@ class Settings(BaseSettings):
     cors_origins: List[str] | str = ["http://localhost"]
     COINGECKO_API_KEY: str | None = None
     coingecko_api_key: str | None = Field(default=None, alias="coingecko_api_key")
+    COINGECKO_PLAN: str = "demo"
     CG_TOP_N: int = 100
     CG_DAYS: int = 14
     CG_INTERVAL: str | None = "daily"
@@ -123,6 +124,14 @@ class Settings(BaseSettings):
             return s
         return v
 
+    @field_validator("COINGECKO_PLAN", mode="before")
+    @classmethod
+    def _norm_plan(cls, v: Any) -> str:
+        if not v:
+            return "demo"
+        s = str(v).strip().lower()
+        return "pro" if s == "pro" else "demo"
+
 
 settings = Settings()
 
@@ -130,17 +139,17 @@ settings = Settings()
 def get_coingecko_headers() -> dict[str, str]:
     """Return CoinGecko API headers if an API key is available."""
     key = settings.COINGECKO_API_KEY or settings.coingecko_api_key
-    return {"x-cg-pro-api-key": key} if key else {}
+    if not key:
+        return {}
+    header = (
+        "x-cg-pro-api-key" if settings.COINGECKO_PLAN == "pro" else "x-cg-demo-api-key"
+    )
+    return {header: key}
 
 
 def effective_coingecko_base_url() -> str:
-    """Return the CoinGecko base URL depending on API key presence."""
-    key = settings.COINGECKO_API_KEY or settings.coingecko_api_key
-    return (
-        "https://pro-api.coingecko.com/api/v3"
-        if key
-        else "https://api.coingecko.com/api/v3"
-    )
+    """Return the CoinGecko base URL."""
+    return "https://api.coingecko.com/api/v3"
 
 
 __all__ = [
