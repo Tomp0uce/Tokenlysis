@@ -23,6 +23,7 @@ Tokenlysis is a platform that ranks over 1,000 crypto-assets each day. It comput
 - Use HTTPS in production and apply rate limiting on public APIs.
 - Store passwords hashed and keep dependencies updated with tools like `pip-audit`.
 - Mask secrets in logs and diagnostic endpoints.
+- Avoid writing empty environment variables; fall back to defaults when values are blank and raise clear errors for invalid entries.
 
 ## Documentation
 - Update the README when the feature scope evolves.
