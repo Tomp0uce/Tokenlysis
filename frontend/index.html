@@ -51,42 +51,7 @@
       document.getElementById('cryptos').style.display = 'none';
       const tbody = document.querySelector('#cryptos tbody');
       tbody.innerHTML = '';
-      const url = `${API_URL}/ranking?limit=20`;
-      const start = performance.now();
-      try {
-        const res = await fetch(url);
-        const latency = Math.round(performance.now() - start);
-        lastRequest = { url, status: res.status, latency };
-        if (!res.ok) {
-          await loadMarkets();
-          return;
-        }
-        const data = await res.json();
-        if (!data.items.length) {
-          await loadMarkets();
-          return;
-        }
-        data.items.forEach(item => {
-          const tr = document.createElement('tr');
-          tr.innerHTML = `<td>${item.name}</td><td>${item.symbol}</td><td>${formatPrice(item.latest.price_usd)}</td><td>${item.latest.scores.global}</td>`;
-          tbody.appendChild(tr);
-        });
-        statusEl.textContent = '';
-        document.getElementById('cryptos').style.display = 'table';
-        document.getElementById('demo-banner').style.display = 'none';
-      } catch (err) {
-        statusEl.innerHTML = `Error fetching data <button id="retry">Retry</button>`;
-        document.getElementById('retry').onclick = loadCryptos;
-        console.error(err);
-      }
-      loadDiag();
-    }
-
-    async function loadMarkets() {
-      const statusEl = document.getElementById('status');
-      const tbody = document.querySelector('#cryptos tbody');
-      tbody.innerHTML = '';
-      const url = `${API_URL}/markets?limit=20`;
+      const url = `${API_URL}/markets/top?limit=20&vs=usd`;
       const start = performance.now();
       try {
         const res = await fetch(url);
@@ -99,8 +64,7 @@
           tbody.appendChild(tr);
         });
         document.getElementById('cryptos').style.display = 'table';
-        statusEl.innerHTML = `données minimales (ETL indisponible) <button id="retry">Réessayer</button>`;
-        document.getElementById('retry').onclick = loadCryptos;
+        statusEl.textContent = '';
         document.getElementById('demo-banner').style.display = 'block';
       } catch (err) {
         statusEl.innerHTML = `Error fetching data <button id="retry">Retry</button>`;

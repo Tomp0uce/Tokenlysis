@@ -75,7 +75,6 @@ class Settings(BaseSettings):
     CG_MONTHLY_QUOTA: int = 10000
     CG_PER_PAGE_MAX: int = 250
     CG_ALERT_THRESHOLD: float = 0.7
-    REFRESH_CRON: str = "0 */12 * * *"
     BUDGET_FILE: str | None = None
     DATABASE_URL: str | None = None
     SEED_FILE: str = "./backend/app/seed/top20.json"
