@@ -216,6 +216,10 @@ docker build --build-arg APP_VERSION=42 -t tokenlysis:test -f ./Dockerfile .
 At runtime the container exposes `APP_VERSION` so it can be inspected with
 `docker run --rm tokenlysis:test env | grep APP_VERSION`.
 
+During the build the same value is also written to `frontend/app-version.js`
+so the static dashboard can display the version even if the API is
+unreachable.
+
 ## License
 
 This project is licensed under the MIT License.
