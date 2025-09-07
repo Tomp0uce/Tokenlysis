@@ -9,7 +9,8 @@ For a full overview of features and architecture, see the [functional specificat
 ## Overview
 
 - **Universe**: configurable top ``N`` assets (default 50) from CoinGecko *(MVP: top 1000 + 100 trending)*.
-- **Update schedule**: data is refreshed every day at 00:00 UTC.
+- **Update schedule**: data is refreshed every 12 hours.
+- **Startup**: fetch live data when the database isn't bootstrapped, otherwise load the bundled seed.
 - **Scores**: Liquidity, Opportunity and Global *(MVP: six categories: Community, Liquidity, Opportunity, Security, Technology, Tokenomics).* 
 
 ### Status
@@ -18,9 +19,9 @@ For a full overview of features and architecture, see the [functional specificat
 | ------- | ----------- | ------- |
 | Configurable top N (default 50) | ✅ | Top 1000 + 100 trending |
 | Liquidity & Opportunity scores + Global | ✅ | Six categories with custom weights |
-| Daily refresh aligned to 00:00 UTC | ✅ | DB + daily snapshots |
+| Refresh every 12 hours | ✅ | DB + daily snapshots |
 | Static frontend table | ✅ | Rich charts & filtering |
-| `/api/version` endpoint | ✅ | Auth & watchlists |
+| `/version` endpoint | ✅ | Auth & watchlists |
 | Seed fallback controlled by `USE_SEED_ON_FAILURE` | ✅ | Quotas & rate limiting |
 
 ## Scoring Model
@@ -115,8 +116,6 @@ Runtime behaviour can be tweaked with environment variables:
   public URL or Pro URL based on `COINGECKO_PLAN`)
 - `COINGECKO_API_KEY` – optional API key for CoinGecko
 - `COINGECKO_PLAN` – `demo` (default) or `pro` to select the API header
-- `REFRESH_CRON` – cron expression for the scheduled ETL (default:
-  `0 */12 * * *`)
 - `BUDGET_FILE` – path to the persisted CoinGecko call budget JSON file
 - `DATABASE_URL` – SQLAlchemy database URL
 - `USE_SEED_ON_FAILURE` – fall back to bundled seed data when live ETL fails
@@ -127,7 +126,8 @@ Runtime behaviour can be tweaked with environment variables:
   Accepts an integer or one of
   `DEBUG`, `INFO`, `WARN`, `WARNING`, `ERROR`, `CRITICAL`, `FATAL` or `NOTSET`.
   Unknown values fall back to `INFO` with a warning. Use `UVICORN_LOG_LEVEL` or
-  `--log-level` to override server log level separately.
+  `--log-level` to override server log level separately. CoinGecko client and
+  the ETL emit one-line JSON logs with endpoint and latency fields.
 
 #### Persistence (NAS)
 
@@ -163,10 +163,15 @@ seed assets (`C1`, `C2`, …) are mapped to real CoinGecko IDs through
 
 ### Health & Diagnostics
 
-- `GET /healthz` – basic liveness probe
-- `GET /readyz` – readiness check for the web process
+- `GET /healthz` – returns DB connectivity, bootstrap status and `{"ready": bool}`
+- `GET /readyz` – readiness check for the web process (`{"ready": true}`)
 - `GET /api/markets/basic` – minimal market data fallback
 - `GET /api/diag` – returns app version, outbound status and masked API key
+- `GET /version` – application version (`{"version": "<hash>"}`)
+
+### Public API
+
+- `GET /api/markets/top` – top assets (`limit` clamped to `[1, CG_TOP_N]`, `vs` must be `usd`)
 
 ### Synology NAS Deployment (POC)
 

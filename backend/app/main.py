@@ -7,11 +7,15 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from .core.settings import settings
+from .core.version import get_version
 from .db import Base, engine, get_session
 from .etl.run import DataUnavailable, load_seed, run_etl
+from .schemas.version import VersionResponse
 from .services.budget import CallBudget
 from .services.dao import PricesRepo, MetaRepo
 
@@ -46,9 +50,14 @@ def markets_top(
     vs: str = "usd",
     session: Session = Depends(get_session),
 ):
+    vs = vs.lower()
+    if vs != "usd":
+        raise HTTPException(status_code=400, detail="unsupported vs")
+    limit_effective = min(max(limit, 1), settings.CG_TOP_N)
+    logger.info("markets_top", extra={"limit_effective": limit_effective, "vs": vs})
     prices_repo = PricesRepo(session)
     meta_repo = MetaRepo(session)
-    rows = prices_repo.get_top(vs, limit)
+    rows = prices_repo.get_top(vs, limit_effective)
     last_refresh_at = meta_repo.get("last_refresh_at")
     data_source = meta_repo.get("data_source")
     stale = True
@@ -81,22 +90,53 @@ def price_detail(
 
 @app.get("/healthz")
 def healthz(session: Session = Depends(get_session)) -> dict:
-    meta_repo = MetaRepo(session)
-    last_refresh_at = meta_repo.get("last_refresh_at")
-    bootstrap_done = meta_repo.get("bootstrap_done") == "true"
-    monthly_call_count = int(meta_repo.get("monthly_call_count") or 0)
+    db_connected = True
+    try:
+        session.execute(text("SELECT 1"))
+    except Exception:  # pragma: no cover - defensive
+        db_connected = False
+
+    bootstrap_done = False
+    last_refresh_at = None
+    monthly_call_count = 0
+    if db_connected:
+        meta_repo = MetaRepo(session)
+        last_refresh_at = meta_repo.get("last_refresh_at")
+        bootstrap_done = meta_repo.get("bootstrap_done") == "true"
+        monthly_call_count = int(meta_repo.get("monthly_call_count") or 0)
     quota = settings.CG_MONTHLY_QUOTA
     return {
-        "db_connected": True,
+        "db_connected": db_connected,
         "bootstrap_done": bootstrap_done,
         "last_refresh_at": last_refresh_at,
         "monthly_call_count": monthly_call_count,
         "quota": quota,
+        "ready": db_connected and bootstrap_done,
     }
+
+
+@app.get("/readyz")
+def readyz(session: Session = Depends(get_session)) -> dict:
+    try:
+        session.execute(text("SELECT 1"))
+    except Exception:  # pragma: no cover - defensive
+        raise HTTPException(status_code=503)
+    return {"ready": True}
+
+
+@app.get("/version", response_model=VersionResponse)
+@app.get("/api/version", response_model=VersionResponse, include_in_schema=False)
+def version() -> VersionResponse:
+    return VersionResponse(version=get_version())
 
 
 @app.on_event("startup")
 async def startup() -> None:
+    logging.basicConfig(
+        level=settings.log_level or "INFO",
+        format="%(message)s",
+        force=True,
+    )
     Base.metadata.create_all(bind=engine)
     budget = None
     if settings.BUDGET_FILE:
@@ -111,10 +151,11 @@ async def startup() -> None:
         if meta_repo.get("bootstrap_done") != "true":
             try:
                 run_etl(budget=budget)
-                meta_repo.set("bootstrap_done", "true")
             except DataUnavailable:
                 load_seed()
-                meta_repo.set("bootstrap_done", "true")
+            meta_repo.set("bootstrap_done", "true")
+        else:
+            load_seed()
         session.commit()
     finally:
         session.close()
@@ -128,6 +169,9 @@ async def startup() -> None:
             await asyncio.sleep(12 * 60 * 60)
 
     asyncio.create_task(_job())
+
+
+app.mount("/", StaticFiles(directory="frontend", html=True), name="static")
 
 
 __all__ = ["app"]

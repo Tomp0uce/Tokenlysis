@@ -25,27 +25,28 @@ class DataUnavailable(Exception):
 
 def _fetch_markets(
     client: CoinGeckoClient, limit: int, per_page_max: int
-) -> list[dict]:
-    per_page = per_page_max if limit > per_page_max else limit
+) -> tuple[list[dict], int]:
+    per_page = min(per_page_max, 250)
     coins: list[dict] = []
     page = 1
+    calls = 0
     while len(coins) < limit:
-        take = min(per_page, limit - len(coins))
         try:
-            data = client.get_markets(vs="usd", per_page=take, page=page)
+            data = client.get_markets(vs="usd", per_page=per_page, page=page)
         except requests.HTTPError as exc:
-            status = exc.response.status_code if exc.response else 0
+            status = exc.response.status_code if exc.response is not None else 0
             if 400 <= status < 500 and per_page > 100:
                 per_page = 100
                 continue
             raise
+        calls += 1
         if not data:
             break
         coins.extend(data)
-        if len(data) < take:
-            break
         page += 1
-    return coins[:limit]
+        if len(data) < per_page:
+            break
+    return coins[:limit], calls
 
 
 def _seed_rows() -> list[dict]:
@@ -81,7 +82,7 @@ def run_etl(
         raise DataUnavailable("quota exceeded")
 
     try:
-        markets = _fetch_markets(client, limit, per_page_max)
+        markets, calls = _fetch_markets(client, limit, per_page_max)
     except Exception as exc:  # pragma: no cover - network failures
         logger.exception("market fetch failed: %s", exc)
         raise DataUnavailable("fetch failed") from exc
@@ -109,7 +110,7 @@ def run_etl(
         prices_repo.insert_snapshot(price_rows)
         meta_repo.set("last_refresh_at", now.isoformat())
         if budget:
-            budget.spend(required_calls)
+            budget.spend(calls)
             meta_repo.set("monthly_call_count", str(budget.monthly_call_count))
         meta_repo.set("data_source", "api")
         session.commit()
@@ -120,13 +121,15 @@ def run_etl(
         session.close()
 
     logger.info(
-        "etl run completed",
-        extra={
-            "coingecko_calls_total": required_calls,
-            "monthly_call_count": budget.monthly_call_count if budget else None,
-            "last_refresh_at": now.isoformat(),
-            "rows": len(price_rows),
-        },
+        json.dumps(
+            {
+                "event": "etl run completed",
+                "coingecko_calls_total": calls,
+                "monthly_call_count": budget.monthly_call_count if budget else None,
+                "last_refresh_at": now.isoformat(),
+                "rows": len(price_rows),
+            }
+        )
     )
 
     return len(price_rows)
