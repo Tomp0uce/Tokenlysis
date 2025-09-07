@@ -13,7 +13,8 @@ def get_version() -> str:
     Prefer the ``APP_VERSION`` environment variable when set to a value other
     than the placeholder ``dev``. When not provided, attempt to read the
     version from a VERSION file generated at build time. As a final fallback,
-    retrieve the short git commit hash. If everything fails, return ``"0"``.
+    retrieve the commit date and time from git. If everything fails, return
+    ``"0"``.
     """
 
     env_version = os.getenv("APP_VERSION")
@@ -26,7 +27,9 @@ def get_version() -> str:
         return version[:7] if len(version) == 40 else version
 
     try:
-        output = check_output(["git", "rev-parse", "--short", "HEAD"], cwd=REPO_ROOT)
+        output = check_output(
+            ["git", "log", "-1", "--format=%cd", "--date=iso"], cwd=REPO_ROOT
+        )
         return output.decode().strip()
     except (CalledProcessError, FileNotFoundError):
         return env_version or "0"
