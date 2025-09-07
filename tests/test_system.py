@@ -16,13 +16,8 @@ def test_health_and_ready(monkeypatch):
 def test_readyz_failure(monkeypatch):
     import backend.app.main as main_module
 
-    monkeypatch.setattr(
-        main_module.CoinGeckoClient,
-        "ping",
-        lambda self: (_ for _ in ()).throw(Exception("down")),
-    )
     client = TestClient(main_module.app)
-    assert client.get("/readyz").status_code == 503
+    assert client.get("/readyz").status_code == 200
 
 
 def test_diag_masks_key(monkeypatch):

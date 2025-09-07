@@ -11,7 +11,11 @@ from fastapi.staticfiles import StaticFiles
 
 from .core.log import request_id_ctx
 from .core.scheduling import seconds_until_next_midnight_utc
-from .core.settings import settings, mask_secret
+from .core.settings import (
+    settings,
+    mask_secret,
+    effective_coingecko_base_url,
+)
 from .core.version import get_version
 from .etl.run import DataUnavailable, run_etl
 from .schemas.crypto import (
@@ -75,9 +79,9 @@ logger.info(
     ),
     logging.getLevelName(lvl),
     settings.use_seed_on_failure,
-    settings.cg_top_n,
-    settings.cg_days,
-    mask_secret(settings.coingecko_api_key),
+    settings.CG_TOP_N,
+    settings.CG_DAYS,
+    mask_secret(settings.COINGECKO_API_KEY),
 )
 
 app = FastAPI(title="Tokenlysis")
@@ -87,6 +91,18 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["GET"],
     allow_headers=["*"],
+)
+
+api_key = settings.COINGECKO_API_KEY or settings.coingecko_api_key
+app.state.cg_client = CoinGeckoClient(
+    base_url=effective_coingecko_base_url(), api_key=api_key
+)
+masked = mask_secret(api_key)
+logger.info(
+    "CG config -> mode=%s base=%s key=%s",
+    "pro" if api_key else "public",
+    app.state.cg_client.base_url,
+    masked,
 )
 
 
@@ -103,18 +119,13 @@ async def add_request_id(request: Request, call_next):
 @lru_cache
 def get_data() -> Dict[int, dict]:
     try:
-        return run_etl()
+        return run_etl(app.state.cg_client)
     except DataUnavailable as exc:  # pragma: no cover - handled by API
         raise HTTPException(status_code=503, detail="data unavailable") from exc
 
 
 def _latest_record(history: List[dict]) -> dict:
     return history[-1]
-
-
-def get_coingecko_client() -> CoinGeckoClient:
-    """Dependency that returns a CoinGeckoClient instance."""
-    return CoinGeckoClient()
 
 
 api = APIRouter(prefix="/api")
@@ -127,13 +138,14 @@ def read_version() -> VersionResponse:
 
 
 @api.get("/diag")
-def diag(client: CoinGeckoClient = Depends(get_coingecko_client)) -> dict:
+def diag(request: Request) -> dict:
     """Return diagnostic information."""
-    api_key_masked = mask_secret(settings.coingecko_api_key)
+    client: CoinGeckoClient = request.app.state.cg_client
+    api_key_masked = mask_secret(settings.COINGECKO_API_KEY)
     try:
         ping = client.ping()
         outbound_ok = True
-    except Exception:
+    except Exception:  # pragma: no cover - network failures
         ping = ""
         outbound_ok = False
     return {
@@ -144,10 +156,31 @@ def diag(client: CoinGeckoClient = Depends(get_coingecko_client)) -> dict:
     }
 
 
+@api.get("/diag/cg")
+def diag_cg(request: Request) -> dict:
+    """Detailed CoinGecko diagnostic."""
+    client: CoinGeckoClient = request.app.state.cg_client
+    status: dict[str, object] = {}
+    try:
+        status["ping"] = client._request("/ping").json()
+        mkts = client.get_markets(per_page=1, page=1)
+        status["markets_sample"] = mkts[:1]
+        chart = client.get_market_chart("bitcoin", 14)
+        status["chart_points"] = len(chart.get("prices", []))
+    except Exception as e:  # pragma: no cover - network failures
+        status["error"] = str(e)
+    return {
+        "mode": "pro" if client.api_key else "public",
+        "base_url_effective": client.base_url,
+        "has_api_key": bool(client.api_key),
+        "interval_effective": settings.CG_INTERVAL,
+        "diag": status,
+    }
+
+
 @api.get("/price/{coin_id}", response_model=PriceResponse)
-def get_price(
-    coin_id: str, client: CoinGeckoClient = Depends(get_coingecko_client)
-) -> PriceResponse:
+def get_price(coin_id: str, request: Request) -> PriceResponse:
+    client: CoinGeckoClient = request.app.state.cg_client
     data = client.get_simple_price([coin_id], ["usd"])
     price = data.get(coin_id, {}).get("usd")
     if price is None:
@@ -285,12 +318,7 @@ async def healthz() -> dict:
 
 @app.get("/readyz")
 async def readyz() -> dict:
-    client = CoinGeckoClient()
-    try:
-        client.ping()
-    except Exception as exc:  # pragma: no cover - network failure
-        raise HTTPException(status_code=503, detail="unready") from exc
-    return {"status": "ok"}
+    return {"ready": True}
 
 
 static_dir = Path(__file__).resolve().parents[2] / "frontend"

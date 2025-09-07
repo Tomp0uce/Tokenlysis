@@ -1,19 +1,32 @@
 import importlib
-import backend.app.core.settings as settings_module
 import pytest
+
+import backend.app.core.settings as settings_module
 
 
 def test_api_key_from_env(monkeypatch):
     monkeypatch.setenv("COINGECKO_API_KEY", "env-key")
     importlib.reload(settings_module)
-    assert settings_module.settings.coingecko_api_key == "env-key"
+    assert settings_module.settings.COINGECKO_API_KEY == "env-key"
     assert settings_module.get_coingecko_headers() == {"x-cg-pro-api-key": "env-key"}
+    assert (
+        settings_module.effective_coingecko_base_url()
+        == "https://pro-api.coingecko.com/api/v3"
+    )
+
+
+def test_lowercase_api_key(monkeypatch):
+    monkeypatch.delenv("COINGECKO_API_KEY", raising=False)
+    monkeypatch.setenv("coingecko_api_key", "low-key")
+    importlib.reload(settings_module)
+    assert settings_module.settings.coingecko_api_key == "low-key"
+    assert settings_module.get_coingecko_headers() == {"x-cg-pro-api-key": "low-key"}
 
 
 def test_empty_api_key(monkeypatch):
     monkeypatch.setenv("COINGECKO_API_KEY", "")
     importlib.reload(settings_module)
-    assert settings_module.settings.coingecko_api_key is None
+    assert settings_module.settings.COINGECKO_API_KEY is None
     assert settings_module.get_coingecko_headers() == {}
 
 
@@ -29,11 +42,11 @@ def test_empty_cors_origins(monkeypatch):
     assert cfg.cors_origins == []
 
 
-def test_use_seed_on_failure_empty_is_false(monkeypatch):
+def test_use_seed_on_failure_empty_is_true(monkeypatch):
     for value in ("", " "):
         monkeypatch.setenv("USE_SEED_ON_FAILURE", value)
         cfg = settings_module.Settings()
-        assert cfg.use_seed_on_failure is False
+        assert cfg.use_seed_on_failure is True
 
 
 def test_use_seed_on_failure_true_variants(monkeypatch):
@@ -57,13 +70,13 @@ def test_use_seed_on_failure_false_variants(monkeypatch):
 def test_use_seed_on_failure_invalid_falls_back(monkeypatch):
     monkeypatch.setenv("USE_SEED_ON_FAILURE", "maybe")
     cfg = settings_module.Settings()
-    assert cfg.use_seed_on_failure is False
+    assert cfg.use_seed_on_failure is True
 
 
 def test_int_parsing(monkeypatch):
     monkeypatch.setenv("CG_TOP_N", "")
     cfg = settings_module.Settings()
-    assert cfg.cg_top_n == 20
+    assert cfg.CG_TOP_N == 100
 
     monkeypatch.setenv("CG_TOP_N", "abc")
     with pytest.raises(ValueError, match="Invalid integer 'abc' for CG_TOP_N"):
@@ -73,7 +86,7 @@ def test_int_parsing(monkeypatch):
 def test_cg_days_parsing(monkeypatch):
     monkeypatch.setenv("CG_DAYS", "")
     cfg = settings_module.Settings()
-    assert cfg.cg_days == 14
+    assert cfg.CG_DAYS == 14
 
     monkeypatch.setenv("CG_DAYS", "abc")
     with pytest.raises(ValueError, match="Invalid integer 'abc' for CG_DAYS"):

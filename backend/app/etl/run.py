@@ -23,7 +23,7 @@ from typing import Dict, List
 import logging
 
 from ..services.coingecko import CoinGeckoClient
-from ..core.settings import settings
+from ..core.settings import settings, effective_coingecko_base_url
 from ..services.indicators import rsi
 from ..services.scoring import score_global, score_liquidite, score_opportunite
 from ..config.seed_mapping import SEED_TO_COINGECKO
@@ -32,7 +32,20 @@ SEED_DIR = Path(__file__).resolve().parents[2] / "seed"
 
 
 def _top_coins(limit: int, client: CoinGeckoClient) -> List[dict]:
-    return client.get_markets(per_page=limit)
+    per_page = min(250, max(50, limit)) if limit >= 50 else limit
+    coins: List[dict] = []
+    page = 1
+    while len(coins) < limit:
+        remaining = limit - len(coins)
+        take = min(per_page, remaining)
+        data = client.get_markets(per_page=take, page=page)
+        if not data:
+            break
+        coins.extend(data)
+        if len(data) < take:
+            break
+        page += 1
+    return coins[:limit]
 
 
 def _coin_history(coin: dict, days: int, client: CoinGeckoClient) -> dict:
@@ -41,7 +54,7 @@ def _coin_history(coin: dict, days: int, client: CoinGeckoClient) -> dict:
         or SEED_TO_COINGECKO.get(coin.get("symbol", ""))
         or coin.get("id")
     )
-    return client.get_market_chart(coin_id, days)
+    return client.get_market_chart(coin_id, days, interval=settings.CG_INTERVAL)
 
 
 def _coingecko_etl(limit: int, days: int, client: CoinGeckoClient) -> Dict[int, Dict]:
@@ -51,18 +64,27 @@ def _coingecko_etl(limit: int, days: int, client: CoinGeckoClient) -> Dict[int, 
     volumes: Dict[int, List[float]] = {}
     mcaps: Dict[int, List[float]] = {}
     cryptos: Dict[int, dict] = {}
+    errors = 0
 
     for idx, coin in enumerate(coins, start=1):
-        hist = _coin_history(coin, days, client)
+        try:
+            hist = _coin_history(coin, days, client)
+        except Exception as exc:  # pragma: no cover - network failures
+            errors += 1
+            logging.warning(f"history failed for {coin.get('id')}: {exc}")
+            continue
         prices[idx] = [p[1] for p in hist.get("prices", [])][:days]
         volumes[idx] = [v[1] for v in hist.get("total_volumes", [])][:days]
         mcaps[idx] = [m[1] for m in hist.get("market_caps", [])][:days]
         cryptos[idx] = {
             "id": idx,
-            "symbol": coin["symbol"],
-            "name": coin["name"],
+            "symbol": coin.get("symbol", ""),
+            "name": coin.get("name", ""),
             "sectors": [],
         }
+
+    if not cryptos:
+        raise RuntimeError("Empty ETL result (all history calls failed)")
 
     rsi_map = {cid: rsi(arr) for cid, arr in prices.items()}
     volchg_map: Dict[int, List[float]] = {}
@@ -110,6 +132,7 @@ def _coingecko_etl(limit: int, days: int, client: CoinGeckoClient) -> Dict[int, 
                 }
             )
 
+    logging.info(f"ETL done: coins={len(cryptos)} errors={errors}")
     return data
 
 
@@ -191,12 +214,20 @@ class DataUnavailable(Exception):
     """Raised when live data could not be fetched."""
 
 
-def run_etl() -> Dict[int, Dict]:
+def run_etl(client: CoinGeckoClient | None = None) -> Dict[int, Dict]:
     """Return structured market data for a list of assets."""
 
-    limit = settings.cg_top_n
-    days = settings.cg_days
-    client = CoinGeckoClient()
+    if client is None:
+        client = CoinGeckoClient(
+            base_url=effective_coingecko_base_url(),
+            api_key=settings.COINGECKO_API_KEY or settings.coingecko_api_key,
+        )
+
+    limit = max(
+        10,
+        min(settings.CG_TOP_N, 250 if client.api_key is None else settings.CG_TOP_N),
+    )
+    days = settings.CG_DAYS
     try:
         return _coingecko_etl(limit, days, client)
     except Exception as exc:  # pragma: no cover - network failures

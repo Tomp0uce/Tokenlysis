@@ -1,125 +1,84 @@
-from __future__ import annotations
-
-from typing import Dict, List, Optional, Tuple
-
 import json
-import random
+import logging
 import time
+from typing import List
+
 import requests
 
-from ..core.log import logger, request_id_ctx
 from ..core.settings import settings
 
-BASE_URL = "https://api.coingecko.com/api/v3"
+logger = logging.getLogger(__name__)
+
+PRO_BASE = "https://pro-api.coingecko.com/api/v3"
+PUB_BASE = "https://api.coingecko.com/api/v3"
 
 
 class CoinGeckoClient:
-    """Minimal client for the public CoinGecko API."""
+    """HTTP client for the CoinGecko API with throttling and retries."""
 
     def __init__(
         self,
-        base_url: str = BASE_URL,
-        session: Optional[requests.Session] = None,
-        api_key: Optional[str] = None,
-        timeout: int = 10,
-        max_retries: int = 3,
-        price_ttl: int = 90,
+        base_url: str,
+        api_key: str | None,
+        session: requests.Session | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.session = session or requests.Session()
-        key = api_key or settings.coingecko_api_key
-        self.api_key = key
-        if key:
-            self.session.headers.update({"x-cg-pro-api-key": key})
-        self.timeout = timeout
-        self.max_retries = max_retries
-        self.price_ttl = price_ttl
-        self._price_cache: Dict[Tuple[str, str], Tuple[float, dict]] = {}
-        self.rate_limit_remaining: Optional[str] = None
+        self.session.headers.update(
+            {"Accept": "application/json", "User-Agent": "tokenlysis/1.0"}
+        )
+        if api_key:
+            self.session.headers.update({"x-cg-pro-api-key": api_key})
+        self.api_key = api_key
 
-    # internal request helper
-    def _request(
-        self, endpoint: str, params: Optional[dict] = None
-    ) -> requests.Response:
-        url = f"{self.base_url}{endpoint}"
-        retries = 0
-        while True:
-            start = time.perf_counter()
-            try:
-                resp = self.session.get(url, params=params, timeout=self.timeout)
-            except requests.RequestException:
-                if retries < self.max_retries:
-                    sleep = (2**retries) + random.random()
-                    time.sleep(sleep)
-                    retries += 1
-                    continue
-                raise
-            latency_ms = int((time.perf_counter() - start) * 1000)
-            self.rate_limit_remaining = resp.headers.get("X-RateLimit-Remaining")
-            if resp.status_code in (429,) or resp.status_code >= 500:
-                if retries < self.max_retries:
-                    sleep = (2**retries) + random.random()
-                    time.sleep(sleep)
-                    retries += 1
-                    continue
+    def _request(self, path: str, params: dict | None = None) -> requests.Response:
+        url = f"{self.base_url}{path}"
+        time.sleep(settings.CG_THROTTLE_MS / 1000.0)
+        for attempt in range(1, 6):
+            t0 = time.perf_counter()
+            resp = self.session.get(url, params=params, timeout=(3.1, 20))
+            latency = int((time.perf_counter() - t0) * 1000)
+            rid = resp.headers.get("X-Request-Id", "-")
+            logger.info(
+                json.dumps(
+                    {
+                        "endpoint": path,
+                        "status": resp.status_code,
+                        "latency_ms": latency,
+                        "retries": attempt - 1,
+                        "request_id": rid,
+                    }
+                )
+            )
+            if resp.status_code == 429:
+                ra = resp.headers.get("Retry-After")
+                sleep_s = float(ra) if ra else min(2**attempt, 16)
+                time.sleep(sleep_s)
+                continue
             resp.raise_for_status()
-            log_payload = {
-                "endpoint": endpoint,
-                "status": resp.status_code,
-                "latency_ms": latency_ms,
-                "retries": retries,
-                "request_id": request_id_ctx.get() if request_id_ctx else "-",
-            }
-            logger.info(json.dumps(log_payload))
             return resp
+        resp.raise_for_status()
+        return resp
 
     def ping(self) -> str:
-        """Check API status."""
-        resp = self._request("/ping")
-        data = resp.json()
-        return data.get("gecko_says", "")
+        return self._request("/ping").json().get("gecko_says", "")
 
-    def get_simple_price(
-        self, coin_ids: List[str], vs_currencies: List[str]
-    ) -> Dict[str, Dict[str, float]]:
-        """Fetch current price for a list of coins in given currencies."""
-        key = ("|".join(sorted(coin_ids)), "|".join(sorted(vs_currencies)))
-        now = time.time()
-        cached = self._price_cache.get(key)
-        if cached and now - cached[0] < self.price_ttl:
-            return cached[1]
+    def get_simple_price(self, coin_ids: List[str], vs_currencies: List[str]) -> dict:
         params = {"ids": ",".join(coin_ids), "vs_currencies": ",".join(vs_currencies)}
-        resp = self._request("/simple/price", params=params)
-        data = resp.json()
-        self._price_cache[key] = (now, data)
-        return data
+        return self._request("/simple/price", params).json()
 
     def get_markets(
         self,
-        vs_currency: str = "usd",
+        vs: str = "usd",
         order: str = "market_cap_desc",
-        per_page: int = 20,
+        per_page: int = 100,
         page: int = 1,
     ) -> List[dict]:
-        """Return market data for a list of coins."""
-        params = {
-            "vs_currency": vs_currency,
-            "order": order,
-            "per_page": per_page,
-            "page": page,
-        }
-        resp = self._request("/coins/markets", params=params)
-        return resp.json()
+        params = {"vs_currency": vs, "order": order, "per_page": per_page, "page": page}
+        return self._request("/coins/markets", params).json()
 
-    def get_market_chart(self, coin_id: str, days: int) -> dict:
-        """Return historical market chart for a coin."""
-        params = {
-            "vs_currency": "usd",
-            "days": days,
-            "interval": "daily",
-        }
-        resp = self._request(f"/coins/{coin_id.lower()}/market_chart", params=params)
-        return resp.json()
-
-
-__all__ = ["CoinGeckoClient", "BASE_URL"]
+    def get_market_chart(
+        self, coin_id: str, days: int, vs: str = "usd", interval: str | None = None
+    ) -> dict:
+        params = {"vs_currency": vs, "days": days, "interval": interval or "daily"}
+        return self._request(f"/coins/{coin_id.lower()}/market_chart", params).json()

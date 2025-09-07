@@ -64,17 +64,17 @@ class Settings(BaseSettings):
     """Application settings loaded from environment."""
 
     cors_origins: List[str] | str = ["http://localhost"]
-    cg_top_n: int = 20
-    cg_days: int = 14
+    COINGECKO_API_KEY: str | None = None
+    coingecko_api_key: str | None = Field(default=None, alias="coingecko_api_key")
+    CG_TOP_N: int = 100
+    CG_DAYS: int = 14
+    CG_INTERVAL: str | None = "daily"
+    CG_THROTTLE_MS: int = 150
     use_seed_on_failure: bool = Field(
-        default=False, description="Use seed data when ETL fails"
+        default=True, description="Use seed data when ETL fails"
     )
     log_level: str | int | None = Field(
         default=None, description="Python logging level"
-    )
-    coingecko_api_key: str | None = Field(
-        default=None,
-        description="CoinGecko API key",
     )
 
     model_config = SettingsConfigDict(
@@ -94,7 +94,7 @@ class Settings(BaseSettings):
         default = cls.model_fields[info.field_name].default
         return _coerce_bool(v, default)
 
-    @field_validator("cg_top_n", "cg_days", mode="before")
+    @field_validator("CG_TOP_N", "CG_DAYS", "CG_THROTTLE_MS", mode="before")
     @classmethod
     def _validate_int(cls, v: Any, info) -> int:  # type: ignore[override]
         default = cls.model_fields[info.field_name].default
@@ -113,11 +113,14 @@ class Settings(BaseSettings):
             return int(s)
         return s.upper()
 
-    @field_validator("coingecko_api_key", mode="before")
+    @field_validator("COINGECKO_API_KEY", "coingecko_api_key", mode="before")
     @classmethod
     def _empty_api_key(cls, v: Any) -> Any:
-        if isinstance(v, str) and v.strip() == "":
-            return None
+        if isinstance(v, str):
+            s = v.strip()
+            if s == "":
+                return None
+            return s
         return v
 
 
@@ -126,14 +129,24 @@ settings = Settings()
 
 def get_coingecko_headers() -> dict[str, str]:
     """Return CoinGecko API headers if an API key is available."""
-    if settings.coingecko_api_key:
-        return {"x-cg-pro-api-key": settings.coingecko_api_key}
-    return {}
+    key = settings.COINGECKO_API_KEY or settings.coingecko_api_key
+    return {"x-cg-pro-api-key": key} if key else {}
+
+
+def effective_coingecko_base_url() -> str:
+    """Return the CoinGecko base URL depending on API key presence."""
+    key = settings.COINGECKO_API_KEY or settings.coingecko_api_key
+    return (
+        "https://pro-api.coingecko.com/api/v3"
+        if key
+        else "https://api.coingecko.com/api/v3"
+    )
 
 
 __all__ = [
     "Settings",
     "settings",
     "get_coingecko_headers",
+    "effective_coingecko_base_url",
     "mask_secret",
 ]
