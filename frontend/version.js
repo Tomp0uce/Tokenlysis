@@ -1,0 +1,28 @@
+export function getAppVersion() {
+  try {
+    if (
+      typeof import !== 'undefined' &&
+      typeof import.meta !== 'undefined' &&
+      (import.meta).env &&
+      (import.meta).env.VITE_APP_VERSION
+    ) {
+      return (import.meta).env.VITE_APP_VERSION;
+    }
+  } catch (_) {
+    // ignored
+  }
+  if (typeof process !== 'undefined') {
+    if (process.env && process.env.NEXT_PUBLIC_APP_VERSION) {
+      return process.env.NEXT_PUBLIC_APP_VERSION;
+    }
+    if (process.env && process.env.APP_VERSION) {
+      return process.env.APP_VERSION;
+    }
+  }
+  return 'dev';
+}
+
+if (typeof window !== 'undefined') {
+  // Expose for inline scripts
+  window.getAppVersion = getAppVersion;
+}

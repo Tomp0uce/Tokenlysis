@@ -205,8 +205,8 @@ build argument and is exposed inside the container as the `APP_VERSION`
 environment variable. The same value is also written to the
 `org.opencontainers.image.version` OCI label for traceability.
 
-GitHub Actions computes the value with `git rev-list --count HEAD` and injects it
-with `--build-arg APP_VERSION=${APP_VERSION_SHORT}` during the build. When
+GitHub Actions sets the value to `1.0.<run_number>` using `github.run_number` and
+injects it with `--build-arg APP_VERSION=${APP_VERSION}` during the build. When
 building locally you can override the version:
 
 ```bash
