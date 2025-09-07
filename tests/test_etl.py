@@ -1,63 +1,74 @@
-import importlib
-from types import SimpleNamespace
-
 import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
-import backend.app.core.settings as settings_module
-import backend.app.etl.run as run_module
-from backend.app.etl.run import _coin_history
+from backend.app.db import Base
+from backend.app.etl import run as run_module
+from backend.app.services.budget import CallBudget
+from backend.app.services.dao import PricesRepo, MetaRepo
 
 
 class DummyClient:
-    def __init__(self) -> None:
-        self.called_with = None
-
-    def get_market_chart(self, coin_id: str, days: int, vs: str = "usd"):
-        self.called_with = (coin_id, days, vs)
-        return {"prices": []}
+    def get_markets(self, **kwargs):  # pragma: no cover - should not be called
+        raise AssertionError("network call should be skipped")
 
 
-def test_coin_history_uses_coingecko_id():
-    coin = {"coingecko_id": "bitcoin", "symbol": "btc", "id": "btc"}
-    client = DummyClient()
-    _coin_history(coin, 14, client)
-    assert client.called_with == ("bitcoin", 14, "usd")
+def test_run_etl_skips_when_budget_exceeded(monkeypatch, tmp_path, caplog):
+    from backend.app.etl.run import run_etl, DataUnavailable
+
+    budget = CallBudget(tmp_path / "budget.json", quota=1)
+    monkeypatch.setattr(budget, "can_spend", lambda n: False)
+    with caplog.at_level("WARNING"):
+        with pytest.raises(DataUnavailable):
+            run_etl(client=DummyClient(), budget=budget)
+    assert "quota exceeded" in caplog.text
 
 
-def test_coin_history_maps_seed_symbol():
-    coin = {"symbol": "C1", "id": "1"}
-    client = DummyClient()
-    _coin_history(coin, 14, client)
-    assert client.called_with == ("bitcoin", 14, "usd")
+def test_run_etl_persists_and_logs(monkeypatch, tmp_path, caplog):
+    engine = create_engine(
+        f"sqlite:///{tmp_path/'test.db'}", connect_args={"check_same_thread": False}
+    )
+    TestingSessionLocal = sessionmaker(
+        bind=engine, autoflush=False, autocommit=False, expire_on_commit=False
+    )
+    Base.metadata.create_all(bind=engine)
+    monkeypatch.setattr(run_module, "SessionLocal", TestingSessionLocal)
 
+    budget = CallBudget(tmp_path / "budget.json", quota=10)
 
-def _boom(*args, **kwargs):  # helper for failing ETL
-    raise RuntimeError("boom")
+    class StubClient:
+        def get_markets(self, **kwargs):
+            return [
+                {
+                    "id": "bitcoin",
+                    "current_price": 1.0,
+                    "market_cap": 1.0,
+                    "total_volume": 1.0,
+                    "market_cap_rank": 1,
+                    "price_change_percentage_24h": 0.0,
+                },
+                {
+                    "id": "ethereum",
+                    "current_price": 2.0,
+                    "market_cap": 2.0,
+                    "total_volume": 2.0,
+                    "market_cap_rank": 2,
+                    "price_change_percentage_24h": 1.0,
+                },
+            ]
 
+    with caplog.at_level("INFO"):
+        rows = run_module.run_etl(client=StubClient(), budget=budget)
+    assert rows == 2
 
-def test_run_etl_seed_fallback(monkeypatch):
-    monkeypatch.setenv("USE_SEED_ON_FAILURE", "true")
-    importlib.reload(settings_module)
-    importlib.reload(run_module)
-    monkeypatch.setattr(run_module, "_coingecko_etl", _boom)
-    dummy = SimpleNamespace(api_key=None)
-    data = run_module.run_etl(dummy)
-    assert data
-
-
-def test_run_etl_raises_when_disabled(monkeypatch):
-    monkeypatch.setenv("USE_SEED_ON_FAILURE", "false")
-    importlib.reload(settings_module)
-    importlib.reload(run_module)
-    monkeypatch.setattr(run_module, "_coingecko_etl", _boom)
-    dummy = SimpleNamespace(api_key=None)
-    with pytest.raises(run_module.DataUnavailable):
-        run_module.run_etl(dummy)
-
-
-def test_to_daily_close():
-    pairs = [[0, 1.0], [1000 * 60 * 60 * 23, 2.0], [1000 * 60 * 60 * 25, 3.0]]
-    result = run_module.to_daily_close(pairs)
-    assert len(result) == 2
-    assert result[0][1] == 2.0
-    assert result[1][1] == 3.0
+    session = TestingSessionLocal()
+    prices_repo = PricesRepo(session)
+    meta_repo = MetaRepo(session)
+    assert len(prices_repo.get_top("usd", 10)) == 2
+    assert meta_repo.get("data_source") == "api"
+    assert meta_repo.get("monthly_call_count") == "1"
+    assert budget.monthly_call_count == 1
+    record = next(r for r in caplog.records if r.message == "etl run completed")
+    assert record.coingecko_calls_total == 1
+    assert meta_repo.get("last_refresh_at") is not None
+    session.close()

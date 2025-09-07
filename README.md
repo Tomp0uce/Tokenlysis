@@ -1,6 +1,6 @@
 # Tokenlysis
 
-Tokenlysis is a cryptocurrency scoring platform. The current proof of concept fetches a configurable top ``N`` assets (20 by default) from CoinGecko, computes **Liquidity** and **Opportunity** scores and aggregates them into a global score refreshed daily.
+Tokenlysis is a cryptocurrency scoring platform. The current proof of concept fetches a configurable top ``N`` assets (50 by default) from CoinGecko, computes **Liquidity** and **Opportunity** scores and aggregates them into a global score refreshed daily.
 
 The long‑term goal is to rank more than 1,000 crypto-assets and highlight 100 trending tokens outside the top market-cap list. Additional categories and features will arrive in the MVP phase.
 
@@ -8,7 +8,7 @@ For a full overview of features and architecture, see the [functional specificat
 
 ## Overview
 
-- **Universe**: configurable top ``N`` assets (default 20) from CoinGecko *(MVP: top 1000 + 100 trending)*.
+- **Universe**: configurable top ``N`` assets (default 50) from CoinGecko *(MVP: top 1000 + 100 trending)*.
 - **Update schedule**: data is refreshed every day at 00:00 UTC.
 - **Scores**: Liquidity, Opportunity and Global *(MVP: six categories: Community, Liquidity, Opportunity, Security, Technology, Tokenomics).* 
 
@@ -16,7 +16,7 @@ For a full overview of features and architecture, see the [functional specificat
 
 | Feature | Implemented | Planned |
 | ------- | ----------- | ------- |
-| Configurable top N (default 20) | ✅ | Top 1000 + 100 trending |
+| Configurable top N (default 50) | ✅ | Top 1000 + 100 trending |
 | Liquidity & Opportunity scores + Global | ✅ | Six categories with custom weights |
 | Daily refresh aligned to 00:00 UTC | ✅ | DB + daily snapshots |
 | Static frontend table | ✅ | Rich charts & filtering |
@@ -107,14 +107,45 @@ Runtime behaviour can be tweaked with environment variables:
   `http://localhost`)
 - `CG_TOP_N` – number of assets fetched from CoinGecko (default: `20`)
 - `CG_DAYS` – number of days of history to retrieve (default: `14`)
+- `CG_MONTHLY_QUOTA` – maximum CoinGecko API calls per month (default: `10000`)
+- `CG_PER_PAGE_MAX` – preferred page size for `/coins/markets` calls (default: `250`)
+- `CG_ALERT_THRESHOLD` – fraction of the monthly quota that triggers a scope
+  reduction (default: `0.7`)
+- `COINGECKO_BASE_URL` – override for the CoinGecko API endpoint (defaults to the
+  public URL or Pro URL based on `COINGECKO_PLAN`)
 - `COINGECKO_API_KEY` – optional API key for CoinGecko
 - `COINGECKO_PLAN` – `demo` (default) or `pro` to select the API header
-- `USE_SEED_ON_FAILURE` – fall back to bundled seed data when live ETL fails (default: `false`)
+- `REFRESH_CRON` – cron expression for the scheduled ETL (default:
+  `0 */12 * * *`)
+- `BUDGET_FILE` – path to the persisted CoinGecko call budget JSON file
+- `DATABASE_URL` – SQLAlchemy database URL
+- `USE_SEED_ON_FAILURE` – fall back to bundled seed data when live ETL fails
+  (default: `true`)
+- `SEED_FILE` – path to the seed data used when `USE_SEED_ON_FAILURE` is
+  enabled (default: `./backend/app/seed/top20.json`)
 - `LOG_LEVEL` – base logging level for application and Uvicorn loggers (default: `INFO`).
   Accepts an integer or one of
   `DEBUG`, `INFO`, `WARN`, `WARNING`, `ERROR`, `CRITICAL`, `FATAL` or `NOTSET`.
   Unknown values fall back to `INFO` with a warning. Use `UVICORN_LOG_LEVEL` or
   `--log-level` to override server log level separately.
+
+#### Persistence (NAS)
+
+When deploying on a Synology NAS, mount persistent volumes so the database and
+budget survive container restarts:
+
+```
+/volume1/docker/tokenlysis/db   ↔  /app/db
+/volume1/docker/tokenlysis/meta ↔  /app/meta
+```
+
+The `.env.example` illustrates the host paths to persist data:
+
+- `DATABASE_URL=sqlite:////volume1/docker/tokenlysis/db/tokenlysis.db`
+- `BUDGET_FILE=/volume1/docker/tokenlysis/meta/cg_budget.json`
+
+These map inside the container to `/app/db` and `/app/meta` respectively.
+Ensure the container user has write permissions on the host directories.
 
 Do **not** define environment variables with empty values. If a value is not
 needed, remove the variable or comment it out in `.env`. On Synology, delete the

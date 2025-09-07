@@ -64,6 +64,7 @@ class Settings(BaseSettings):
     """Application settings loaded from environment."""
 
     cors_origins: List[str] | str = ["http://localhost"]
+    COINGECKO_BASE_URL: str | None = None
     COINGECKO_API_KEY: str | None = None
     coingecko_api_key: str | None = Field(default=None, alias="coingecko_api_key")
     COINGECKO_PLAN: str = "demo"
@@ -71,6 +72,13 @@ class Settings(BaseSettings):
     CG_DAYS: int = 14
     CG_INTERVAL: str | None = "daily"
     CG_THROTTLE_MS: int = 150
+    CG_MONTHLY_QUOTA: int = 10000
+    CG_PER_PAGE_MAX: int = 250
+    CG_ALERT_THRESHOLD: float = 0.7
+    REFRESH_CRON: str = "0 */12 * * *"
+    BUDGET_FILE: str | None = None
+    DATABASE_URL: str | None = None
+    SEED_FILE: str = "./backend/app/seed/top20.json"
     use_seed_on_failure: bool = Field(
         default=True, description="Use seed data when ETL fails"
     )
@@ -95,7 +103,14 @@ class Settings(BaseSettings):
         default = cls.model_fields[info.field_name].default
         return _coerce_bool(v, default)
 
-    @field_validator("CG_TOP_N", "CG_DAYS", "CG_THROTTLE_MS", mode="before")
+    @field_validator(
+        "CG_TOP_N",
+        "CG_DAYS",
+        "CG_THROTTLE_MS",
+        "CG_MONTHLY_QUOTA",
+        "CG_PER_PAGE_MAX",
+        mode="before",
+    )
     @classmethod
     def _validate_int(cls, v: Any, info) -> int:  # type: ignore[override]
         default = cls.model_fields[info.field_name].default
@@ -149,6 +164,8 @@ def get_coingecko_headers() -> dict[str, str]:
 
 def effective_coingecko_base_url() -> str:
     """Return the CoinGecko base URL for the configured plan."""
+    if settings.COINGECKO_BASE_URL:
+        return settings.COINGECKO_BASE_URL
     if settings.COINGECKO_PLAN == "pro":
         return "https://pro-api.coingecko.com/api/v3"
     return "https://api.coingecko.com/api/v3"

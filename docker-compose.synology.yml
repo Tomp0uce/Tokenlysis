@@ -7,6 +7,12 @@ services:
         APP_VERSION: "${APP_VERSION:-dev}"
     env_file:
       - .env
+    volumes:
+      - /volume1/docker/tokenlysis/db:/app/db
+      - /volume1/docker/tokenlysis/meta:/app/meta
+    environment:
+      - DATABASE_URL=sqlite:////app/db/tokenlysis.db
+      - BUDGET_FILE=/app/meta/cg_budget.json
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8000/readyz || exit 1"]
       interval: 30s
