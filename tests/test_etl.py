@@ -9,8 +9,8 @@ class DummyClient:
     def __init__(self) -> None:
         self.called_with = None
 
-    def get_market_chart(self, coin_id: str, days: int):
-        self.called_with = (coin_id, days)
+    def get_market_chart(self, coin_id: str, days: int, interval: str | None = None):
+        self.called_with = (coin_id, days, interval)
         return {"prices": []}
 
 
@@ -18,14 +18,14 @@ def test_coin_history_uses_coingecko_id():
     coin = {"coingecko_id": "bitcoin", "symbol": "btc", "id": "btc"}
     client = DummyClient()
     _coin_history(coin, 14, client)
-    assert client.called_with == ("bitcoin", 14)
+    assert client.called_with == ("bitcoin", 14, None)
 
 
 def test_coin_history_maps_seed_symbol():
     coin = {"symbol": "C1", "id": "1"}
     client = DummyClient()
     _coin_history(coin, 14, client)
-    assert client.called_with == ("bitcoin", 14)
+    assert client.called_with == ("bitcoin", 14, None)
 
 
 def _boom(*args, **kwargs):  # helper for failing ETL

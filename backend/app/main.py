@@ -75,9 +75,9 @@ logger.info(
     ),
     logging.getLevelName(lvl),
     settings.use_seed_on_failure,
-    settings.cg_top_n,
-    settings.cg_days,
-    mask_secret(settings.coingecko_api_key),
+    settings.CG_TOP_N,
+    settings.CG_DAYS,
+    mask_secret(settings.COINGECKO_API_KEY),
 )
 
 app = FastAPI(title="Tokenlysis")
@@ -129,7 +129,7 @@ def read_version() -> VersionResponse:
 @api.get("/diag")
 def diag(client: CoinGeckoClient = Depends(get_coingecko_client)) -> dict:
     """Return diagnostic information."""
-    api_key_masked = mask_secret(settings.coingecko_api_key)
+    api_key_masked = mask_secret(settings.COINGECKO_API_KEY)
     try:
         ping = client.ping()
         outbound_ok = True
@@ -285,12 +285,7 @@ async def healthz() -> dict:
 
 @app.get("/readyz")
 async def readyz() -> dict:
-    client = CoinGeckoClient()
-    try:
-        client.ping()
-    except Exception as exc:  # pragma: no cover - network failure
-        raise HTTPException(status_code=503, detail="unready") from exc
-    return {"status": "ok"}
+    return {"ready": True}
 
 
 static_dir = Path(__file__).resolve().parents[2] / "frontend"

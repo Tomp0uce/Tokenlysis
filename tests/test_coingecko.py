@@ -1,6 +1,7 @@
 from unittest.mock import Mock
 import importlib
 import requests
+import pytest
 
 import backend.app.core.settings as settings_module
 import backend.app.services.coingecko as coingecko
@@ -43,7 +44,8 @@ def test_coingecko_client_adds_api_key(monkeypatch):
     importlib.reload(coingecko)
     session = _mock_session({})
     client = coingecko.CoinGeckoClient(session=session)
-    assert client.session.headers["x-cg-pro-api-key"] == "secret"
+    assert client.headers["x-cg-pro-api-key"] == "secret"
+    assert client.headers["x-cg-demo-api-key"] == "secret"
 
 
 def test_get_market_chart_uses_params():
@@ -53,11 +55,7 @@ def test_get_market_chart_uses_params():
     session.get.assert_called_once()
     url, kwargs = session.get.call_args
     assert "coins/bitcoin/market_chart" in url[0]
-    assert kwargs["params"] == {
-        "vs_currency": "usd",
-        "days": 14,
-        "interval": "daily",
-    }
+    assert kwargs["params"] == {"vs_currency": "usd", "days": 14}
 
 
 def test_simple_price_cache(monkeypatch):
@@ -68,23 +66,20 @@ def test_simple_price_cache(monkeypatch):
     assert session.get.call_count == 1
 
 
-def test_retry_on_429(monkeypatch):
-    resp1 = Mock(
+def test_retry_on_429(caplog):
+    resp = Mock(
         status_code=429,
-        headers={},
+        headers={"Retry-After": "1"},
+        text="oops",
         json=lambda: {},
         raise_for_status=Mock(side_effect=requests.HTTPError()),
     )
-    resp2 = Mock(
-        status_code=200,
-        headers={},
-        json=lambda: {"ok": True},
-        raise_for_status=Mock(),
-    )
     session = Mock()
-    session.get.side_effect = [resp1, resp2]
+    session.get.return_value = resp
     session.headers = {}
-    client = coingecko.CoinGeckoClient(session=session, max_retries=2)
-    data = client.get_simple_price(["btc"], ["usd"])
-    assert data == {"ok": True}
-    assert session.get.call_count == 2
+    client = coingecko.CoinGeckoClient(session=session)
+    with caplog.at_level("WARNING"):
+        with pytest.raises(requests.HTTPError):
+            client.get_simple_price(["btc"], ["usd"])
+    assert "CoinGecko 429" in caplog.text
+    session.get.assert_called_once()
