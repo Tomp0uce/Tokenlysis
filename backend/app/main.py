@@ -22,6 +22,7 @@ from .schemas.version import VersionResponse
 from .core.version import get_version
 from .core.settings import settings
 from .services.coingecko import CoinGeckoClient
+from .debug import router as debug_router  # DEBUG
 
 app = FastAPI(title="Tokenlysis")
 app.add_middleware(
@@ -48,6 +49,9 @@ def get_coingecko_client() -> CoinGeckoClient:
 
 
 api = APIRouter(prefix="/api")
+
+# DEBUG: include debug routes
+api.include_router(debug_router)
 
 
 @api.get("/version", response_model=VersionResponse)
