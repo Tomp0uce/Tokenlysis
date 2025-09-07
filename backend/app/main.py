@@ -29,8 +29,33 @@ from .services.coingecko import CoinGeckoClient
 
 import logging
 
-log_level = logging.getLevelName(settings.log_level.upper())
-logging.basicConfig(level=log_level, format="%(message)s")
+
+def parse_log_level(value: str | int | None) -> int:
+    """Return a valid logging level from various representations."""
+
+    default = logging.INFO
+    if value is None:
+        return default
+    if isinstance(value, int):
+        return value
+    s = str(value).strip()
+    if not s:
+        return default
+    if s.isdigit():
+        return int(s)
+    up = s.upper()
+    mapping = {
+        "CRITICAL": logging.CRITICAL,
+        "ERROR": logging.ERROR,
+        "WARNING": logging.WARNING,
+        "INFO": logging.INFO,
+        "DEBUG": logging.DEBUG,
+        "NOTSET": logging.NOTSET,
+    }
+    return mapping.get(up, default)
+
+
+logging.basicConfig(level=parse_log_level(settings.log_level), format="%(message)s")
 
 app = FastAPI(title="Tokenlysis")
 app.add_middleware(

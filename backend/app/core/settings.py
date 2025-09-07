@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from typing import Any, List
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY") or None
@@ -60,8 +60,12 @@ class Settings(BaseSettings):
     cors_origins: List[str] | str = ["http://localhost"]
     cg_top_n: int = 20
     cg_days: int = 14
-    use_seed_on_failure: bool = False
-    log_level: str = "INFO"
+    use_seed_on_failure: bool = Field(
+        default=False, description="Use seed data when ETL fails"
+    )
+    log_level: str | int | None = Field(
+        default=None, description="Python logging level"
+    )
 
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="ignore"
@@ -86,6 +90,24 @@ class Settings(BaseSettings):
         default = cls.model_fields[info.field_name].default
         env_name = info.field_name.upper()
         return _parse_int(v, env_name, default)
+
+    @field_validator("log_level", mode="before")
+    @classmethod
+    def _norm_log_level(cls, v: Any) -> Any:
+        if v is None:
+            return None
+        s = str(v).strip()
+        if s == "":
+            return None
+        if s.isdigit():
+            return int(s)
+        up = s.upper()
+        valid = {"CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG", "NOTSET"}
+        if up in valid:
+            return up
+        raise ValueError(
+            f"Invalid LOG_LEVEL '{s}'. Use one of {sorted(valid)} or an integer."
+        )
 
 
 settings = Settings()

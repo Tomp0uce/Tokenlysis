@@ -67,5 +67,24 @@ def test_int_parsing(monkeypatch):
         settings_module.Settings()
 
 
+def test_log_level_parsing(monkeypatch):
+    monkeypatch.setenv("LOG_LEVEL", "")
+    cfg = settings_module.Settings()
+    assert cfg.log_level is None
+
+    monkeypatch.setenv("LOG_LEVEL", " INFO ")
+    cfg = settings_module.Settings()
+    assert cfg.log_level == "INFO"
+
+    monkeypatch.setenv("LOG_LEVEL", "15")
+    cfg = settings_module.Settings()
+    assert cfg.log_level == 15
+
+    monkeypatch.setenv("LOG_LEVEL", "maybe")
+    with pytest.raises(ValueError, match="Invalid LOG_LEVEL 'maybe'"):
+        settings_module.Settings()
+
+
 def test_mask_secret():
     assert settings_module.mask_secret("abcdef1234") == "******1234"
+

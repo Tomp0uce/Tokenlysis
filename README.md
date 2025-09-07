@@ -111,6 +111,10 @@ Runtime behaviour can be tweaked with environment variables:
 - `USE_SEED_ON_FAILURE` – fall back to bundled seed data when live ETL fails (default: `false`)
 - `LOG_LEVEL` – set to `DEBUG` for verbose logs (default: `INFO`)
 
+Do **not** define environment variables with empty values. If a value is not
+needed, remove the variable or comment it out in `.env`. `LOG_LEVEL` accepts an
+integer or one of `CRITICAL`, `ERROR`, `WARNING`, `INFO`, `DEBUG` or `NOTSET`.
+
 Boolean variables accept `true/false/1/0/yes/no/on/off` (case-insensitive). Empty values fall back to defaults, while unrecognised values trigger a startup error. Integer variables behave similarly: empty strings use the default and invalid numbers raise an explicit error.
 
 The ETL fetches market data using CoinGecko's coin IDs. During development the
@@ -147,7 +151,9 @@ the local source code.
 3. **Create the project** – in **Container Manager**, go to **Project** →
    **Create** and select the `docker-compose.yml` file from the cloned folder.
    Add `docker-compose.synology.yml` as an additional compose file so the image
-   is built locally.
+   is built locally. When defining environment variables in the Synology UI,
+   never leave a value empty; either remove the variable or provide a valid
+   value.
 4. **Build and start** – from the NAS terminal run:
 
    ```bash
