@@ -74,6 +74,16 @@ def test_int_parsing(monkeypatch):
         settings_module.Settings()
 
 
+def test_cg_days_parsing(monkeypatch):
+    monkeypatch.setenv("CG_DAYS", "")
+    cfg = settings_module.Settings()
+    assert cfg.cg_days == 14
+
+    monkeypatch.setenv("CG_DAYS", "abc")
+    with pytest.raises(ValueError, match="Invalid integer 'abc' for CG_DAYS"):
+        settings_module.Settings()
+
+
 def test_log_level_parsing(monkeypatch):
     monkeypatch.setenv("LOG_LEVEL", "")
     cfg = settings_module.Settings()
@@ -86,6 +96,12 @@ def test_log_level_parsing(monkeypatch):
     monkeypatch.setenv("LOG_LEVEL", "15")
     cfg = settings_module.Settings()
     assert cfg.log_level == 15
+
+
+def test_log_level_unknown_no_crash(monkeypatch):
+    monkeypatch.setenv("LOG_LEVEL", "foo")
+    cfg = settings_module.Settings()
+    assert cfg.log_level == "FOO"
 
 
 def test_mask_secret():

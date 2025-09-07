@@ -64,6 +64,8 @@ if isinstance(settings.log_level, str):
         )
 
 logging.basicConfig(level=lvl, format="%(message)s")
+for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+    logging.getLogger(name).setLevel(lvl)
 
 logger.info(
     (

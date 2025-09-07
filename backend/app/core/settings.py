@@ -23,12 +23,6 @@ FALSE_VALUES = {"0", "false", "f", "no", "n", "off"}
 def _coerce_bool(value: Any, default: bool, env_name: str) -> bool:
     if value is None:
         return default
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, int):
-        if value in (0, 1):
-            return bool(value)
-        raise ValueError(f"Invalid boolean integer '{value}' for {env_name}")
     if isinstance(value, str):
         s = value.strip()
         if s == "":
@@ -39,6 +33,12 @@ def _coerce_bool(value: Any, default: bool, env_name: str) -> bool:
         if sl in FALSE_VALUES:
             return False
         raise ValueError(f"Invalid boolean '{value}' for {env_name}")
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        if value in (0, 1):
+            return bool(value)
+        raise ValueError(f"Invalid boolean integer '{value}' for {env_name}")
     raise ValueError(f"Invalid boolean type '{type(value).__name__}' for {env_name}")
 
 

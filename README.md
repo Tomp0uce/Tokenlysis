@@ -109,12 +109,13 @@ Runtime behaviour can be tweaked with environment variables:
 - `CG_DAYS` – number of days of history to retrieve (default: `14`)
 - `COINGECKO_API_KEY` – optional API key for the CoinGecko Pro plan
 - `USE_SEED_ON_FAILURE` – fall back to bundled seed data when live ETL fails (default: `false`)
-- `LOG_LEVEL` – set to `DEBUG` for verbose logs (default: `INFO`)
-  (application logs only; server logs use `UVICORN_LOG_LEVEL` or `--log-level`).
-  Unknown values fall back to `INFO` and log a warning.
+- `LOG_LEVEL` – base logging level for application and Uvicorn loggers (default: `INFO`).
+  Unknown values fall back to `INFO` with a warning. Use `UVICORN_LOG_LEVEL` or
+  `--log-level` to override server log level separately.
 
 Do **not** define environment variables with empty values. If a value is not
-needed, remove the variable or comment it out in `.env`. `LOG_LEVEL` accepts an
+needed, remove the variable or comment it out in `.env`. On Synology, delete the
+variable from the UI instead of leaving the field blank. `LOG_LEVEL` accepts an
 integer or one of `CRITICAL`, `ERROR`, `WARNING`, `INFO`, `DEBUG` or `NOTSET`;
 other values fall back to `INFO` (warning logged).
 
