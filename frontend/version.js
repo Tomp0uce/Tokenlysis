@@ -1,12 +1,7 @@
 export function getAppVersion() {
   try {
-    if (
-      typeof import !== 'undefined' &&
-      typeof import.meta !== 'undefined' &&
-      (import.meta).env &&
-      (import.meta).env.VITE_APP_VERSION
-    ) {
-      return (import.meta).env.VITE_APP_VERSION;
+    if (import.meta && import.meta.env && import.meta.env.VITE_APP_VERSION) {
+      return import.meta.env.VITE_APP_VERSION;
     }
   } catch (_) {
     // ignored
