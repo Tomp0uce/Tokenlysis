@@ -33,7 +33,7 @@ SEED_DIR = Path(__file__).resolve().parents[2] / "seed"
 
 
 def _top_coins(limit: int, client: CoinGeckoClient) -> List[dict]:
-    per_page = 250 if limit >= 250 else min(250, max(50, limit))
+    per_page = min(250, max(50, limit)) if limit >= 50 else limit
     coins: List[dict] = []
     page = 1
     while len(coins) < limit:
@@ -55,7 +55,7 @@ def _coin_history(coin: dict, days: int, client: CoinGeckoClient) -> dict:
         or SEED_TO_COINGECKO.get(coin.get("symbol", ""))
         or coin.get("id")
     )
-    return client.get_market_chart(coin_id, days, interval=settings.CG_INTERVAL)
+    return client.get_market_chart(coin_id, days)
 
 
 def _coingecko_etl(limit: int, days: int, client: CoinGeckoClient) -> Dict[int, Dict]:
@@ -216,22 +216,14 @@ class DataUnavailable(Exception):
     """Raised when live data could not be fetched."""
 
 
-def run_etl() -> Dict[int, Dict]:
+def run_etl(client: CoinGeckoClient) -> Dict[int, Dict]:
     """Return structured market data for a list of assets."""
 
     limit = max(
         10,
-        min(
-            settings.CG_TOP_N,
-            (
-                250
-                if "api.coingecko.com" in settings.COINGECKO_BASE_URL
-                else settings.CG_TOP_N
-            ),
-        ),
+        min(settings.CG_TOP_N, 250 if client.api_key is None else settings.CG_TOP_N),
     )
     days = settings.CG_DAYS
-    client = CoinGeckoClient(settings.COINGECKO_BASE_URL, settings.COINGECKO_API_KEY)
     try:
         return _coingecko_etl(limit, days, client)
     except Exception as exc:  # pragma: no cover - network failures

@@ -1,5 +1,6 @@
 import asyncio
 import datetime as dt
+import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Dict, List
@@ -89,6 +90,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+api_key = os.getenv("COINGECKO_API_KEY", "").strip() or None
+app.state.cg_client = CoinGeckoClient(api_key=api_key)
+masked = f"{api_key[:6]}…{api_key[-4:]}" if api_key else "(none)"
+logger.info(
+    "CG config -> mode=%s base=%s key=%s",
+    "pro" if api_key else "public",
+    app.state.cg_client.base_url,
+    masked,
+)
+
 
 @app.middleware("http")
 async def add_request_id(request: Request, call_next):
@@ -103,18 +114,13 @@ async def add_request_id(request: Request, call_next):
 @lru_cache
 def get_data() -> Dict[int, dict]:
     try:
-        return run_etl()
+        return run_etl(app.state.cg_client)
     except DataUnavailable as exc:  # pragma: no cover - handled by API
         raise HTTPException(status_code=503, detail="data unavailable") from exc
 
 
 def _latest_record(history: List[dict]) -> dict:
     return history[-1]
-
-
-def get_coingecko_client() -> CoinGeckoClient:
-    """Dependency that returns a CoinGeckoClient instance."""
-    return CoinGeckoClient()
 
 
 api = APIRouter(prefix="/api")
@@ -127,13 +133,14 @@ def read_version() -> VersionResponse:
 
 
 @api.get("/diag")
-def diag(client: CoinGeckoClient = Depends(get_coingecko_client)) -> dict:
+def diag(request: Request) -> dict:
     """Return diagnostic information."""
+    client: CoinGeckoClient = request.app.state.cg_client
     api_key_masked = mask_secret(settings.COINGECKO_API_KEY)
     try:
         ping = client.ping()
         outbound_ok = True
-    except Exception:
+    except Exception:  # pragma: no cover - network failures
         ping = ""
         outbound_ok = False
     return {
@@ -144,10 +151,30 @@ def diag(client: CoinGeckoClient = Depends(get_coingecko_client)) -> dict:
     }
 
 
+@api.get("/diag/cg")
+def diag_cg(request: Request) -> dict:
+    """Detailed CoinGecko diagnostic."""
+    client: CoinGeckoClient = request.app.state.cg_client
+    status: dict[str, object] = {}
+    try:
+        status["ping"] = client._request("/ping")
+        mkts = client.get_markets(per_page=1, page=1)
+        status["markets_sample"] = mkts[:1]
+        chart = client.get_market_chart("bitcoin", 14)
+        status["chart_points"] = len(chart.get("prices", []))
+    except Exception as e:  # pragma: no cover - network failures
+        status["error"] = str(e)
+    return {
+        "mode": "pro" if client.api_key else "public",
+        "base_url": client.base_url,
+        "api_key_present": bool(client.api_key),
+        "diag": status,
+    }
+
+
 @api.get("/price/{coin_id}", response_model=PriceResponse)
-def get_price(
-    coin_id: str, client: CoinGeckoClient = Depends(get_coingecko_client)
-) -> PriceResponse:
+def get_price(coin_id: str, request: Request) -> PriceResponse:
+    client: CoinGeckoClient = request.app.state.cg_client
     data = client.get_simple_price([coin_id], ["usd"])
     price = data.get(coin_id, {}).get("usd")
     if price is None:

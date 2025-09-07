@@ -65,7 +65,6 @@ class Settings(BaseSettings):
 
     cors_origins: List[str] | str = ["http://localhost"]
     COINGECKO_API_KEY: str | None = None
-    COINGECKO_BASE_URL: str = "https://api.coingecko.com/api/v3"
     CG_TOP_N: int = 100
     CG_DAYS: int = 14
     CG_INTERVAL: str | None = None
@@ -116,8 +115,11 @@ class Settings(BaseSettings):
     @field_validator("COINGECKO_API_KEY", mode="before")
     @classmethod
     def _empty_api_key(cls, v: Any) -> Any:
-        if isinstance(v, str) and v.strip() == "":
-            return None
+        if isinstance(v, str):
+            s = v.strip()
+            if s == "":
+                return None
+            return s
         return v
 
 
