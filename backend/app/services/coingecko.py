@@ -4,7 +4,7 @@ from typing import Dict, List, Optional
 
 import requests
 
-from ..core.settings import get_coingecko_headers
+from ..core.settings import COINGECKO_API_KEY
 
 BASE_URL = "https://api.coingecko.com/api/v3"
 
@@ -20,10 +20,10 @@ class CoinGeckoClient:
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.session = session or requests.Session()
-        headers = {"x-cg-pro-api-key": api_key} if api_key else get_coingecko_headers()
-        self.api_key = headers.get("x-cg-pro-api-key")
-        if headers:
-            self.session.headers.update(headers)
+        key = api_key or COINGECKO_API_KEY
+        self.api_key = key
+        if key:
+            self.session.headers.update({"x-cg-pro-api-key": key})
 
     def ping(self) -> str:
         """Check API status."""

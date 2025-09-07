@@ -25,9 +25,11 @@
   </table>
   <p id="version"></p>
   <script>
+    const API_URL = import.meta.env.VITE_API_URL || '';
+
     async function loadCryptos() {
       try {
-        const res = await fetch('/api/ranking');
+        const res = await fetch(`${API_URL}/ranking`);
         const data = await res.json();
         const tbody = document.querySelector('#cryptos tbody');
         data.items.forEach(item => {
@@ -45,7 +47,7 @@
 
     async function loadVersion() {
       try {
-        const res = await fetch('/api/version');
+        const res = await fetch(`${API_URL}/version`);
         const data = await res.json();
         document.getElementById('version').textContent = `Version: ${data.version}`;
       } catch (err) {
