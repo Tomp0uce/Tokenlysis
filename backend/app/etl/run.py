@@ -18,10 +18,14 @@ from __future__ import annotations
 import datetime as dt
 import json
 import logging
+import math
 from pathlib import Path
 from typing import Dict, List
 
+import requests
+
 from ..services.coingecko import CoinGeckoClient
+from ..services.budget import CallBudget
 from ..core.settings import settings, effective_coingecko_base_url
 from ..services.indicators import rsi
 from ..services.scoring import score_global, score_liquidite, score_opportunite
@@ -30,13 +34,20 @@ from ..config.seed_mapping import SEED_TO_COINGECKO
 SEED_DIR = Path(__file__).resolve().parents[2] / "seed"
 
 
-def _top_coins(limit: int, client: CoinGeckoClient) -> List[dict]:
-    per_page = 50 if limit > 50 else limit
+def _top_coins(limit: int, client: CoinGeckoClient, per_page_max: int) -> List[dict]:
+    per_page = per_page_max if limit > per_page_max else limit
     coins: List[dict] = []
     page = 1
     while len(coins) < limit:
         take = min(per_page, limit - len(coins))
-        data = client.get_markets(vs="usd", per_page=take, page=page)
+        try:
+            data = client.get_markets(vs="usd", per_page=take, page=page)
+        except requests.HTTPError as exc:
+            status = exc.response.status_code if exc.response else 0
+            if 400 <= status < 500 and per_page > 100:
+                per_page = 100
+                continue
+            raise
         if not data:
             break
         coins.extend(data)
@@ -65,8 +76,10 @@ def to_daily_close(ms_price_pairs: List[List[float]]) -> List[tuple[dt.date, flo
     return sorted(daily.items())
 
 
-def _coingecko_etl(limit: int, days: int, client: CoinGeckoClient) -> Dict[int, Dict]:
-    coins = _top_coins(limit, client)
+def _coingecko_etl(
+    limit: int, days: int, client: CoinGeckoClient, per_page_max: int
+) -> Dict[int, Dict]:
+    coins = _top_coins(limit, client, per_page_max)
 
     prices: Dict[int, List[float]] = {}
     volumes: Dict[int, List[float]] = {}
@@ -251,7 +264,9 @@ class DataUnavailable(Exception):
     """Raised when live data could not be fetched."""
 
 
-def run_etl(client: CoinGeckoClient | None = None) -> Dict[int, Dict]:
+def run_etl(
+    client: CoinGeckoClient | None = None, budget: CallBudget | None = None
+) -> Dict[int, Dict]:
     """Return structured market data for a list of assets."""
 
     if client is None:
@@ -265,8 +280,15 @@ def run_etl(client: CoinGeckoClient | None = None) -> Dict[int, Dict]:
         min(settings.CG_TOP_N, 250 if client.api_key is None else settings.CG_TOP_N),
     )
     days = settings.CG_DAYS
+    per_page_max = settings.CG_PER_PAGE_MAX
+    required_calls = math.ceil(limit / per_page_max)
+    if budget and not budget.can_spend(required_calls):
+        raise DataUnavailable("quota exceeded")
     try:
-        return _coingecko_etl(limit, days, client)
+        data = _coingecko_etl(limit, days, client, per_page_max)
+        if budget:
+            budget.spend(required_calls)
+        return data
     except Exception as exc:  # pragma: no cover - network failures
         if settings.use_seed_on_failure:
             logging.exception("Falling back to seed data")

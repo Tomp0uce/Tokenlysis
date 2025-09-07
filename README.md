@@ -107,6 +107,8 @@ Runtime behaviour can be tweaked with environment variables:
   `http://localhost`)
 - `CG_TOP_N` – number of assets fetched from CoinGecko (default: `20`)
 - `CG_DAYS` – number of days of history to retrieve (default: `14`)
+- `CG_MONTHLY_QUOTA` – maximum CoinGecko API calls per month (default: `10000`)
+- `CG_PER_PAGE_MAX` – preferred page size for `/coins/markets` calls (default: `250`)
 - `COINGECKO_API_KEY` – optional API key for CoinGecko
 - `COINGECKO_PLAN` – `demo` (default) or `pro` to select the API header
 - `USE_SEED_ON_FAILURE` – fall back to bundled seed data when live ETL fails (default: `false`)
