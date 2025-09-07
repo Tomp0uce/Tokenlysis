@@ -34,6 +34,13 @@
     const API_URL = document.querySelector('meta[name="api-url"]')?.content || '';
     let lastRequest = {};
 
+    function formatPrice(p) {
+      if (p === null || p === undefined) return '';
+      if (p >= 1) return p.toFixed(2);
+      if (p >= 0.01) return p.toFixed(4);
+      return p.toFixed(6);
+    }
+
     async function loadCryptos() {
       const statusEl = document.getElementById('status');
       statusEl.textContent = 'Loading...';
@@ -47,7 +54,7 @@
         const latency = Math.round(performance.now() - start);
         lastRequest = { url, status: res.status, latency };
         if (!res.ok) {
-          if (res.status === 503) {
+          if ([503, 500, 429, 400].includes(res.status)) {
             await loadBasic();
             return;
           }
@@ -59,7 +66,7 @@
         } else {
           data.items.forEach(item => {
             const tr = document.createElement('tr');
-            tr.innerHTML = `<td>${item.name}</td><td>${item.symbol}</td><td>${item.latest.price_usd}</td><td>${item.latest.scores.global}</td>`;
+            tr.innerHTML = `<td>${item.name}</td><td>${item.symbol}</td><td>${formatPrice(item.latest.price_usd)}</td><td>${item.latest.scores.global}</td>`;
             tbody.appendChild(tr);
           });
           statusEl.textContent = '';
@@ -86,7 +93,8 @@
         const data = await res.json();
         data.items.forEach(item => {
           const tr = document.createElement('tr');
-          tr.innerHTML = `<td>${item.name}</td><td>${item.symbol}</td><td>${item.price}</td><td>${item.score} <span class="badge">demo</span></td>`;
+          const badge = data.demo ? ' <span class="badge">DEMO</span>' : '';
+          tr.innerHTML = `<td>${item.name}</td><td>${item.symbol}</td><td>${formatPrice(item.price)}</td><td>${item.score}${badge}</td>`;
           tbody.appendChild(tr);
         });
         document.getElementById('cryptos').style.display = 'table';
@@ -115,7 +123,7 @@
       try {
         const res = await fetch(`${API_URL}/diag`);
         const data = await res.json();
-        const diag = `URL: ${lastRequest.url || ''} (${lastRequest.status || ''} in ${lastRequest.latency || 0}ms) | outbound_ok: ${data.outbound_ok} | coingecko_ping: ${data.coingecko_ping} | api_key: ${data.api_key_masked || 'none'}`;
+        const diag = `URL: ${lastRequest.url || ''} (${lastRequest.status || ''} in ${lastRequest.latency || 0}ms) | plan: ${data.plan} | has_key: ${data.has_api_key} | base: ${data.base_url} | interval: ${data.interval_policy}`;
         document.getElementById('diag').textContent = diag;
       } catch (err) {
         document.getElementById('diag').textContent = 'Diag unavailable';

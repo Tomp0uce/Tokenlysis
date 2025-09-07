@@ -24,6 +24,7 @@ class CoinGeckoClient:
         session: requests.Session | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
+        self.plan = plan
         self.session = session or requests.Session()
         self.session.headers.update(
             {"Accept": "application/json", "User-Agent": "Tokenlysis/1.0"}
@@ -43,13 +44,17 @@ class CoinGeckoClient:
             resp = self.session.get(url, params=params, timeout=(3.1, 20))
             latency = int((time.perf_counter() - t0) * 1000)
             rid = resp.headers.get("X-Request-Id", "-")
+            sent_demo = "x-cg-demo-api-key" in resp.request.headers
             logger.info(
                 json.dumps(
                     {
                         "endpoint": path,
+                        "url": resp.url,
                         "status": resp.status_code,
                         "latency_ms": latency,
-                        "retries": attempt - 1,
+                        "retries": attempt,
+                        "plan": self.plan,
+                        "sent_demo_header": sent_demo,
                         "request_id": rid,
                     }
                 )
@@ -92,13 +97,25 @@ class CoinGeckoClient:
         per_page: int = 20,
         page: int = 1,
     ) -> List[dict]:
-        params = {"vs_currency": vs, "order": order, "per_page": per_page, "page": page}
+        params = {
+            "vs_currency": vs,
+            "order": order,
+            "per_page": per_page,
+            "page": page,
+            "sparkline": "false",
+            "price_change_percentage": "24h",
+        }
         return self._request("/coins/markets", params).json()
 
-    def get_market_chart(
-        self, coin_id: str, days: int, vs: str = "usd", interval: str | None = "daily"
-    ) -> dict:
-        params = {"vs_currency": vs, "days": days}
-        if interval:
-            params["interval"] = interval
-        return self._request(f"/coins/{coin_id.lower()}/market_chart", params).json()
+    def get_market_chart(self, coin_id: str, days: int, vs: str = "usd") -> dict:
+        now = int(time.time())
+        start = now - days * 86400
+        params = {
+            "vs_currency": vs,
+            "from": start,
+            "to": now,
+            "interval": "daily",
+        }
+        return self._request(
+            f"/coins/{coin_id.lower()}/market_chart/range", params
+        ).json()

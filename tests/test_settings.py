@@ -12,7 +12,7 @@ def test_api_key_from_env(monkeypatch):
     assert settings_module.get_coingecko_headers() == {"x-cg-demo-api-key": "env-key"}
     assert (
         settings_module.effective_coingecko_base_url()
-        == "https://pro-api.coingecko.com/api/v3"
+        == "https://api.coingecko.com/api/v3"
     )
 
 

@@ -53,9 +53,7 @@ def _coin_history(coin: dict, days: int, client: CoinGeckoClient) -> dict:
         or SEED_TO_COINGECKO.get(coin.get("symbol", ""))
         or coin.get("id")
     )
-    return client.get_market_chart(
-        coin_id, days, vs="usd", interval=settings.CG_INTERVAL
-    )
+    return client.get_market_chart(coin_id, days, vs="usd")
 
 
 def _coingecko_etl(limit: int, days: int, client: CoinGeckoClient) -> Dict[int, Dict]:

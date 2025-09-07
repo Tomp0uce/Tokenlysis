@@ -143,18 +143,11 @@ def read_version() -> VersionResponse:
 def diag(request: Request) -> dict:
     """Return diagnostic information."""
     client: CoinGeckoClient = request.app.state.cg_client
-    api_key_masked = mask_secret(settings.COINGECKO_API_KEY)
-    try:
-        ping = client.ping()
-        outbound_ok = True
-    except Exception:  # pragma: no cover - network failures
-        ping = ""
-        outbound_ok = False
     return {
-        "app_version": get_version(),
-        "outbound_ok": outbound_ok,
-        "coingecko_ping": ping,
-        "api_key_masked": api_key_masked,
+        "plan": settings.COINGECKO_PLAN,
+        "has_api_key": bool(client.api_key),
+        "base_url": client.base_url,
+        "interval_policy": "range_daily",
     }
 
 
@@ -172,10 +165,10 @@ def diag_cg(request: Request) -> dict:
     except Exception as e:  # pragma: no cover - network failures
         status["error"] = str(e)
     return {
-        "mode": "pro" if client.api_key else "public",
-        "base_url_effective": client.base_url,
+        "plan": settings.COINGECKO_PLAN,
+        "base_url": client.base_url,
         "has_api_key": bool(client.api_key),
-        "interval_effective": settings.CG_INTERVAL,
+        "interval_policy": "range_daily",
         "diag": status,
     }
 
@@ -200,6 +193,7 @@ def markets_basic(
     client: CoinGeckoClient = request.app.state.cg_client
     limit = max(1, min(limit, 50))
     data = client.get_markets(vs=vs, per_page=limit, page=page)
+    logger.info("markets_basic fallback limit=%s", limit)
     items = [
         {
             "name": d.get("name"),
@@ -209,7 +203,11 @@ def markets_basic(
         }
         for d in data
     ]
-    return {"items": items, "count": len(items)}
+    return {
+        "items": items,
+        "count": len(items),
+        "demo": settings.COINGECKO_PLAN == "demo",
+    }
 
 
 @api.get("/ranking", response_model=RankingResponse)
@@ -341,8 +339,14 @@ async def healthz() -> dict:
 
 
 @app.get("/readyz")
-async def readyz() -> dict:
-    return {"ready": True}
+async def readyz(request: Request) -> dict:
+    client: CoinGeckoClient = request.app.state.cg_client
+    try:
+        client.get_markets(per_page=1)
+        ready = True
+    except Exception:  # pragma: no cover - network failures
+        ready = False
+    return {"ready": ready}
 
 
 static_dir = Path(__file__).resolve().parents[2] / "frontend"

@@ -18,6 +18,8 @@ def _mock_session(json_data):
     response.raise_for_status.return_value = None
     response.status_code = 200
     response.headers = {}
+    response.request = SimpleNamespace(headers={})
+    response.url = "http://test"
     session.get.return_value = response
     session.headers = {}
     return session
@@ -53,14 +55,19 @@ def test_coingecko_client_adds_api_key():
     assert client_demo.session.headers["x-cg-demo-api-key"] == "demo"
 
 
-def test_get_market_chart_uses_params():
+def test_get_market_chart_uses_params(monkeypatch):
     session = _mock_session({"prices": []})
+    monkeypatch.setattr(coingecko.time, "time", lambda: 1_000_000)
     client = coingecko.CoinGeckoClient(api_key=None, session=session)
     client.get_market_chart("bitcoin", 14)
     session.get.assert_called()
     url, kwargs = session.get.call_args
-    assert "coins/bitcoin/market_chart" in url[0]
-    assert kwargs["params"] == {"vs_currency": "usd", "days": 14, "interval": "daily"}
+    assert "coins/bitcoin/market_chart/range" in url[0]
+    params = kwargs["params"]
+    assert params["vs_currency"] == "usd"
+    assert params["interval"] == "daily"
+    assert params["from"] == 1_000_000 - 14 * 86400
+    assert params["to"] == 1_000_000
 
 
 def test_retry_on_429():
@@ -77,6 +84,10 @@ def test_retry_on_429():
         json=lambda: {},
         raise_for_status=Mock(return_value=None),
     )
+    resp1.request = SimpleNamespace(headers={})
+    resp1.url = "http://test"
+    resp2.request = SimpleNamespace(headers={})
+    resp2.url = "http://test"
     session = Mock()
     session.get.side_effect = [resp1, resp2]
     session.headers = {}
@@ -100,19 +111,22 @@ def test_diag_cg(monkeypatch):
         def get_markets(self, per_page=1, page=1, vs_currency="usd"):
             return [{"id": "btc"}]
 
-        def get_market_chart(self, coin_id, days, vs="usd", interval=None):
+        def get_market_chart(self, coin_id, days, vs="usd"):
             return {"prices": [[0, 0], [1, 1]]}
 
     monkeypatch.setenv("COINGECKO_API_KEY", "k")
+    monkeypatch.setenv("COINGECKO_PLAN", "pro")
     importlib.reload(settings_module)
     importlib.reload(coingecko)
-    app.state.cg_client = DummyClient()
-    client = TestClient(app)
+    import backend.app.main as main_module
+    importlib.reload(main_module)
+    main_module.app.state.cg_client = DummyClient()
+    client = TestClient(main_module.app)
     resp = client.get("/api/diag/cg")
     assert resp.status_code == 200
     data = resp.json()
-    assert data["mode"] == "pro"
-    assert data["base_url_effective"] == coingecko.BASE_URL
+    assert data["plan"] == "pro"
+    assert data["base_url"] == coingecko.BASE_URL
     assert data["has_api_key"] is True
-    assert data["interval_effective"] == "daily"
+    assert data["interval_policy"] == "range_daily"
     assert data["diag"]["chart_points"] == 2
