@@ -17,10 +17,9 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import logging
 from pathlib import Path
 from typing import Dict, List
-
-import logging
 
 from ..services.coingecko import CoinGeckoClient
 from ..core.settings import settings, effective_coingecko_base_url
@@ -56,75 +55,102 @@ def _coin_history(coin: dict, days: int, client: CoinGeckoClient) -> dict:
     return client.get_market_chart(coin_id, days, vs="usd")
 
 
+def to_daily_close(ms_price_pairs: List[List[float]]) -> List[tuple[dt.date, float]]:
+    """Resample timestamped points to daily close values."""
+
+    daily: Dict[dt.date, float] = {}
+    for ms, price in ms_price_pairs:
+        day = dt.datetime.fromtimestamp(ms / 1000, tz=dt.timezone.utc).date()
+        daily[day] = price
+    return sorted(daily.items())
+
+
 def _coingecko_etl(limit: int, days: int, client: CoinGeckoClient) -> Dict[int, Dict]:
     coins = _top_coins(limit, client)
 
     prices: Dict[int, List[float]] = {}
     volumes: Dict[int, List[float]] = {}
     mcaps: Dict[int, List[float]] = {}
-    cryptos: Dict[int, dict] = {}
+    dates_map: Dict[int, List[dt.date]] = {}
+    data: Dict[int, dict] = {}
     errors = 0
 
     for idx, coin in enumerate(coins, start=1):
-        try:
-            hist = _coin_history(coin, days, client)
-        except Exception as exc:  # pragma: no cover - network failures
-            errors += 1
-            logging.warning(f"history failed for {coin.get('id')}: {exc}")
-            continue
-        prices_list = [p[1] for p in hist.get("prices", [])]
-        if len(prices_list) < days:
-            logging.warning(
-                "history too short for %s: %s/%s",
-                coin.get("id"),
-                len(prices_list),
-                days,
-            )
-            continue
-        volumes_list = [v[1] for v in hist.get("total_volumes", [])]
-        mcaps_list = [m[1] for m in hist.get("market_caps", [])]
-        prices[idx] = prices_list[:days]
-        volumes[idx] = volumes_list[:days]
-        mcaps[idx] = mcaps_list[:days]
-        cryptos[idx] = {
+        info = {
             "id": idx,
             "symbol": coin.get("symbol", ""),
             "name": coin.get("name", ""),
             "sectors": [],
         }
+        try:
+            hist = _coin_history(coin, days, client)
+            price_pairs = to_daily_close(hist.get("prices", []))
+            vol_pairs = to_daily_close(hist.get("total_volumes", []))
+            mcap_pairs = to_daily_close(hist.get("market_caps", []))
+            if len(price_pairs) < days:
+                raise ValueError("history too short")
+            price_pairs = price_pairs[-days:]
+            vol_pairs = vol_pairs[-days:]
+            mcap_pairs = mcap_pairs[-days:]
+            prices[idx] = [p for _, p in price_pairs]
+            volumes[idx] = [v for _, v in vol_pairs]
+            mcaps[idx] = [m for _, m in mcap_pairs]
+            dates_map[idx] = [d for d, _ in price_pairs]
+            data[idx] = {**info, "history": []}
+        except Exception as exc:  # pragma: no cover - network failures
+            errors += 1
+            logging.warning(f"history failed for {coin.get('id')}: {exc}")
+            today = dt.date.today().isoformat()
+            data[idx] = {
+                **info,
+                "history": [
+                    {
+                        "date": today,
+                        "metrics": {
+                            "price_usd": coin.get("current_price"),
+                            "market_cap_usd": coin.get("market_cap"),
+                            "volume_24h_usd": coin.get("total_volume"),
+                            "listings_count": 0,
+                            "rsi14": 0.0,
+                        },
+                        "scores": {
+                            "score_global": 0.0,
+                            "score_liquidite": 0.0,
+                            "score_opportunite": 0.0,
+                        },
+                    }
+                ],
+            }
 
-    if not cryptos:
+    success_ids = [cid for cid in data if cid in dates_map]
+    if not success_ids:
         logging.error("Empty ETL result (all history calls failed)")
-        return {}
+        return data
 
-    rsi_map = {cid: rsi(arr) for cid, arr in prices.items()}
+    rsi_map = {cid: rsi(prices[cid]) for cid in success_ids}
     volchg_map: Dict[int, List[float]] = {}
-    for cid, vols in volumes.items():
+    for cid in success_ids:
+        vols = volumes[cid]
         changes = [0.0]
         for i in range(1, len(vols)):
             prev = vols[i - 1]
             changes.append(((vols[i] - prev) / prev * 100) if prev else 0.0)
         volchg_map[cid] = changes
 
-    start = dt.date.today() - dt.timedelta(days=days - 1)
-    dates = [start + dt.timedelta(days=i) for i in range(days)]
-
-    data: Dict[int, Dict] = {
-        cid: {**info, "history": []} for cid, info in cryptos.items()
-    }
+    dates = dates_map[success_ids[0]]
 
     for day_idx, day in enumerate(dates):
-        volume_arr = [volumes[cid][day_idx] for cid in cryptos]
-        mcap_arr = [mcaps[cid][day_idx] for cid in cryptos]
-        listings_arr = [0 for _ in cryptos]
-        rsi_arr = [rsi_map[cid][day_idx] for cid in cryptos]
-        volchg_arr = [volchg_map[cid][day_idx] for cid in cryptos]
+        volume_arr = [volumes[cid][day_idx] for cid in success_ids]
+        mcap_arr = [mcaps[cid][day_idx] for cid in success_ids]
+        listings_arr = [0 for _ in success_ids]
+        rsi_arr = [rsi_map[cid][day_idx] for cid in success_ids]
+        volchg_arr = [volchg_map[cid][day_idx] for cid in success_ids]
 
         liq_scores = score_liquidite(volume_arr, mcap_arr, listings_arr)
         opp_scores = score_opportunite(rsi_arr, volchg_arr)
         glob_scores = score_global(liq_scores, opp_scores)
 
-        for idx, cid in enumerate(cryptos):
+        for idx, cid in enumerate(success_ids):
             data[cid]["history"].append(
                 {
                     "date": day.isoformat(),
@@ -143,7 +169,7 @@ def _coingecko_etl(limit: int, days: int, client: CoinGeckoClient) -> Dict[int, 
                 }
             )
 
-    logging.info(f"ETL done: coins={len(cryptos)} errors={errors}")
+    logging.info(f"ETL done: coins={len(data)} errors={errors}")
     return data
 
 

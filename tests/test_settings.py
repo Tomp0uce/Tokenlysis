@@ -89,7 +89,7 @@ def test_use_seed_on_failure_invalid_falls_back(monkeypatch):
 def test_int_parsing(monkeypatch):
     monkeypatch.setenv("CG_TOP_N", "")
     cfg = settings_module.Settings()
-    assert cfg.CG_TOP_N == 100
+    assert cfg.CG_TOP_N == 50
 
     monkeypatch.setenv("CG_TOP_N", "abc")
     with pytest.raises(ValueError, match="Invalid integer 'abc' for CG_TOP_N"):

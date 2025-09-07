@@ -1,10 +1,11 @@
 import json
 import logging
-import random
 import time
 from typing import List
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from ..core.settings import settings, mask_secret
 
@@ -26,11 +27,20 @@ class CoinGeckoClient:
         self.base_url = base_url.rstrip("/")
         self.plan = plan
         self.session = session or requests.Session()
+        retry = Retry(
+            total=3,
+            backoff_factor=1,
+            status_forcelist=[429, 500, 502, 503, 504],
+            allowed_methods=["GET"],
+        )
+        adapter = HTTPAdapter(max_retries=retry)
+        self.session.mount("https://", adapter)
+        self.session.mount("http://", adapter)
         self.session.headers.update(
             {"Accept": "application/json", "User-Agent": "Tokenlysis/1.0"}
         )
         if api_key:
-            header_name = "x-cg-pro-api-key" if plan == "pro" else "x-cg-demo-api-key"
+            header_name = "x-cg-demo-api-key" if plan == "demo" else "x-cg-api-key"
             self.session.headers.update({header_name: api_key})
             masked = mask_secret(api_key)
             logger.info("CoinGecko auth header set: %s=%s", header_name, masked)
@@ -39,9 +49,10 @@ class CoinGeckoClient:
     def _request(self, path: str, params: dict | None = None) -> requests.Response:
         url = f"{self.base_url}{path}"
         time.sleep(settings.CG_THROTTLE_MS / 1000.0)
-        for attempt in range(6):
+        params_local = params.copy() if params else None
+        for attempt in range(2):
             t0 = time.perf_counter()
-            resp = self.session.get(url, params=params, timeout=(3.1, 20))
+            resp = self.session.get(url, params=params_local, timeout=(3.1, 20))
             latency = int((time.perf_counter() - t0) * 1000)
             rid = resp.headers.get("X-Request-Id", "-")
             sent_demo = "x-cg-demo-api-key" in resp.request.headers
@@ -59,27 +70,22 @@ class CoinGeckoClient:
                     }
                 )
             )
-            if resp.status_code == 429:
-                ra = resp.headers.get("Retry-After")
-                if ra:
-                    wait = float(ra)
-                else:
-                    wait = min(0.5 * (2**attempt), 8)
-                    wait += random.uniform(0, 0.1)
-                time.sleep(wait)
-                continue
-            try:
-                resp.raise_for_status()
-                return resp
-            except requests.HTTPError:
-                logger.error(
-                    "CG error %s %s params=%s body=%s",
-                    resp.status_code,
-                    url,
-                    params,
-                    resp.text[:500],
-                )
-                raise
+            if (
+                resp.status_code == 401
+                and params_local
+                and params_local.get("interval") == "daily"
+            ):
+                try:
+                    body = resp.json()
+                except Exception:  # pragma: no cover - defensive
+                    body = {}
+                if body.get("error_code") == 10005:
+                    params_local = {
+                        k: v for k, v in params_local.items() if k != "interval"
+                    }
+                    continue
+            resp.raise_for_status()
+            return resp
         resp.raise_for_status()
         return resp
 
@@ -107,15 +113,35 @@ class CoinGeckoClient:
         }
         return self._request("/coins/markets", params).json()
 
-    def get_market_chart(self, coin_id: str, days: int, vs: str = "usd") -> dict:
-        now = int(time.time())
-        start = now - days * 86400
-        params = {
-            "vs_currency": vs,
-            "from": start,
-            "to": now,
-            "interval": "daily",
-        }
+    def get_market_chart(
+        self,
+        coin_id: str,
+        days: int,
+        vs: str = "usd",
+        interval: str | None = None,
+    ) -> dict:
+        if self.plan == "demo":
+            time.sleep(2.1)
+        params = {"vs_currency": vs, "days": days}
+        if interval and interval != "daily":
+            params["interval"] = interval
         return self._request(
-            f"/coins/{coin_id.lower()}/market_chart/range", params
+            f"/coins/{coin_id.lower()}/market_chart", params=params
+        ).json()
+
+    def get_market_chart_range(
+        self,
+        coin_id: str,
+        vs: str,
+        ts_from: int,
+        ts_to: int,
+        interval: str | None = None,
+    ) -> dict:
+        if self.plan == "demo":
+            time.sleep(2.1)
+        params = {"vs_currency": vs, "from": ts_from, "to": ts_to}
+        if interval and interval != "daily":
+            params["interval"] = interval
+        return self._request(
+            f"/coins/{coin_id.lower()}/market_chart/range", params=params
         ).json()
