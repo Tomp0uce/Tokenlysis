@@ -152,8 +152,10 @@ the local source code.
    **Create** and select the `docker-compose.yml` file from the cloned folder.
    Add `docker-compose.synology.yml` as an additional compose file so the image
    is built locally. When defining environment variables in the Synology UI,
-   never leave a value empty; either remove the variable or provide a valid
-   value.
+   never leave a value empty. If you don't have a value, remove the variable
+   instead of leaving it blank. Supported boolean values are `true`, `false`,
+   `1`, `0`, `yes`, `no`, `on` and `off` (case-insensitive); an empty value is
+   treated as unset and defaults are applied.
 4. **Build and start** – from the NAS terminal run:
 
    ```bash

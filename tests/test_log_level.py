@@ -10,4 +10,3 @@ def test_parse_log_level_values():
     assert parse_log_level(" INFO ") == logging.INFO
     assert parse_log_level("15") == 15
     assert parse_log_level("foo") == logging.INFO
-

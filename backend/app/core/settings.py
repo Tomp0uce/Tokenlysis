@@ -19,25 +19,26 @@ def mask_secret(value: str | None) -> str:
     return "*" * (len(value) - 4) + value[-4:]
 
 
-TRUE_VALUES = {"true", "1", "yes", "on"}
-FALSE_VALUES = {"false", "0", "no", "off"}
+TRUE_VALUES = {"1", "true", "t", "yes", "y", "on"}
+FALSE_VALUES = {"0", "false", "f", "no", "n", "off"}
 
 
-def _parse_bool(value: Any, env_name: str, default: bool) -> bool:
+def _coerce_bool(value: Any, default: bool) -> Any:
     if value is None:
         return default
     if isinstance(value, str):
-        stripped = value.strip()
-        if stripped == "":
+        s = value.strip()
+        if s == "":
             return default
-        lowered = stripped.lower()
-        if lowered in TRUE_VALUES:
+        sl = s.lower()
+        if sl in TRUE_VALUES:
             return True
-        if lowered in FALSE_VALUES:
+        if sl in FALSE_VALUES:
             return False
-    elif isinstance(value, bool):
+        return s
+    if isinstance(value, bool):
         return value
-    raise ValueError(f"Invalid boolean '{value}' for {env_name}")
+    return value
 
 
 def _parse_int(value: Any, env_name: str, default: int) -> int:
@@ -80,9 +81,9 @@ class Settings(BaseSettings):
 
     @field_validator("use_seed_on_failure", mode="before")
     @classmethod
-    def _validate_bool(cls, v: Any) -> bool:
-        default = cls.model_fields["use_seed_on_failure"].default
-        return _parse_bool(v, "USE_SEED_ON_FAILURE", default)
+    def _coerce_empty_bool(cls, v: Any, info) -> Any:  # type: ignore[override]
+        default = cls.model_fields[info.field_name].default
+        return _coerce_bool(v, default)
 
     @field_validator("cg_top_n", "cg_days", mode="before")
     @classmethod
@@ -101,13 +102,7 @@ class Settings(BaseSettings):
             return None
         if s.isdigit():
             return int(s)
-        up = s.upper()
-        valid = {"CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG", "NOTSET"}
-        if up in valid:
-            return up
-        raise ValueError(
-            f"Invalid LOG_LEVEL '{s}'. Use one of {sorted(valid)} or an integer."
-        )
+        return s.upper()
 
 
 settings = Settings()
