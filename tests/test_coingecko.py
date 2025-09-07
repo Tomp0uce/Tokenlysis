@@ -41,3 +41,17 @@ def test_coingecko_client_adds_api_key(monkeypatch):
     session = _mock_session({})
     client = coingecko.CoinGeckoClient(session=session)
     assert client.session.headers["x-cg-pro-api-key"] == "secret"
+
+
+def test_get_market_chart_uses_params():
+    session = _mock_session({"prices": []})
+    client = coingecko.CoinGeckoClient(session=session)
+    client.get_market_chart("bitcoin", 14)
+    session.get.assert_called_once()
+    url, kwargs = session.get.call_args
+    assert "coins/bitcoin/market_chart" in url[0]
+    assert kwargs["params"] == {
+        "vs_currency": "usd",
+        "days": 14,
+        "interval": "daily",
+    }

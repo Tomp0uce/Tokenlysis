@@ -98,6 +98,10 @@ Runtime behaviour can be tweaked with environment variables:
 - `CG_DAYS` – number of days of history to retrieve (default: `14`)
 - `COINGECKO_API_KEY` – optional API key for the CoinGecko Pro plan
 
+The ETL fetches market data using CoinGecko's coin IDs. During development the
+seed assets (`C1`, `C2`, …) are mapped to real CoinGecko IDs through
+`backend/app/config/seed_mapping.py`.
+
 ### Synology NAS Deployment (POC)
 
 The following steps describe how to deploy Tokenlysis on a Synology NAS using

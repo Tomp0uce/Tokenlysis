@@ -50,7 +50,7 @@ Approximately 100 raw metrics are gathered daily for each asset from sources inc
 
 ## 4. System Architecture
 ### 4.1 Components
-1. **Data Collector**: Python ETL jobs scheduled via APScheduler or Celery beat. Fetches metrics from external APIs and writes to the database.
+1. **Data Collector**: Python ETL jobs scheduled via APScheduler or Celery beat. Fetches metrics from external APIs and writes to the database. In development mode, seed asset symbols are translated to real CoinGecko IDs via `seed_mapping.py`; production environments obtain IDs directly from the CoinGecko `/coins/list` endpoint.
 2. **Scoring Service**: Python module that normalises metrics and computes category/global scores.
 3. **API Backend**: FastAPI application exposing REST endpoints and serving score calculations.
 4. **Frontend**: React application (TypeScript + Vite) consuming the API.
