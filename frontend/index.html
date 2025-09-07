@@ -31,6 +31,7 @@
   </table>
   <div id="version"></div>
   <div id="diag"></div>
+  <script type="module" src="version.js"></script>
   <script>
     const API_URL = document.querySelector('meta[name="api-url"]')?.content || '';
     let lastRequest = {};
@@ -108,12 +109,17 @@
     }
 
     async function loadVersion() {
+      const local = getAppVersion();
+      if (local && local !== 'dev') {
+        document.getElementById('version').textContent = `Version: ${local}`;
+        return;
+      }
       try {
         const res = await fetch(`${API_URL}/version`);
         const data = await res.json();
         document.getElementById('version').textContent = `Version: ${data.version}`;
       } catch (err) {
-        document.getElementById('version').textContent = 'Version: unknown';
+        document.getElementById('version').textContent = 'Version: dev';
         console.error(err);
       }
     }

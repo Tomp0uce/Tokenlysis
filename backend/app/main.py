@@ -84,6 +84,8 @@ logger.info(
     mask_secret(settings.COINGECKO_API_KEY),
 )
 
+logger.info("App version: %s", get_version())
+
 app = FastAPI(title="Tokenlysis")
 app.add_middleware(
     CORSMiddleware,
