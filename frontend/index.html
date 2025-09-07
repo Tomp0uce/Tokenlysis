@@ -21,96 +21,20 @@
   <table id="cryptos" style="display:none;">
     <thead>
       <tr>
-        <th>Name</th>
-        <th>Symbol</th>
+        <th>Coin</th>
+        <th>Rank</th>
         <th>Price (USD)</th>
-        <th>Score</th>
+        <th>Market Cap</th>
+        <th>Volume 24h</th>
+        <th>Change 24h</th>
       </tr>
     </thead>
     <tbody></tbody>
   </table>
+  <div id="meta" style="margin-top:8px;font-size:0.9em;"></div>
   <div id="version"></div>
   <div id="diag"></div>
   <script src="./app-version.js"></script>
-  <script type="module">
-    import { getAppVersion } from './version.js';
-
-    const API_URL = document.querySelector('meta[name="api-url"]')?.content || '';
-    let lastRequest = {};
-
-    function formatPrice(p) {
-      if (p === null || p === undefined) return '';
-      if (p >= 1) return p.toFixed(2);
-      if (p >= 0.01) return p.toFixed(4);
-      return p.toFixed(6);
-    }
-
-    async function loadCryptos() {
-      const statusEl = document.getElementById('status');
-      statusEl.textContent = 'Loading...';
-      document.getElementById('cryptos').style.display = 'none';
-      const tbody = document.querySelector('#cryptos tbody');
-      tbody.innerHTML = '';
-      const url = `${API_URL}/markets/top?limit=20&vs=usd`;
-      const start = performance.now();
-      try {
-        const res = await fetch(url);
-        const latency = Math.round(performance.now() - start);
-        lastRequest = { url, status: res.status, latency };
-        const data = await res.json();
-        data.forEach(item => {
-          const tr = document.createElement('tr');
-          tr.innerHTML = `<td>${item.name}</td><td>${item.symbol}</td><td>${formatPrice(item.price)}</td><td>${item.score}</td>`;
-          tbody.appendChild(tr);
-        });
-        document.getElementById('cryptos').style.display = 'table';
-        statusEl.textContent = '';
-        document.getElementById('demo-banner').style.display = 'block';
-      } catch (err) {
-        statusEl.innerHTML = `Error fetching data <button id="retry">Retry</button>`;
-        document.getElementById('retry').onclick = loadCryptos;
-        console.error(err);
-      }
-      loadDiag();
-    }
-
-    async function loadVersion() {
-      const local = getAppVersion();
-      const el = document.getElementById('version');
-
-      if (local && local !== 'dev') {
-        el.textContent = `Version: ${local}`;
-        return;
-      }
-
-      try {
-        const res = await fetch(`${API_URL}/version`);
-        const data = await res.json();
-        el.textContent = `Version: ${data.version || 'unknown'}`;
-      } catch (err) {
-        console.error(err);
-        el.textContent = 'Version: dev';
-      }
-    }
-
-    async function loadDiag() {
-      try {
-        const res = await fetch(`${API_URL}/diag`);
-        const data = await res.json();
-        const diag = `URL: ${lastRequest.url || ''} (${lastRequest.status || ''} in ${lastRequest.latency || 0}ms) | plan=${data.plan} | granularity=${data.granularity} | last_etl_items=${data.last_etl_items}`;
-        document.getElementById('diag').textContent = diag;
-      } catch (err) {
-        document.getElementById('diag').textContent = 'Diag unavailable';
-        console.error(err);
-      }
-    }
-
-    function init() {
-      loadVersion();
-      loadCryptos();
-    }
-
-    window.addEventListener('DOMContentLoaded', init);
-  </script>
+  <script type="module" src="./main.js"></script>
 </body>
 </html>

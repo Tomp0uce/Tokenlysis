@@ -68,6 +68,7 @@ def test_run_etl_persists_and_logs(monkeypatch, tmp_path, caplog):
     assert len(prices_repo.get_top("usd", 10)) == 10
     assert meta_repo.get("data_source") == "api"
     assert meta_repo.get("monthly_call_count") == "1"
+    assert meta_repo.get("last_etl_items") == "10"
     assert budget.monthly_call_count == 1
     payload = None
     for r in caplog.records:
@@ -231,8 +232,8 @@ def test_run_etl_downgrades_per_page_on_4xx(monkeypatch, tmp_path, caplog):
         rows = run_module.run_etl(client=client, budget=budget)
 
     assert rows == 1000
-    assert budget.monthly_call_count == 10
-    assert DummyMetaRepo.last_instance.data["monthly_call_count"] == "10"
+    assert budget.monthly_call_count == 11
+    assert DummyMetaRepo.last_instance.data["monthly_call_count"] == "11"
     payload = None
     for r in caplog.records:
         try:
@@ -243,6 +244,74 @@ def test_run_etl_downgrades_per_page_on_4xx(monkeypatch, tmp_path, caplog):
             payload = msg
             break
     assert payload is not None
-    assert payload["coingecko_calls_total"] == 10
+    assert payload["coingecko_calls_total"] == 11
+    assert len(client.calls) == 11
     assert client.calls[0] == (250, 1)
     assert client.calls[1:] == [(100, i) for i in range(1, 11)]
+
+
+def test_run_etl_stops_when_budget_exhausted(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "CG_TOP_N", 1000)
+    monkeypatch.setattr(settings, "CG_PER_PAGE_MAX", 250)
+
+    class DummySession:
+        def commit(self) -> None:  # pragma: no cover - trivial
+            pass
+
+        def rollback(self) -> None:  # pragma: no cover - trivial
+            pass
+
+        def close(self) -> None:  # pragma: no cover - trivial
+            pass
+
+    class DummyPricesRepo:
+        def __init__(self, session) -> None:  # pragma: no cover - trivial
+            pass
+
+        def upsert_latest(self, rows) -> None:  # pragma: no cover - trivial
+            pass
+
+        def insert_snapshot(self, rows) -> None:  # pragma: no cover - trivial
+            pass
+
+    class DummyMetaRepo:
+        last_instance = None
+
+        def __init__(self, session) -> None:
+            self.data: dict[str, str] = {}
+            DummyMetaRepo.last_instance = self
+
+        def set(self, key: str, value: str) -> None:
+            self.data[key] = value
+
+    monkeypatch.setattr(run_module, "SessionLocal", lambda: DummySession())
+    monkeypatch.setattr(run_module, "PricesRepo", DummyPricesRepo)
+    monkeypatch.setattr(run_module, "MetaRepo", DummyMetaRepo)
+
+    class PagedClient:
+        def __init__(self) -> None:
+            self.calls: list[tuple[int, int]] = []
+
+        def get_markets(self, *, vs: str, per_page: int, page: int):
+            self.calls.append((per_page, page))
+            start = (page - 1) * per_page
+            return [
+                {
+                    "id": f"coin{start + i}",
+                    "current_price": 1.0,
+                    "market_cap": 1.0,
+                    "total_volume": 1.0,
+                    "market_cap_rank": start + i,
+                    "price_change_percentage_24h": 0.0,
+                }
+                for i in range(per_page)
+            ]
+
+    budget = CallBudget(tmp_path / "budget.json", quota=3)
+    client = PagedClient()
+    with pytest.raises(run_module.DataUnavailable):
+        run_module.run_etl(client=client, budget=budget)
+
+    assert budget.monthly_call_count == 3
+    assert len(client.calls) == 3
+    assert DummyMetaRepo.last_instance is None

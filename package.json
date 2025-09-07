@@ -1,0 +1,8 @@
+{
+  "name": "tokenlysis",
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "jsdom": "^22.1.0"
+  }
+}

@@ -20,7 +20,9 @@ def _setup_test_session(tmp_path):
 def test_healthz_ready(monkeypatch, tmp_path):
     TestingSessionLocal = _setup_test_session(tmp_path)
     session = TestingSessionLocal()
-    MetaRepo(session).set("bootstrap_done", "true")
+    repo = MetaRepo(session)
+    repo.set("bootstrap_done", "true")
+    repo.set("last_refresh_at", "2025-09-07T20:51:26Z")
     session.commit()
     session.close()
 
@@ -32,9 +34,11 @@ def test_healthz_ready(monkeypatch, tmp_path):
     resp = client.get("/healthz")
     data = resp.json()
     assert resp.status_code == 200
-    assert data["ready"] is True
-    assert data["db_connected"] is True
-    assert data["bootstrap_done"] is True
+    assert data == {
+        "db_connected": True,
+        "bootstrap_done": True,
+        "last_refresh_at": "2025-09-07T20:51:26Z",
+    }
 
 
 def test_healthz_not_bootstrapped(monkeypatch, tmp_path):
@@ -48,8 +52,9 @@ def test_healthz_not_bootstrapped(monkeypatch, tmp_path):
     resp = client.get("/healthz")
     data = resp.json()
     assert resp.status_code == 200
-    assert data["ready"] is False
+    assert data["db_connected"] is True
     assert data["bootstrap_done"] is False
+    assert data["last_refresh_at"] is None
 
 
 def test_healthz_db_error(monkeypatch):
@@ -75,5 +80,6 @@ def test_healthz_db_error(monkeypatch):
     resp = client.get("/healthz")
     data = resp.json()
     assert resp.status_code == 200
-    assert data["ready"] is False
     assert data["db_connected"] is False
+    assert data["bootstrap_done"] is False
+    assert data["last_refresh_at"] is None

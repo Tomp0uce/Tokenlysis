@@ -112,6 +112,8 @@ Runtime behaviour can be tweaked with environment variables:
 - `CG_PER_PAGE_MAX` – preferred page size for `/coins/markets` calls (default: `250`)
 - `CG_ALERT_THRESHOLD` – fraction of the monthly quota that triggers a scope
   reduction (default: `0.7`)
+- `REFRESH_GRANULARITY` – cron-like hint exposed by `/api/diag` (default: `12h`).
+  Changing this value updates the ETL scheduler without restarting the app.
 - `COINGECKO_BASE_URL` – override for the CoinGecko API endpoint (defaults to the
   public URL or Pro URL based on `COINGECKO_PLAN`)
 - `COINGECKO_API_KEY` – optional API key for CoinGecko
@@ -163,15 +165,16 @@ seed assets (`C1`, `C2`, …) are mapped to real CoinGecko IDs through
 
 ### Health & Diagnostics
 
-- `GET /healthz` – returns DB connectivity, bootstrap status and `{"ready": bool}`
+- `GET /healthz` – returns DB connectivity, bootstrap status and last refresh time
 - `GET /readyz` – readiness check for the web process (`{"ready": true}`)
 - `GET /api/markets/basic` – minimal market data fallback
-- `GET /api/diag` – returns app version, outbound status and masked API key
+- `GET /api/diag` – debug info: plan, granularity, last refresh, ETL rows, call budget
 - `GET /version` – application version (`{"version": "<hash>"}`)
 
 ### Public API
 
-- `GET /api/markets/top` – top assets (`limit` clamped to `[1, CG_TOP_N]`, `vs` must be `usd`)
+- `GET /api/markets/top` – top assets (`limit` clamped to `[1, CG_TOP_N]`, `vs` must be `usd`),
+  returns `{ "items": [...], "last_refresh_at": "...", "stale": bool, "data_source": "api|seed" }`
 
 ### Synology NAS Deployment (POC)
 

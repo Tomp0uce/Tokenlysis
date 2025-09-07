@@ -88,6 +88,52 @@ def price_detail(
     return _serialize_price(row)
 
 
+@app.get("/api/diag")
+def diag(session: Session = Depends(get_session)) -> dict:
+    meta_repo = MetaRepo(session)
+    last_refresh_at = meta_repo.get("last_refresh_at")
+    last_etl_items_raw = meta_repo.get("last_etl_items")
+    data_source = meta_repo.get("data_source")
+    try:
+        if last_etl_items_raw is None:
+            last_etl_items = 0
+        else:
+            last_etl_items = int(last_etl_items_raw)
+    except Exception:  # pragma: no cover - defensive
+        last_etl_items = 0
+    budget: CallBudget | None = getattr(app.state, "budget", None)
+    monthly_call_count = budget.monthly_call_count if budget else 0
+    return {
+        "plan": settings.COINGECKO_PLAN,
+        "granularity": settings.REFRESH_GRANULARITY,
+        "last_refresh_at": last_refresh_at,
+        "last_etl_items": last_etl_items,
+        "monthly_call_count": monthly_call_count,
+        "quota": settings.CG_MONTHLY_QUOTA,
+        "data_source": data_source,
+        "top_n": settings.CG_TOP_N,
+    }
+
+
+def refresh_interval_seconds(value: str | None = None) -> int:
+    granularity = value or settings.REFRESH_GRANULARITY
+    try:
+        if granularity.endswith("h"):
+            return int(float(granularity[:-1]) * 60 * 60)
+    except Exception:  # pragma: no cover - defensive
+        pass
+    return 12 * 60 * 60
+
+
+async def etl_loop() -> None:
+    while True:
+        try:
+            run_etl(budget=app.state.budget)
+        except DataUnavailable as exc:  # pragma: no cover - network failures
+            logger.warning("ETL skipped: %s", exc)
+        await asyncio.sleep(refresh_interval_seconds())
+
+
 @app.get("/healthz")
 def healthz(session: Session = Depends(get_session)) -> dict:
     db_connected = True
@@ -97,21 +143,15 @@ def healthz(session: Session = Depends(get_session)) -> dict:
         db_connected = False
 
     bootstrap_done = False
-    last_refresh_at = None
-    monthly_call_count = 0
+    last_refresh_at: str | None = None
     if db_connected:
         meta_repo = MetaRepo(session)
         last_refresh_at = meta_repo.get("last_refresh_at")
         bootstrap_done = meta_repo.get("bootstrap_done") == "true"
-        monthly_call_count = int(meta_repo.get("monthly_call_count") or 0)
-    quota = settings.CG_MONTHLY_QUOTA
     return {
         "db_connected": db_connected,
         "bootstrap_done": bootstrap_done,
         "last_refresh_at": last_refresh_at,
-        "monthly_call_count": monthly_call_count,
-        "quota": quota,
-        "ready": db_connected and bootstrap_done,
     }
 
 
@@ -160,18 +200,10 @@ async def startup() -> None:
     finally:
         session.close()
 
-    async def _job() -> None:
-        while True:
-            try:
-                run_etl(budget=app.state.budget)
-            except DataUnavailable as exc:  # pragma: no cover - network failures
-                logger.warning("ETL skipped: %s", exc)
-            await asyncio.sleep(12 * 60 * 60)
-
-    asyncio.create_task(_job())
+    asyncio.create_task(etl_loop())
 
 
 app.mount("/", StaticFiles(directory="frontend", html=True), name="static")
 
 
-__all__ = ["app"]
+__all__ = ["app", "etl_loop", "refresh_interval_seconds"]

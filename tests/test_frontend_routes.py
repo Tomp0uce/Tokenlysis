@@ -2,9 +2,9 @@ from pathlib import Path
 
 
 def test_frontend_fetches_markets_top():
-    html = Path("frontend/index.html").read_text()
-    assert "/markets/top?limit=20&vs=usd" in html
-    assert "/markets?" not in html.replace("/markets/top?limit=20&vs=usd", "")
+    js = Path("frontend/main.js").read_text()
+    assert "/markets/top?limit=20&vs=usd" in js
+    assert "/markets?" not in js.replace("/markets/top?limit=20&vs=usd", "")
 
 
 def test_frontend_no_ranking_call():
@@ -15,4 +15,4 @@ def test_frontend_no_ranking_call():
 def test_frontend_version_scripts_present():
     html = Path("frontend/index.html").read_text()
     assert '<script src="./app-version.js"></script>' in html
-    assert "import { getAppVersion } from './version.js';" in html
+    assert '<script type="module" src="./main.js"></script>' in html
