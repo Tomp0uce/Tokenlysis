@@ -16,9 +16,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Compute version from commit
+      - name: Compute version from commit count
         run: |
-          echo "APP_VERSION=$(git show -s --format=%cI HEAD)" >> $GITHUB_ENV
+          echo "APP_VERSION=$(git rev-list --count HEAD)" >> $GITHUB_ENV
           echo "GIT_COMMIT=${GITHUB_SHA}" >> $GITHUB_ENV
 
       - name: Set up Buildx
