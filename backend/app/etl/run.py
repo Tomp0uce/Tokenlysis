@@ -275,6 +275,9 @@ def run_etl(
             api_key=settings.COINGECKO_API_KEY or settings.coingecko_api_key,
         )
 
+    if budget is None and settings.BUDGET_FILE:
+        budget = CallBudget(Path(settings.BUDGET_FILE), settings.CG_MONTHLY_QUOTA)
+
     limit = max(
         10,
         min(settings.CG_TOP_N, 250 if client.api_key is None else settings.CG_TOP_N),

@@ -109,9 +109,20 @@ Runtime behaviour can be tweaked with environment variables:
 - `CG_DAYS` – number of days of history to retrieve (default: `14`)
 - `CG_MONTHLY_QUOTA` – maximum CoinGecko API calls per month (default: `10000`)
 - `CG_PER_PAGE_MAX` – preferred page size for `/coins/markets` calls (default: `250`)
+- `CG_ALERT_THRESHOLD` – fraction of the monthly quota that triggers a scope
+  reduction (default: `0.7`)
+- `COINGECKO_BASE_URL` – override for the CoinGecko API endpoint (defaults to the
+  public URL or Pro URL based on `COINGECKO_PLAN`)
 - `COINGECKO_API_KEY` – optional API key for CoinGecko
 - `COINGECKO_PLAN` – `demo` (default) or `pro` to select the API header
-- `USE_SEED_ON_FAILURE` – fall back to bundled seed data when live ETL fails (default: `false`)
+- `REFRESH_CRON` – cron expression for the scheduled ETL (default:
+  `0 */12 * * *`)
+- `BUDGET_FILE` – path to the persisted CoinGecko call budget JSON file
+- `DATABASE_URL` – SQLAlchemy database URL
+- `USE_SEED_ON_FAILURE` – fall back to bundled seed data when live ETL fails
+  (default: `true`)
+- `SEED_FILE` – path to the seed data used when `USE_SEED_ON_FAILURE` is
+  enabled (default: `./backend/app/seed/top20.json`)
 - `LOG_LEVEL` – base logging level for application and Uvicorn loggers (default: `INFO`).
   Accepts an integer or one of
   `DEBUG`, `INFO`, `WARN`, `WARNING`, `ERROR`, `CRITICAL`, `FATAL` or `NOTSET`.
