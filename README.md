@@ -110,12 +110,13 @@ Runtime behaviour can be tweaked with environment variables:
 - `COINGECKO_API_KEY` – optional API key for the CoinGecko Pro plan
 - `USE_SEED_ON_FAILURE` – fall back to bundled seed data when live ETL fails (default: `false`)
 - `LOG_LEVEL` – set to `DEBUG` for verbose logs (default: `INFO`)
-  (application logs only; server logs use `UVICORN_LOG_LEVEL` or `--log-level`)
+  (application logs only; server logs use `UVICORN_LOG_LEVEL` or `--log-level`).
+  Unknown values fall back to `INFO` and log a warning.
 
 Do **not** define environment variables with empty values. If a value is not
 needed, remove the variable or comment it out in `.env`. `LOG_LEVEL` accepts an
 integer or one of `CRITICAL`, `ERROR`, `WARNING`, `INFO`, `DEBUG` or `NOTSET`;
-any other value causes a startup error.
+other values fall back to `INFO` (warning logged).
 
 Boolean variables accept `true/false/1/0/yes/no/on/off` (case-insensitive). Empty values fall back to defaults, while unrecognised values trigger a startup error. Integer variables behave similarly: empty strings use the default and invalid numbers raise an explicit error.
 

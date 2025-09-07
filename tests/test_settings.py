@@ -57,7 +57,10 @@ def test_use_seed_on_failure_false_variants(monkeypatch):
 
 def test_invalid_bool(monkeypatch):
     monkeypatch.setenv("USE_SEED_ON_FAILURE", "maybe")
-    with pytest.raises(ValidationError, match="Invalid boolean string"):
+    with pytest.raises(
+        ValidationError,
+        match="Invalid boolean 'maybe' for USE_SEED_ON_FAILURE",
+    ):
         settings_module.Settings()
 
 

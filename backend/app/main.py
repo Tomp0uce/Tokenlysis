@@ -30,6 +30,9 @@ from .services.coingecko import CoinGeckoClient
 import logging
 
 
+LOG_LEVEL_NAMES = {"CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG", "NOTSET"}
+
+
 def parse_log_level(value: str | int | None) -> int:
     """Return a valid logging level from various representations."""
 
@@ -44,21 +47,35 @@ def parse_log_level(value: str | int | None) -> int:
     if s.isdigit():
         return int(s)
     up = s.upper()
-    mapping = {
-        "CRITICAL": logging.CRITICAL,
-        "ERROR": logging.ERROR,
-        "WARNING": logging.WARNING,
-        "INFO": logging.INFO,
-        "DEBUG": logging.DEBUG,
-        "NOTSET": logging.NOTSET,
-    }
-    if up not in mapping:
-        allowed = ", ".join(mapping.keys())
-        raise ValueError(f"Invalid LOG_LEVEL '{value}'. Use int or one of {allowed}.")
-    return mapping[up]
+    mapping = {name: getattr(logging, name) for name in LOG_LEVEL_NAMES}
+    return mapping.get(up, default)
 
 
-logging.basicConfig(level=parse_log_level(settings.log_level), format="%(message)s")
+logger = logging.getLogger(__name__)
+
+lvl = parse_log_level(settings.log_level)
+if isinstance(settings.log_level, str):
+    s = settings.log_level.strip()
+    if s and not s.isdigit() and s.upper() not in LOG_LEVEL_NAMES:
+        logger.warning(
+            "LOG_LEVEL=%r non reconnu, fallback sur %s",
+            settings.log_level,
+            logging.getLevelName(lvl),
+        )
+
+logging.basicConfig(level=lvl, format="%(message)s")
+
+logger.info(
+    (
+        "Startup config: LOG_LEVEL=%s USE_SEED_ON_FAILURE=%s CG_TOP_N=%s "
+        "CG_DAYS=%s COINGECKO_API_KEY=%s"
+    ),
+    logging.getLevelName(lvl),
+    settings.use_seed_on_failure,
+    settings.cg_top_n,
+    settings.cg_days,
+    mask_secret(settings.coingecko_api_key),
+)
 
 app = FastAPI(title="Tokenlysis")
 app.add_middleware(

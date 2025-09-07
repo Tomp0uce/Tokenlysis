@@ -20,7 +20,7 @@ TRUE_VALUES = {"1", "true", "t", "yes", "y", "on"}
 FALSE_VALUES = {"0", "false", "f", "no", "n", "off"}
 
 
-def _coerce_bool(value: Any, default: bool) -> bool:
+def _coerce_bool(value: Any, default: bool, env_name: str) -> bool:
     if value is None:
         return default
     if isinstance(value, bool):
@@ -28,7 +28,7 @@ def _coerce_bool(value: Any, default: bool) -> bool:
     if isinstance(value, int):
         if value in (0, 1):
             return bool(value)
-        raise ValueError(f"Invalid boolean integer '{value}'")
+        raise ValueError(f"Invalid boolean integer '{value}' for {env_name}")
     if isinstance(value, str):
         s = value.strip()
         if s == "":
@@ -38,8 +38,8 @@ def _coerce_bool(value: Any, default: bool) -> bool:
             return True
         if sl in FALSE_VALUES:
             return False
-        raise ValueError(f"Invalid boolean string '{value}'")
-    raise ValueError(f"Invalid boolean type '{type(value).__name__}'")
+        raise ValueError(f"Invalid boolean '{value}' for {env_name}")
+    raise ValueError(f"Invalid boolean type '{type(value).__name__}' for {env_name}")
 
 
 def _parse_int(value: Any, env_name: str, default: int) -> int:
@@ -88,7 +88,8 @@ class Settings(BaseSettings):
     @classmethod
     def _coerce_empty_bool(cls, v: Any, info) -> Any:  # type: ignore[override]
         default = cls.model_fields[info.field_name].default
-        return _coerce_bool(v, default)
+        env_name = info.field_name.upper()
+        return _coerce_bool(v, default, env_name)
 
     @field_validator("cg_top_n", "cg_days", mode="before")
     @classmethod
