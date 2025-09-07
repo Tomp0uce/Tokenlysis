@@ -1,13 +1,19 @@
-from functools import lru_cache
 import asyncio
+import datetime as dt
+from functools import lru_cache
 from pathlib import Path
 from typing import Dict, List
+from uuid import uuid4
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from .etl.run import run_etl
+from .core.log import request_id_ctx
+from .core.scheduling import seconds_until_next_midnight_utc
+from .core.settings import COINGECKO_API_KEY, settings
+from .core.version import get_version
+from .etl.run import DataUnavailable, run_etl
 from .schemas.crypto import (
     CryptoDetail,
     CryptoSummary,
@@ -19,9 +25,12 @@ from .schemas.crypto import (
 )
 from .schemas.price import PriceResponse
 from .schemas.version import VersionResponse
-from .core.version import get_version
-from .core.settings import settings
 from .services.coingecko import CoinGeckoClient
+
+import logging
+
+log_level = logging.getLevelName(settings.log_level.upper())
+logging.basicConfig(level=log_level, format="%(message)s")
 
 app = FastAPI(title="Tokenlysis")
 app.add_middleware(
@@ -33,9 +42,22 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def add_request_id(request: Request, call_next):
+    rid = request.headers.get("X-Request-ID") or str(uuid4())
+    if request_id_ctx is not None:
+        request_id_ctx.set(rid)
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = rid
+    return response
+
+
 @lru_cache
 def get_data() -> Dict[int, dict]:
-    return run_etl()
+    try:
+        return run_etl()
+    except DataUnavailable as exc:  # pragma: no cover - handled by API
+        raise HTTPException(status_code=503, detail="data unavailable") from exc
 
 
 def _latest_record(history: List[dict]) -> dict:
@@ -54,6 +76,28 @@ api = APIRouter(prefix="/api")
 def read_version() -> VersionResponse:
     """Return application version."""
     return VersionResponse(version=get_version())
+
+
+@api.get("/diag")
+def diag(client: CoinGeckoClient = Depends(get_coingecko_client)) -> dict:
+    """Return diagnostic information."""
+    api_key_masked = (
+        ("*" * max(len(COINGECKO_API_KEY) - 4, 0)) + COINGECKO_API_KEY[-4:]
+        if COINGECKO_API_KEY
+        else None
+    )
+    try:
+        ping = client.ping()
+        outbound_ok = True
+    except Exception:
+        ping = ""
+        outbound_ok = False
+    return {
+        "app_version": get_version(),
+        "outbound_ok": outbound_ok,
+        "coingecko_ping": ping,
+        "api_key_masked": api_key_masked,
+    }
 
 
 @api.get("/price/{coin_id}", response_model=PriceResponse)
@@ -168,21 +212,45 @@ def crypto_history(
 app.include_router(api)
 
 
-static_dir = Path(__file__).resolve().parents[2] / "frontend"
-app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
-
-
 @app.on_event("startup")
 async def refresh_cache() -> None:
-    get_data()
+    try:
+        get_data()
+    except HTTPException:
+        pass
 
     async def _refresh_loop() -> None:
+        await asyncio.sleep(
+            seconds_until_next_midnight_utc(dt.datetime.now(dt.timezone.utc))
+        )
         while True:
-            await asyncio.sleep(24 * 60 * 60)
             get_data.cache_clear()
-            get_data()
+            try:
+                get_data()
+            except HTTPException:
+                pass
+            await asyncio.sleep(24 * 60 * 60)
 
     asyncio.create_task(_refresh_loop())
+
+
+@app.get("/healthz")
+async def healthz() -> dict:
+    return {"status": "ok"}
+
+
+@app.get("/readyz")
+async def readyz() -> dict:
+    client = CoinGeckoClient()
+    try:
+        client.ping()
+    except Exception as exc:  # pragma: no cover - network failure
+        raise HTTPException(status_code=503, detail="unready") from exc
+    return {"status": "ok"}
+
+
+static_dir = Path(__file__).resolve().parents[2] / "frontend"
+app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
 
 
 __all__ = ["app"]

@@ -1,16 +1,27 @@
 # Tokenlysis
 
-Tokenlysis is a cryptocurrency scoring platform that aggregates market, social and on-chain data for thousands of digital assets and computes a daily score for each one.
+Tokenlysis is a cryptocurrency scoring platform. The current proof of concept fetches a configurable top ``N`` assets (20 by default) from CoinGecko, computes **Liquidity** and **Opportunity** scores and aggregates them into a global score refreshed daily.
 
-It ranks more than 1,000 crypto-assets and highlights 100 trending tokens outside the top market-cap list. Users can explore score history, compare assets and, in future releases, customise category weights to suit their strategy.
+The long‑term goal is to rank more than 1,000 crypto-assets and highlight 100 trending tokens outside the top market-cap list. Additional categories and features will arrive in the MVP phase.
 
 For a full overview of features and architecture, see the [functional specifications](Functional_specs.md).
 
 ## Overview
 
-- **Universe**: top 1000 cryptocurrencies by market capitalization plus 100 emerging "trending" assets outside the top 1000, selected by 24h volume and social interest.
+- **Universe**: configurable top ``N`` assets (default 20) from CoinGecko *(MVP: top 1000 + 100 trending)*.
 - **Update schedule**: data is refreshed every day at 00:00 UTC.
-- **Scores**: each asset receives a global score from 0 to 100 and six category scores: Community, Liquidity, Opportunity, Security, Technology and Tokenomics. The global score is the weighted average of the categories.
+- **Scores**: Liquidity, Opportunity and Global *(MVP: six categories: Community, Liquidity, Opportunity, Security, Technology, Tokenomics).* 
+
+### Status
+
+| Feature | Implemented | Planned |
+| ------- | ----------- | ------- |
+| Configurable top N (default 20) | ✅ | Top 1000 + 100 trending |
+| Liquidity & Opportunity scores + Global | ✅ | Six categories with custom weights |
+| Daily refresh aligned to 00:00 UTC | ✅ | DB + daily snapshots |
+| Static frontend table | ✅ | Rich charts & filtering |
+| `/api/version` endpoint | ✅ | Auth & watchlists |
+| Seed fallback controlled by `USE_SEED_ON_FAILURE` | ✅ | Quotas & rate limiting |
 
 ## Scoring Model
 
@@ -97,10 +108,18 @@ Runtime behaviour can be tweaked with environment variables:
 - `CG_TOP_N` – number of assets fetched from CoinGecko (default: `20`)
 - `CG_DAYS` – number of days of history to retrieve (default: `14`)
 - `COINGECKO_API_KEY` – optional API key for the CoinGecko Pro plan
+- `USE_SEED_ON_FAILURE` – fall back to bundled seed data when live ETL fails (default: `false`)
+- `LOG_LEVEL` – set to `DEBUG` for verbose logs (default: `INFO`)
 
 The ETL fetches market data using CoinGecko's coin IDs. During development the
 seed assets (`C1`, `C2`, …) are mapped to real CoinGecko IDs through
 `backend/app/config/seed_mapping.py`.
+
+### Health & Diagnostics
+
+- `GET /healthz` – basic liveness probe
+- `GET /readyz` – readiness check querying CoinGecko
+- `GET /api/diag` – returns app version, outbound status and masked API key
 
 ### Synology NAS Deployment (POC)
 
@@ -136,6 +155,7 @@ the local source code.
    This builds the image with the main `Dockerfile` and forwards an optional
    `APP_VERSION` build argument. Define `APP_VERSION` to pin a specific version
    or let it default to `dev`.
+   A healthcheck inside the container polls `http://localhost:8000/readyz` every 30 seconds.
 5. **Access the app** – once running the interface is available at
    `http://<NAS_IP>:8002`.
 
