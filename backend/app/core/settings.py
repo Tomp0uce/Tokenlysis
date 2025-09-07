@@ -149,8 +149,7 @@ def get_coingecko_headers() -> dict[str, str]:
 
 def effective_coingecko_base_url() -> str:
     """Return the CoinGecko base URL for the configured plan."""
-    key = settings.COINGECKO_API_KEY or settings.coingecko_api_key
-    if key and settings.COINGECKO_PLAN in {"demo", "pro"}:
+    if settings.COINGECKO_PLAN == "pro":
         return "https://pro-api.coingecko.com/api/v3"
     return "https://api.coingecko.com/api/v3"
 

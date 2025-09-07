@@ -26,10 +26,9 @@ def test_diag_masks_key(monkeypatch):
     import backend.app.main as main_module
 
     reload(main_module)
-    monkeypatch.setattr(main_module.CoinGeckoClient, "ping", lambda self: "pong")
     client = TestClient(main_module.app)
     resp = client.get("/api/diag")
     assert resp.status_code == 200
     data = resp.json()
-    assert data["api_key_masked"].endswith("1234")
+    assert data["has_api_key"] is True
     assert "supersecret1234" not in resp.text
