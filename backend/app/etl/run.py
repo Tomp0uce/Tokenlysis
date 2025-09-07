@@ -26,6 +26,7 @@ from ..services.coingecko import CoinGeckoClient
 from ..core.settings import settings
 from ..services.indicators import rsi
 from ..services.scoring import score_global, score_liquidite, score_opportunite
+from ..config.seed_mapping import SEED_TO_COINGECKO
 
 SEED_DIR = Path(__file__).resolve().parents[2] / "seed"
 
@@ -34,7 +35,12 @@ def _top_coins(limit: int, client: CoinGeckoClient) -> List[dict]:
     return client.get_markets(per_page=limit)
 
 
-def _coin_history(coin_id: str, days: int, client: CoinGeckoClient) -> dict:
+def _coin_history(coin: dict, days: int, client: CoinGeckoClient) -> dict:
+    coin_id = (
+        coin.get("coingecko_id")
+        or SEED_TO_COINGECKO.get(coin.get("symbol", ""))
+        or coin.get("id")
+    )
     return client.get_market_chart(coin_id, days)
 
 
@@ -47,7 +53,7 @@ def _coingecko_etl(limit: int, days: int, client: CoinGeckoClient) -> Dict[int, 
     cryptos: Dict[int, dict] = {}
 
     for idx, coin in enumerate(coins, start=1):
-        hist = _coin_history(coin["id"], days, client)
+        hist = _coin_history(coin, days, client)
         prices[idx] = [p[1] for p in hist.get("prices", [])][:days]
         volumes[idx] = [v[1] for v in hist.get("total_volumes", [])][:days]
         mcaps[idx] = [m[1] for m in hist.get("market_caps", [])][:days]

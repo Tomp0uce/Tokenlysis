@@ -64,7 +64,7 @@ class CoinGeckoClient:
 
     def get_market_chart(self, coin_id: str, days: int) -> dict:
         """Return historical market chart for a coin."""
-        url = f"{self.base_url}/coins/{coin_id}/market_chart"
+        url = f"{self.base_url}/coins/{coin_id.lower()}/market_chart"
         params = {
             "vs_currency": "usd",
             "days": days,
