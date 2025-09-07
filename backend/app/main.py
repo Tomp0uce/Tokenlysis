@@ -1,6 +1,5 @@
 import asyncio
 import datetime as dt
-import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Dict, List
@@ -12,7 +11,11 @@ from fastapi.staticfiles import StaticFiles
 
 from .core.log import request_id_ctx
 from .core.scheduling import seconds_until_next_midnight_utc
-from .core.settings import settings, mask_secret
+from .core.settings import (
+    settings,
+    mask_secret,
+    effective_coingecko_base_url,
+)
 from .core.version import get_version
 from .etl.run import DataUnavailable, run_etl
 from .schemas.crypto import (
@@ -90,9 +93,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-api_key = os.getenv("COINGECKO_API_KEY", "").strip() or None
-app.state.cg_client = CoinGeckoClient(api_key=api_key)
-masked = f"{api_key[:6]}…{api_key[-4:]}" if api_key else "(none)"
+api_key = settings.COINGECKO_API_KEY or settings.coingecko_api_key
+app.state.cg_client = CoinGeckoClient(
+    base_url=effective_coingecko_base_url(), api_key=api_key
+)
+masked = mask_secret(api_key)
 logger.info(
     "CG config -> mode=%s base=%s key=%s",
     "pro" if api_key else "public",
@@ -157,7 +162,7 @@ def diag_cg(request: Request) -> dict:
     client: CoinGeckoClient = request.app.state.cg_client
     status: dict[str, object] = {}
     try:
-        status["ping"] = client._request("/ping")
+        status["ping"] = client._request("/ping").json()
         mkts = client.get_markets(per_page=1, page=1)
         status["markets_sample"] = mkts[:1]
         chart = client.get_market_chart("bitcoin", 14)
@@ -166,8 +171,9 @@ def diag_cg(request: Request) -> dict:
         status["error"] = str(e)
     return {
         "mode": "pro" if client.api_key else "public",
-        "base_url": client.base_url,
-        "api_key_present": bool(client.api_key),
+        "base_url_effective": client.base_url,
+        "has_api_key": bool(client.api_key),
+        "interval_effective": settings.CG_INTERVAL,
         "diag": status,
     }
 

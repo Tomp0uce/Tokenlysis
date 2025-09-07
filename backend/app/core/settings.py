@@ -65,12 +65,13 @@ class Settings(BaseSettings):
 
     cors_origins: List[str] | str = ["http://localhost"]
     COINGECKO_API_KEY: str | None = None
+    coingecko_api_key: str | None = Field(default=None, alias="coingecko_api_key")
     CG_TOP_N: int = 100
     CG_DAYS: int = 14
-    CG_INTERVAL: str | None = None
-    CG_THROTTLE_MS: int = 250
+    CG_INTERVAL: str | None = "daily"
+    CG_THROTTLE_MS: int = 150
     use_seed_on_failure: bool = Field(
-        default=False, description="Use seed data when ETL fails"
+        default=True, description="Use seed data when ETL fails"
     )
     log_level: str | int | None = Field(
         default=None, description="Python logging level"
@@ -112,7 +113,7 @@ class Settings(BaseSettings):
             return int(s)
         return s.upper()
 
-    @field_validator("COINGECKO_API_KEY", mode="before")
+    @field_validator("COINGECKO_API_KEY", "coingecko_api_key", mode="before")
     @classmethod
     def _empty_api_key(cls, v: Any) -> Any:
         if isinstance(v, str):
@@ -128,14 +129,24 @@ settings = Settings()
 
 def get_coingecko_headers() -> dict[str, str]:
     """Return CoinGecko API headers if an API key is available."""
-    if settings.COINGECKO_API_KEY:
-        return {"x-cg-pro-api-key": settings.COINGECKO_API_KEY}
-    return {}
+    key = settings.COINGECKO_API_KEY or settings.coingecko_api_key
+    return {"x-cg-pro-api-key": key} if key else {}
+
+
+def effective_coingecko_base_url() -> str:
+    """Return the CoinGecko base URL depending on API key presence."""
+    key = settings.COINGECKO_API_KEY or settings.coingecko_api_key
+    return (
+        "https://pro-api.coingecko.com/api/v3"
+        if key
+        else "https://api.coingecko.com/api/v3"
+    )
 
 
 __all__ = [
     "Settings",
     "settings",
     "get_coingecko_headers",
+    "effective_coingecko_base_url",
     "mask_secret",
 ]

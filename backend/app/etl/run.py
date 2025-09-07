@@ -21,10 +21,9 @@ from pathlib import Path
 from typing import Dict, List
 
 import logging
-import time
 
 from ..services.coingecko import CoinGeckoClient
-from ..core.settings import settings
+from ..core.settings import settings, effective_coingecko_base_url
 from ..services.indicators import rsi
 from ..services.scoring import score_global, score_liquidite, score_opportunite
 from ..config.seed_mapping import SEED_TO_COINGECKO
@@ -55,7 +54,7 @@ def _coin_history(coin: dict, days: int, client: CoinGeckoClient) -> dict:
         or SEED_TO_COINGECKO.get(coin.get("symbol", ""))
         or coin.get("id")
     )
-    return client.get_market_chart(coin_id, days)
+    return client.get_market_chart(coin_id, days, interval=settings.CG_INTERVAL)
 
 
 def _coingecko_etl(limit: int, days: int, client: CoinGeckoClient) -> Dict[int, Dict]:
@@ -83,7 +82,6 @@ def _coingecko_etl(limit: int, days: int, client: CoinGeckoClient) -> Dict[int, 
             "name": coin.get("name", ""),
             "sectors": [],
         }
-        time.sleep(settings.CG_THROTTLE_MS / 1000.0)
 
     if not cryptos:
         raise RuntimeError("Empty ETL result (all history calls failed)")
@@ -216,8 +214,14 @@ class DataUnavailable(Exception):
     """Raised when live data could not be fetched."""
 
 
-def run_etl(client: CoinGeckoClient) -> Dict[int, Dict]:
+def run_etl(client: CoinGeckoClient | None = None) -> Dict[int, Dict]:
     """Return structured market data for a list of assets."""
+
+    if client is None:
+        client = CoinGeckoClient(
+            base_url=effective_coingecko_base_url(),
+            api_key=settings.COINGECKO_API_KEY or settings.coingecko_api_key,
+        )
 
     limit = max(
         10,
