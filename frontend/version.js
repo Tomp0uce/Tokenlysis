@@ -14,6 +14,9 @@ export function getAppVersion() {
       return process.env.APP_VERSION;
     }
   }
+  if (typeof window !== 'undefined' && window.APP_VERSION) {
+    return window.APP_VERSION;
+  }
   return 'dev';
 }
 
