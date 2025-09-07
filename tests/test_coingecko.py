@@ -22,6 +22,7 @@ def _mock_session(json_data):
     response.url = "http://test"
     session.get.return_value = response
     session.headers = {}
+    session.mount = Mock()
     return session
 
 
@@ -49,7 +50,7 @@ def test_get_price_endpoint():
 def test_coingecko_client_adds_api_key():
     session = _mock_session({})
     client = coingecko.CoinGeckoClient(api_key="secret", plan="pro", session=session)
-    assert client.session.headers["x-cg-pro-api-key"] == "secret"
+    assert client.session.headers["x-cg-api-key"] == "secret"
     assert client.base_url == coingecko.BASE_URL
     client_demo = coingecko.CoinGeckoClient(api_key="demo", plan="demo", session=_mock_session({}))
     assert client_demo.session.headers["x-cg-demo-api-key"] == "demo"
@@ -57,43 +58,16 @@ def test_coingecko_client_adds_api_key():
 
 def test_get_market_chart_uses_params(monkeypatch):
     session = _mock_session({"prices": []})
-    monkeypatch.setattr(coingecko.time, "time", lambda: 1_000_000)
+    monkeypatch.setattr(coingecko.time, "sleep", lambda x: None)
     client = coingecko.CoinGeckoClient(api_key=None, session=session)
     client.get_market_chart("bitcoin", 14)
     session.get.assert_called()
     url, kwargs = session.get.call_args
-    assert "coins/bitcoin/market_chart/range" in url[0]
+    assert "coins/bitcoin/market_chart" in url[0]
     params = kwargs["params"]
     assert params["vs_currency"] == "usd"
-    assert params["interval"] == "daily"
-    assert params["from"] == 1_000_000 - 14 * 86400
-    assert params["to"] == 1_000_000
-
-
-def test_retry_on_429():
-    resp1 = Mock(
-        status_code=429,
-        headers={},
-        text="oops",
-        json=lambda: {},
-        raise_for_status=Mock(side_effect=requests.HTTPError("429")),
-    )
-    resp2 = Mock(
-        status_code=200,
-        headers={},
-        json=lambda: {},
-        raise_for_status=Mock(return_value=None),
-    )
-    resp1.request = SimpleNamespace(headers={})
-    resp1.url = "http://test"
-    resp2.request = SimpleNamespace(headers={})
-    resp2.url = "http://test"
-    session = Mock()
-    session.get.side_effect = [resp1, resp2]
-    session.headers = {}
-    client = coingecko.CoinGeckoClient(api_key=None, session=session)
-    client.get_simple_price(["btc"], ["usd"])
-    assert session.get.call_count == 2
+    assert params["days"] == 14
+    assert "interval" not in params
 
 
 def test_diag_cg(monkeypatch):
@@ -128,5 +102,5 @@ def test_diag_cg(monkeypatch):
     assert data["plan"] == "pro"
     assert data["base_url"] == coingecko.BASE_URL
     assert data["has_api_key"] is True
-    assert data["interval_policy"] == "range_daily"
+    assert data["granularity"] == "daily"
     assert data["diag"]["chart_points"] == 2

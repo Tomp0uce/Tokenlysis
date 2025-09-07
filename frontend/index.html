@@ -16,6 +16,7 @@
 </head>
 <body>
   <h1>Tokenlysis Cryptos</h1>
+  <div id="demo-banner" style="display:none;background:#fffae6;padding:6px;margin-bottom:10px;">mode demo : indicateurs avancés désactivés</div>
   <div id="status">Loading...</div>
   <table id="cryptos" style="display:none;">
     <thead>
@@ -54,24 +55,22 @@
         const latency = Math.round(performance.now() - start);
         lastRequest = { url, status: res.status, latency };
         if (!res.ok) {
-          if ([503, 500, 429, 400].includes(res.status)) {
-            await loadBasic();
-            return;
-          }
-          throw new Error(`HTTP ${res.status}`);
+          await loadMarkets();
+          return;
         }
         const data = await res.json();
         if (!data.items.length) {
-          statusEl.textContent = 'No crypto';
-        } else {
-          data.items.forEach(item => {
-            const tr = document.createElement('tr');
-            tr.innerHTML = `<td>${item.name}</td><td>${item.symbol}</td><td>${formatPrice(item.latest.price_usd)}</td><td>${item.latest.scores.global}</td>`;
-            tbody.appendChild(tr);
-          });
-          statusEl.textContent = '';
-          document.getElementById('cryptos').style.display = 'table';
+          await loadMarkets();
+          return;
         }
+        data.items.forEach(item => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `<td>${item.name}</td><td>${item.symbol}</td><td>${formatPrice(item.latest.price_usd)}</td><td>${item.latest.scores.global}</td>`;
+          tbody.appendChild(tr);
+        });
+        statusEl.textContent = '';
+        document.getElementById('cryptos').style.display = 'table';
+        document.getElementById('demo-banner').style.display = 'none';
       } catch (err) {
         statusEl.innerHTML = `Error fetching data <button id="retry">Retry</button>`;
         document.getElementById('retry').onclick = loadCryptos;
@@ -80,26 +79,26 @@
       loadDiag();
     }
 
-    async function loadBasic() {
+    async function loadMarkets() {
       const statusEl = document.getElementById('status');
       const tbody = document.querySelector('#cryptos tbody');
       tbody.innerHTML = '';
-      const url = `${API_URL}/markets/basic?limit=20`;
+      const url = `${API_URL}/markets?limit=20`;
       const start = performance.now();
       try {
         const res = await fetch(url);
         const latency = Math.round(performance.now() - start);
         lastRequest = { url, status: res.status, latency };
         const data = await res.json();
-        data.items.forEach(item => {
+        data.forEach(item => {
           const tr = document.createElement('tr');
-          const badge = data.demo ? ' <span class="badge">DEMO</span>' : '';
-          tr.innerHTML = `<td>${item.name}</td><td>${item.symbol}</td><td>${formatPrice(item.price)}</td><td>${item.score}${badge}</td>`;
+          tr.innerHTML = `<td>${item.name}</td><td>${item.symbol}</td><td>${formatPrice(item.price)}</td><td>${item.score}</td>`;
           tbody.appendChild(tr);
         });
         document.getElementById('cryptos').style.display = 'table';
         statusEl.innerHTML = `données minimales (ETL indisponible) <button id="retry">Réessayer</button>`;
         document.getElementById('retry').onclick = loadCryptos;
+        document.getElementById('demo-banner').style.display = 'block';
       } catch (err) {
         statusEl.innerHTML = `Error fetching data <button id="retry">Retry</button>`;
         document.getElementById('retry').onclick = loadCryptos;
@@ -123,7 +122,7 @@
       try {
         const res = await fetch(`${API_URL}/diag`);
         const data = await res.json();
-        const diag = `URL: ${lastRequest.url || ''} (${lastRequest.status || ''} in ${lastRequest.latency || 0}ms) | plan: ${data.plan} | has_key: ${data.has_api_key} | base: ${data.base_url} | interval: ${data.interval_policy}`;
+        const diag = `URL: ${lastRequest.url || ''} (${lastRequest.status || ''} in ${lastRequest.latency || 0}ms) | plan=${data.plan} | granularity=${data.granularity} | last_etl_items=${data.last_etl_items}`;
         document.getElementById('diag').textContent = diag;
       } catch (err) {
         document.getElementById('diag').textContent = 'Diag unavailable';

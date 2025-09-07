@@ -143,11 +143,19 @@ def read_version() -> VersionResponse:
 def diag(request: Request) -> dict:
     """Return diagnostic information."""
     client: CoinGeckoClient = request.app.state.cg_client
+    try:
+        items = len(get_data())
+    except HTTPException:
+        items = 0
+    granularity = (
+        "hourly→daily(resampled)" if settings.COINGECKO_PLAN == "demo" else "daily"
+    )
     return {
         "plan": settings.COINGECKO_PLAN,
         "has_api_key": bool(client.api_key),
         "base_url": client.base_url,
-        "interval_policy": "range_daily",
+        "granularity": granularity,
+        "last_etl_items": items,
     }
 
 
@@ -164,11 +172,14 @@ def diag_cg(request: Request) -> dict:
         status["chart_points"] = len(chart.get("prices", []))
     except Exception as e:  # pragma: no cover - network failures
         status["error"] = str(e)
+    granularity = (
+        "hourly→daily(resampled)" if settings.COINGECKO_PLAN == "demo" else "daily"
+    )
     return {
         "plan": settings.COINGECKO_PLAN,
         "base_url": client.base_url,
         "has_api_key": bool(client.api_key),
-        "interval_policy": "range_daily",
+        "granularity": granularity,
         "diag": status,
     }
 
@@ -183,31 +194,20 @@ def get_price(coin_id: str, request: Request) -> PriceResponse:
     return PriceResponse(coin_id=coin_id, usd=price)
 
 
-@api.get("/markets/basic")
-def markets_basic(
-    request: Request,
-    limit: int = 20,
-    vs: str = "usd",
-    page: int = 1,
-) -> dict:
+@api.get("/markets")
+def markets(request: Request, limit: int = 20, vs: str = "usd") -> List[dict]:
     client: CoinGeckoClient = request.app.state.cg_client
-    limit = max(1, min(limit, 50))
-    data = client.get_markets(vs=vs, per_page=limit, page=page)
-    logger.info("markets_basic fallback limit=%s", limit)
-    items = [
+    rows = client.get_markets(vs=vs, per_page=max(1, min(limit, 50)))
+    logger.info("markets fallback limit=%s", limit)
+    return [
         {
-            "name": d.get("name"),
-            "symbol": d.get("symbol", "").upper(),
-            "price": d.get("current_price"),
-            "score": 0,
+            "name": r.get("name"),
+            "symbol": r.get("symbol", "").upper(),
+            "price": r.get("current_price"),
+            "score": 0.0,
         }
-        for d in data
+        for r in rows
     ]
-    return {
-        "items": items,
-        "count": len(items),
-        "demo": settings.COINGECKO_PLAN == "demo",
-    }
 
 
 @api.get("/ranking", response_model=RankingResponse)

@@ -53,3 +53,11 @@ def test_run_etl_raises_when_disabled(monkeypatch):
     dummy = SimpleNamespace(api_key=None)
     with pytest.raises(run_module.DataUnavailable):
         run_module.run_etl(dummy)
+
+
+def test_to_daily_close():
+    pairs = [[0, 1.0], [1000 * 60 * 60 * 23, 2.0], [1000 * 60 * 60 * 25, 3.0]]
+    result = run_module.to_daily_close(pairs)
+    assert len(result) == 2
+    assert result[0][1] == 2.0
+    assert result[1][1] == 3.0

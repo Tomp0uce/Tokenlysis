@@ -67,7 +67,7 @@ class Settings(BaseSettings):
     COINGECKO_API_KEY: str | None = None
     coingecko_api_key: str | None = Field(default=None, alias="coingecko_api_key")
     COINGECKO_PLAN: str = "demo"
-    CG_TOP_N: int = 100
+    CG_TOP_N: int = 50
     CG_DAYS: int = 14
     CG_INTERVAL: str | None = "daily"
     CG_THROTTLE_MS: int = 150
