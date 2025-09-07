@@ -164,7 +164,7 @@ seed assets (`C1`, `C2`, …) are mapped to real CoinGecko IDs through
 ### Health & Diagnostics
 
 - `GET /healthz` – basic liveness probe
-- `GET /readyz` – readiness check for the web process
+- `GET /readyz` – readiness check for the web process (`{"ready": true}`)
 - `GET /api/markets/basic` – minimal market data fallback
 - `GET /api/diag` – returns app version, outbound status and masked API key
 

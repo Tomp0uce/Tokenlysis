@@ -7,6 +7,8 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from .core.settings import settings
@@ -95,6 +97,15 @@ def healthz(session: Session = Depends(get_session)) -> dict:
     }
 
 
+@app.get("/readyz")
+def readyz(session: Session = Depends(get_session)) -> dict:
+    try:
+        session.execute(text("SELECT 1"))
+    except Exception:  # pragma: no cover - defensive
+        raise HTTPException(status_code=503)
+    return {"ready": True}
+
+
 @app.on_event("startup")
 async def startup() -> None:
     Base.metadata.create_all(bind=engine)
@@ -128,6 +139,9 @@ async def startup() -> None:
             await asyncio.sleep(12 * 60 * 60)
 
     asyncio.create_task(_job())
+
+
+app.mount("/", StaticFiles(directory="frontend", html=True), name="static")
 
 
 __all__ = ["app"]
