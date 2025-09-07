@@ -1,20 +1,21 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
-from typing import List, Optional
+from typing import List
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY")
+
+
 class Settings(BaseSettings):
-    """Application settings loaded from environment and optional files."""
+    """Application settings loaded from environment."""
 
     cors_origins: List[str] | str = ["http://localhost"]
     cg_top_n: int = 20
     cg_days: int = 14
-    coingecko_api_key: Optional[str] = None
 
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="ignore"
@@ -27,33 +28,16 @@ class Settings(BaseSettings):
             return [s.strip() for s in v.split(",") if s.strip()]
         return v
 
-    @field_validator("coingecko_api_key", mode="before")
-    @classmethod
-    def _load_coingecko_key(cls, v: Optional[str]) -> Optional[str]:
-        if v:
-            return v.strip()
-        env_key = os.environ.get("COINGECKO_API_KEY")
-        if env_key:
-            return env_key.strip()
-        secret_path = Path("/run/secrets/COINGECKO_API_KEY")
-        if secret_path.is_file():
-            try:
-                return secret_path.read_text().strip()
-            except OSError:
-                pass
-        return None
-
 
 settings = Settings()
 
 
-def get_coingecko_headers(settings_obj: Settings | None = None) -> dict[str, str]:
+def get_coingecko_headers() -> dict[str, str]:
     """Return CoinGecko API headers if an API key is available."""
 
-    cfg = settings_obj or Settings()
-    if cfg.coingecko_api_key:
-        return {"x-cg-pro-api-key": cfg.coingecko_api_key}
+    if COINGECKO_API_KEY:
+        return {"x-cg-pro-api-key": COINGECKO_API_KEY}
     return {}
 
 
-__all__ = ["Settings", "settings", "get_coingecko_headers"]
+__all__ = ["Settings", "settings", "get_coingecko_headers", "COINGECKO_API_KEY"]

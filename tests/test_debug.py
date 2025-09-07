@@ -1,16 +1,22 @@
 from subprocess import CompletedProcess
+import importlib
 
-from backend.app.main import app
+import backend.app.core.settings as settings_module
+import backend.app.services.coingecko as coingecko
+import backend.app.main as main_module
 from fastapi.testclient import TestClient
 
 
 def test_debug_endpoint(monkeypatch):
-    client = TestClient(app)
+    monkeypatch.setenv("COINGECKO_API_KEY", "test-key")
+    importlib.reload(settings_module)
+    importlib.reload(coingecko)
+    importlib.reload(main_module)
+    client = TestClient(main_module.app)
 
     def fake_run(cmd, capture_output, text):
         return CompletedProcess(cmd, 0, stdout="pong", stderr="")
 
-    monkeypatch.setenv("COINGECKO_API_KEY", "test-key")
     monkeypatch.setattr("backend.app.debug.run", fake_run)
 
     resp = client.get("/api/debug")
