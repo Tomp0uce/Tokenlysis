@@ -10,7 +10,10 @@ def test_api_key_from_env(monkeypatch):
     importlib.reload(settings_module)
     assert settings_module.settings.COINGECKO_API_KEY == "env-key"
     assert settings_module.get_coingecko_headers() == {"x-cg-demo-api-key": "env-key"}
-    assert settings_module.effective_coingecko_base_url() == "https://api.coingecko.com/api/v3"
+    assert (
+        settings_module.effective_coingecko_base_url()
+        == "https://pro-api.coingecko.com/api/v3"
+    )
 
 
 def test_lowercase_api_key(monkeypatch):
@@ -20,6 +23,17 @@ def test_lowercase_api_key(monkeypatch):
     importlib.reload(settings_module)
     assert settings_module.settings.coingecko_api_key == "low-key"
     assert settings_module.get_coingecko_headers() == {"x-cg-pro-api-key": "low-key"}
+
+
+def test_effective_base_url_without_api_key(monkeypatch):
+    monkeypatch.delenv("COINGECKO_API_KEY", raising=False)
+    monkeypatch.delenv("coingecko_api_key", raising=False)
+    monkeypatch.delenv("COINGECKO_PLAN", raising=False)
+    importlib.reload(settings_module)
+    assert (
+        settings_module.effective_coingecko_base_url()
+        == "https://api.coingecko.com/api/v3"
+    )
 
 
 def test_empty_api_key(monkeypatch):
