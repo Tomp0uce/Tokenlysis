@@ -111,6 +111,8 @@ Runtime behaviour can be tweaked with environment variables:
 - `USE_SEED_ON_FAILURE` – fall back to bundled seed data when live ETL fails (default: `false`)
 - `LOG_LEVEL` – set to `DEBUG` for verbose logs (default: `INFO`)
 
+Boolean variables accept `true/false/1/0/yes/no/on/off` (case-insensitive). Empty values fall back to defaults, while unrecognised values trigger a startup error. Integer variables behave similarly: empty strings use the default and invalid numbers raise an explicit error.
+
 The ETL fetches market data using CoinGecko's coin IDs. During development the
 seed assets (`C1`, `C2`, …) are mapped to real CoinGecko IDs through
 `backend/app/config/seed_mapping.py`.
