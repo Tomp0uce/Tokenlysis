@@ -278,19 +278,28 @@ def run_etl(
     if budget is None and settings.BUDGET_FILE:
         budget = CallBudget(Path(settings.BUDGET_FILE), settings.CG_MONTHLY_QUOTA)
 
-    limit = max(
-        10,
-        min(settings.CG_TOP_N, 250 if client.api_key is None else settings.CG_TOP_N),
-    )
+    limit = max(10, settings.CG_TOP_N)
     days = settings.CG_DAYS
     per_page_max = settings.CG_PER_PAGE_MAX
     required_calls = math.ceil(limit / per_page_max)
-    if budget and not budget.can_spend(required_calls):
-        raise DataUnavailable("quota exceeded")
+    if budget:
+        logging.info(
+            "required_calls=%s monthly_call_count=%s quota=%s",
+            required_calls,
+            budget.monthly_call_count,
+            budget.quota,
+        )
+        if not budget.can_spend(required_calls):
+            raise DataUnavailable("quota exceeded")
     try:
         data = _coingecko_etl(limit, days, client, per_page_max)
         if budget:
             budget.spend(required_calls)
+            logging.info(
+                "coingecko_calls_total=%s last_refresh_at=%s",
+                budget.monthly_call_count,
+                dt.datetime.now(dt.timezone.utc).isoformat(),
+            )
         return data
     except Exception as exc:  # pragma: no cover - network failures
         if settings.use_seed_on_failure:

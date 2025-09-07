@@ -30,6 +30,7 @@ from .schemas.crypto import (
 from .schemas.price import PriceResponse
 from .schemas.version import VersionResponse
 from .services.coingecko import CoinGeckoClient
+from .services.budget import CallBudget
 
 import logging
 
@@ -108,6 +109,11 @@ logger.info(
     app.state.cg_client.base_url,
     masked,
 )
+
+budget = None
+if settings.BUDGET_FILE:
+    budget = CallBudget(Path(settings.BUDGET_FILE), settings.CG_MONTHLY_QUOTA)
+app.state.budget = budget
 
 
 @app.middleware("http")
@@ -333,6 +339,22 @@ async def refresh_cache() -> None:
             await asyncio.sleep(24 * 60 * 60)
 
     asyncio.create_task(_refresh_loop())
+
+
+@app.on_event("startup")
+async def schedule_etl_job() -> None:
+    if app.state.budget is None:
+        return
+
+    async def _job() -> None:
+        while True:
+            try:
+                run_etl(client=app.state.cg_client, budget=app.state.budget)
+            except DataUnavailable as exc:  # pragma: no cover - network failures
+                logger.warning("ETL skipped: %s", exc)
+            await asyncio.sleep(12 * 60 * 60)
+
+    asyncio.create_task(_job())
 
 
 @app.get("/healthz")

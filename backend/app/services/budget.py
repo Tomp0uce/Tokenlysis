@@ -43,3 +43,9 @@ class CallBudget:
         self.reset_if_needed()
         self._data["monthly_call_count"] += calls
         self._save()
+
+    @property
+    def monthly_call_count(self) -> int:
+        """Return the current persisted count for this month."""
+        self.reset_if_needed()
+        return self._data["monthly_call_count"]

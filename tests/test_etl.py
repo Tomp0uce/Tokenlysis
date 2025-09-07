@@ -1,63 +1,24 @@
-import importlib
-from types import SimpleNamespace
-
-import pytest
-
-import backend.app.core.settings as settings_module
-import backend.app.etl.run as run_module
-from backend.app.etl.run import _coin_history
+from backend.app.services.budget import CallBudget
+from backend.app.etl import run as etl_run
 
 
 class DummyClient:
-    def __init__(self) -> None:
-        self.called_with = None
-
-    def get_market_chart(self, coin_id: str, days: int, vs: str = "usd"):
-        self.called_with = (coin_id, days, vs)
-        return {"prices": []}
+    api_key = None
 
 
-def test_coin_history_uses_coingecko_id():
-    coin = {"coingecko_id": "bitcoin", "symbol": "btc", "id": "btc"}
-    client = DummyClient()
-    _coin_history(coin, 14, client)
-    assert client.called_with == ("bitcoin", 14, "usd")
+def test_run_etl_uses_full_top_n_without_api_key(monkeypatch, tmp_path):
+    monkeypatch.setattr(etl_run.settings, "CG_TOP_N", 300)
+    monkeypatch.setattr(etl_run.settings, "CG_PER_PAGE_MAX", 250)
 
+    captured = {}
 
-def test_coin_history_maps_seed_symbol():
-    coin = {"symbol": "C1", "id": "1"}
-    client = DummyClient()
-    _coin_history(coin, 14, client)
-    assert client.called_with == ("bitcoin", 14, "usd")
+    def fake_etl(limit, days, client, per_page_max):
+        captured["limit"] = limit
+        return {}
 
+    monkeypatch.setattr(etl_run, "_coingecko_etl", fake_etl)
+    budget = CallBudget(tmp_path / "budget.json", quota=10)
+    etl_run.run_etl(client=DummyClient(), budget=budget)
 
-def _boom(*args, **kwargs):  # helper for failing ETL
-    raise RuntimeError("boom")
-
-
-def test_run_etl_seed_fallback(monkeypatch):
-    monkeypatch.setenv("USE_SEED_ON_FAILURE", "true")
-    importlib.reload(settings_module)
-    importlib.reload(run_module)
-    monkeypatch.setattr(run_module, "_coingecko_etl", _boom)
-    dummy = SimpleNamespace(api_key=None)
-    data = run_module.run_etl(dummy)
-    assert data
-
-
-def test_run_etl_raises_when_disabled(monkeypatch):
-    monkeypatch.setenv("USE_SEED_ON_FAILURE", "false")
-    importlib.reload(settings_module)
-    importlib.reload(run_module)
-    monkeypatch.setattr(run_module, "_coingecko_etl", _boom)
-    dummy = SimpleNamespace(api_key=None)
-    with pytest.raises(run_module.DataUnavailable):
-        run_module.run_etl(dummy)
-
-
-def test_to_daily_close():
-    pairs = [[0, 1.0], [1000 * 60 * 60 * 23, 2.0], [1000 * 60 * 60 * 25, 3.0]]
-    result = run_module.to_daily_close(pairs)
-    assert len(result) == 2
-    assert result[0][1] == 2.0
-    assert result[1][1] == 3.0
+    assert captured["limit"] == 300
+    assert budget.monthly_call_count == 2

@@ -6,10 +6,12 @@ def test_budget_spend_and_reset(tmp_path, monkeypatch):
     budget = CallBudget(path, quota=5)
     assert budget.can_spend(5)
     budget.spend(3)
+    assert budget.monthly_call_count == 3
     assert not budget.can_spend(3)
 
     # simulate new month
     monkeypatch.setattr(budget, "_current_month", lambda: "2099-12")
     assert budget.can_spend(5)
     budget.spend(5)
+    assert budget.monthly_call_count == 5
     assert path.read_text() != ""

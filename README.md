@@ -129,6 +129,23 @@ Runtime behaviour can be tweaked with environment variables:
   Unknown values fall back to `INFO` with a warning. Use `UVICORN_LOG_LEVEL` or
   `--log-level` to override server log level separately.
 
+#### Persistence (NAS)
+
+When deploying on a Synology NAS, mount persistent volumes so the database and
+budget survive container restarts:
+
+```
+/volume1/docker/tokenlysis/db   ↔  /app/db
+/volume1/docker/tokenlysis/meta ↔  /app/meta
+```
+
+The `.env` defaults assume these in-container paths:
+
+- `DATABASE_URL=sqlite:////app/db/tokenlysis.db`
+- `BUDGET_FILE=/app/meta/cg_budget.json`
+
+Ensure the container user has write permissions on the host directories.
+
 Do **not** define environment variables with empty values. If a value is not
 needed, remove the variable or comment it out in `.env`. On Synology, delete the
 variable from the UI instead of leaving the field blank. Quotes around values
