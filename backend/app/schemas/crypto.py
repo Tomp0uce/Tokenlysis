@@ -14,7 +14,8 @@ class Scores(BaseModel):
 class Latest(BaseModel):
     date: str
     price_usd: float | None = None
-    metrics: dict[str, float] | None = None
+    market_cap_usd: float | None = None
+    volume_24h_usd: float | None = None
     scores: Scores
 
 
