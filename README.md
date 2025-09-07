@@ -1,6 +1,6 @@
 # Tokenlysis
 
-Tokenlysis is a cryptocurrency scoring platform. The current proof of concept fetches a configurable top ``N`` assets (20 by default) from CoinGecko, computes **Liquidity** and **Opportunity** scores and aggregates them into a global score refreshed daily.
+Tokenlysis is a cryptocurrency scoring platform. The current proof of concept fetches a configurable top ``N`` assets (50 by default) from CoinGecko, computes **Liquidity** and **Opportunity** scores and aggregates them into a global score refreshed daily.
 
 The long‑term goal is to rank more than 1,000 crypto-assets and highlight 100 trending tokens outside the top market-cap list. Additional categories and features will arrive in the MVP phase.
 
@@ -8,7 +8,7 @@ For a full overview of features and architecture, see the [functional specificat
 
 ## Overview
 
-- **Universe**: configurable top ``N`` assets (default 20) from CoinGecko *(MVP: top 1000 + 100 trending)*.
+- **Universe**: configurable top ``N`` assets (default 50) from CoinGecko *(MVP: top 1000 + 100 trending)*.
 - **Update schedule**: data is refreshed every day at 00:00 UTC.
 - **Scores**: Liquidity, Opportunity and Global *(MVP: six categories: Community, Liquidity, Opportunity, Security, Technology, Tokenomics).* 
 
@@ -16,7 +16,7 @@ For a full overview of features and architecture, see the [functional specificat
 
 | Feature | Implemented | Planned |
 | ------- | ----------- | ------- |
-| Configurable top N (default 20) | ✅ | Top 1000 + 100 trending |
+| Configurable top N (default 50) | ✅ | Top 1000 + 100 trending |
 | Liquidity & Opportunity scores + Global | ✅ | Six categories with custom weights |
 | Daily refresh aligned to 00:00 UTC | ✅ | DB + daily snapshots |
 | Static frontend table | ✅ | Rich charts & filtering |
