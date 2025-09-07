@@ -21,10 +21,10 @@
   <table id="cryptos" style="display:none;">
     <thead>
       <tr>
-        <th>Name</th>
-        <th>Symbol</th>
+        <th>Coin</th>
         <th>Price (USD)</th>
-        <th>Score</th>
+        <th>Rank</th>
+        <th>24h %</th>
       </tr>
     </thead>
     <tbody></tbody>
@@ -58,9 +58,10 @@
         const latency = Math.round(performance.now() - start);
         lastRequest = { url, status: res.status, latency };
         const data = await res.json();
-        data.forEach(item => {
+        (data.items || []).forEach(item => {
           const tr = document.createElement('tr');
-          tr.innerHTML = `<td>${item.name}</td><td>${item.symbol}</td><td>${formatPrice(item.price)}</td><td>${item.score}</td>`;
+          const pct = item.pct_change_24h !== undefined && item.pct_change_24h !== null ? item.pct_change_24h.toFixed(2) : '';
+          tr.innerHTML = `<td>${item.coin_id}</td><td>${formatPrice(item.price)}</td><td>${item.rank ?? ''}</td><td>${pct}</td>`;
           tbody.appendChild(tr);
         });
         document.getElementById('cryptos').style.display = 'table';
