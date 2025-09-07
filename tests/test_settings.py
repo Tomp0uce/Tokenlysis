@@ -1,7 +1,6 @@
 import importlib
 import backend.app.core.settings as settings_module
 import pytest
-from pydantic import ValidationError
 
 
 def test_api_key_from_env(monkeypatch):
@@ -55,13 +54,10 @@ def test_use_seed_on_failure_false_variants(monkeypatch):
     assert cfg.use_seed_on_failure is False
 
 
-def test_invalid_bool(monkeypatch):
+def test_use_seed_on_failure_invalid_falls_back(monkeypatch):
     monkeypatch.setenv("USE_SEED_ON_FAILURE", "maybe")
-    with pytest.raises(
-        ValidationError,
-        match="Invalid boolean 'maybe' for USE_SEED_ON_FAILURE",
-    ):
-        settings_module.Settings()
+    cfg = settings_module.Settings()
+    assert cfg.use_seed_on_failure is False
 
 
 def test_int_parsing(monkeypatch):
@@ -102,6 +98,14 @@ def test_log_level_unknown_no_crash(monkeypatch):
     monkeypatch.setenv("LOG_LEVEL", "foo")
     cfg = settings_module.Settings()
     assert cfg.log_level == "FOO"
+
+
+def test_coerce_bool_helper():
+    from backend.app.core.settings import _coerce_bool
+
+    assert _coerce_bool("", False) is False
+    assert _coerce_bool(" YES ", False) is True
+    assert _coerce_bool("maybe", True) is True
 
 
 def test_mask_secret():

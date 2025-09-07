@@ -17,6 +17,7 @@ def test_basic_config_handles_blank():
         ("", logging.INFO),
         (" ", logging.INFO),
         ("debug", logging.DEBUG),
+        ("WARN", logging.WARNING),
         ("20", 20),
         ("INFO", logging.INFO),
         (" info ", logging.INFO),

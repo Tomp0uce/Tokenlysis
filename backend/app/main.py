@@ -30,33 +30,34 @@ from .services.coingecko import CoinGeckoClient
 import logging
 
 
-LOG_LEVEL_NAMES = {"CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG", "NOTSET"}
+_NAME_MAP = {
+    **logging._nameToLevel,
+    "WARN": logging.WARNING,
+    "FATAL": logging.CRITICAL,
+}
 
 
-def parse_log_level(value: str | int | None) -> int:
-    """Return a valid logging level from various representations."""
+def parse_log_level(raw: str | int | None, default: int = logging.INFO) -> int:
+    """Parse log level names or integers, defaulting when unknown."""
 
-    default = logging.INFO
-    if value is None:
+    if raw is None:
         return default
-    if isinstance(value, int):
-        return value
-    s = str(value).strip()
-    if not s:
+    if isinstance(raw, int):
+        return raw
+    s = str(raw).strip().upper()
+    if s == "":
         return default
     if s.isdigit():
         return int(s)
-    up = s.upper()
-    mapping = {name: getattr(logging, name) for name in LOG_LEVEL_NAMES}
-    return mapping.get(up, default)
+    return _NAME_MAP.get(s, default)
 
 
 logger = logging.getLogger(__name__)
 
 lvl = parse_log_level(settings.log_level)
 if isinstance(settings.log_level, str):
-    s = settings.log_level.strip()
-    if s and not s.isdigit() and s.upper() not in LOG_LEVEL_NAMES:
+    s = settings.log_level.strip().upper()
+    if s and not s.isdigit() and s not in _NAME_MAP:
         logger.warning(
             "LOG_LEVEL=%r non reconnu, fallback sur %s",
             settings.log_level,

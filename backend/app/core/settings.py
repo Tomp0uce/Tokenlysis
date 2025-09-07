@@ -20,9 +20,15 @@ TRUE_VALUES = {"1", "true", "t", "yes", "y", "on"}
 FALSE_VALUES = {"0", "false", "f", "no", "n", "off"}
 
 
-def _coerce_bool(value: Any, default: bool, env_name: str) -> bool:
+def _coerce_bool(value: Any, default: bool) -> bool:
+    """Coerce various inputs to bool, falling back to default when unknown."""
+
     if value is None:
         return default
+
+    if isinstance(value, bool):
+        return value
+
     if isinstance(value, str):
         s = value.strip()
         if s == "":
@@ -32,14 +38,12 @@ def _coerce_bool(value: Any, default: bool, env_name: str) -> bool:
             return True
         if sl in FALSE_VALUES:
             return False
-        raise ValueError(f"Invalid boolean '{value}' for {env_name}")
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, int):
-        if value in (0, 1):
-            return bool(value)
-        raise ValueError(f"Invalid boolean integer '{value}' for {env_name}")
-    raise ValueError(f"Invalid boolean type '{type(value).__name__}' for {env_name}")
+        return default
+
+    try:
+        return bool(int(value))
+    except Exception:  # pragma: no cover - defensive
+        return default
 
 
 def _parse_int(value: Any, env_name: str, default: int) -> int:
@@ -86,10 +90,9 @@ class Settings(BaseSettings):
 
     @field_validator("use_seed_on_failure", mode="before")
     @classmethod
-    def _coerce_empty_bool(cls, v: Any, info) -> Any:  # type: ignore[override]
+    def _v_use_seed_on_failure(cls, v: Any, info) -> bool:  # type: ignore[override]
         default = cls.model_fields[info.field_name].default
-        env_name = info.field_name.upper()
-        return _coerce_bool(v, default, env_name)
+        return _coerce_bool(v, default)
 
     @field_validator("cg_top_n", "cg_days", mode="before")
     @classmethod
