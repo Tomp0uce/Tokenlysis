@@ -31,8 +31,9 @@
   </table>
   <div id="version"></div>
   <div id="diag"></div>
-  <script type="module" src="version.js"></script>
-  <script>
+  <script type="module">
+    import { getAppVersion } from './version.js';
+
     const API_URL = document.querySelector('meta[name="api-url"]')?.content || '';
     let lastRequest = {};
 
@@ -110,17 +111,20 @@
 
     async function loadVersion() {
       const local = getAppVersion();
+      const el = document.getElementById('version');
+
       if (local && local !== 'dev') {
-        document.getElementById('version').textContent = `Version: ${local}`;
+        el.textContent = `Version: ${local}`;
         return;
       }
+
       try {
         const res = await fetch(`${API_URL}/version`);
         const data = await res.json();
-        document.getElementById('version').textContent = `Version: ${data.version}`;
+        el.textContent = `Version: ${data.version || 'unknown'}`;
       } catch (err) {
-        document.getElementById('version').textContent = 'Version: dev';
         console.error(err);
+        el.textContent = 'Version: dev';
       }
     }
 
@@ -136,8 +140,12 @@
       }
     }
 
-    loadVersion();
-    loadCryptos();
+    function init() {
+      loadVersion();
+      loadCryptos();
+    }
+
+    window.addEventListener('DOMContentLoaded', init);
   </script>
 </body>
 </html>
