@@ -8,7 +8,7 @@ import time
 import requests
 
 from ..core.log import logger, request_id_ctx
-from ..core.settings import COINGECKO_API_KEY
+from ..core.settings import settings
 
 BASE_URL = "https://api.coingecko.com/api/v3"
 
@@ -27,7 +27,7 @@ class CoinGeckoClient:
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.session = session or requests.Session()
-        key = api_key or COINGECKO_API_KEY
+        key = api_key or settings.coingecko_api_key
         self.api_key = key
         if key:
             self.session.headers.update({"x-cg-pro-api-key": key})

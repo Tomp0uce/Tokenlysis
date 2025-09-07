@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .core.log import request_id_ctx
 from .core.scheduling import seconds_until_next_midnight_utc
-from .core.settings import COINGECKO_API_KEY, settings
+from .core.settings import settings, mask_secret
 from .core.version import get_version
 from .etl.run import DataUnavailable, run_etl
 from .schemas.crypto import (
@@ -52,7 +52,10 @@ def parse_log_level(value: str | int | None) -> int:
         "DEBUG": logging.DEBUG,
         "NOTSET": logging.NOTSET,
     }
-    return mapping.get(up, default)
+    if up not in mapping:
+        allowed = ", ".join(mapping.keys())
+        raise ValueError(f"Invalid LOG_LEVEL '{value}'. Use int or one of {allowed}.")
+    return mapping[up]
 
 
 logging.basicConfig(level=parse_log_level(settings.log_level), format="%(message)s")
@@ -106,11 +109,7 @@ def read_version() -> VersionResponse:
 @api.get("/diag")
 def diag(client: CoinGeckoClient = Depends(get_coingecko_client)) -> dict:
     """Return diagnostic information."""
-    api_key_masked = (
-        ("*" * max(len(COINGECKO_API_KEY) - 4, 0)) + COINGECKO_API_KEY[-4:]
-        if COINGECKO_API_KEY
-        else None
-    )
+    api_key_masked = mask_secret(settings.coingecko_api_key)
     try:
         ping = client.ping()
         outbound_ok = True

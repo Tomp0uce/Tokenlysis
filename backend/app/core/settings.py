@@ -1,12 +1,9 @@
 from __future__ import annotations
 
-import os
 from typing import Any, List
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
-COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY") or None
 
 
 def mask_secret(value: str | None) -> str:
@@ -23,9 +20,15 @@ TRUE_VALUES = {"1", "true", "t", "yes", "y", "on"}
 FALSE_VALUES = {"0", "false", "f", "no", "n", "off"}
 
 
-def _coerce_bool(value: Any, default: bool) -> Any:
+def _coerce_bool(value: Any, default: bool) -> bool:
     if value is None:
         return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        if value in (0, 1):
+            return bool(value)
+        raise ValueError(f"Invalid boolean integer '{value}'")
     if isinstance(value, str):
         s = value.strip()
         if s == "":
@@ -35,10 +38,8 @@ def _coerce_bool(value: Any, default: bool) -> Any:
             return True
         if sl in FALSE_VALUES:
             return False
-        return s
-    if isinstance(value, bool):
-        return value
-    return value
+        raise ValueError(f"Invalid boolean string '{value}'")
+    raise ValueError(f"Invalid boolean type '{type(value).__name__}'")
 
 
 def _parse_int(value: Any, env_name: str, default: int) -> int:
@@ -66,6 +67,10 @@ class Settings(BaseSettings):
     )
     log_level: str | int | None = Field(
         default=None, description="Python logging level"
+    )
+    coingecko_api_key: str | None = Field(
+        default=None,
+        description="CoinGecko API key",
     )
 
     model_config = SettingsConfigDict(
@@ -104,15 +109,21 @@ class Settings(BaseSettings):
             return int(s)
         return s.upper()
 
+    @field_validator("coingecko_api_key", mode="before")
+    @classmethod
+    def _empty_api_key(cls, v: Any) -> Any:
+        if isinstance(v, str) and v.strip() == "":
+            return None
+        return v
+
 
 settings = Settings()
 
 
 def get_coingecko_headers() -> dict[str, str]:
     """Return CoinGecko API headers if an API key is available."""
-
-    if COINGECKO_API_KEY:
-        return {"x-cg-pro-api-key": COINGECKO_API_KEY}
+    if settings.coingecko_api_key:
+        return {"x-cg-pro-api-key": settings.coingecko_api_key}
     return {}
 
 
@@ -120,6 +131,5 @@ __all__ = [
     "Settings",
     "settings",
     "get_coingecko_headers",
-    "COINGECKO_API_KEY",
     "mask_secret",
 ]

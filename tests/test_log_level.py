@@ -1,5 +1,6 @@
 from backend.app.main import parse_log_level
 import logging
+import pytest
 
 
 def test_parse_log_level_values():
@@ -8,5 +9,10 @@ def test_parse_log_level_values():
     assert parse_log_level(" ") == logging.INFO
     assert parse_log_level("debug") == logging.DEBUG
     assert parse_log_level(" INFO ") == logging.INFO
+    assert parse_log_level(" info ") == logging.INFO
+    assert parse_log_level("20") == 20
     assert parse_log_level("15") == 15
-    assert parse_log_level("foo") == logging.INFO
+    with pytest.raises(ValueError):
+        parse_log_level("foo")
+    with pytest.raises(ValueError):
+        parse_log_level("VERBOSE")
