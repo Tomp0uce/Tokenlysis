@@ -139,11 +139,12 @@ budget survive container restarts:
 /volume1/docker/tokenlysis/meta ↔  /app/meta
 ```
 
-The `.env` defaults assume these in-container paths:
+The `.env.example` illustrates the host paths to persist data:
 
-- `DATABASE_URL=sqlite:////app/db/tokenlysis.db`
-- `BUDGET_FILE=/app/meta/cg_budget.json`
+- `DATABASE_URL=sqlite:////volume1/docker/tokenlysis/db/tokenlysis.db`
+- `BUDGET_FILE=/volume1/docker/tokenlysis/meta/cg_budget.json`
 
+These map inside the container to `/app/db` and `/app/meta` respectively.
 Ensure the container user has write permissions on the host directories.
 
 Do **not** define environment variables with empty values. If a value is not

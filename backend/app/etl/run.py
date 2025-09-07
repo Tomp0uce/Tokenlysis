@@ -71,6 +71,13 @@ def run_etl(
     per_page_max = settings.CG_PER_PAGE_MAX
     required_calls = math.ceil(limit / per_page_max)
     if budget and not budget.can_spend(required_calls):
+        logger.warning(
+            "quota exceeded",
+            extra={
+                "required_calls": required_calls,
+                "monthly_call_count": budget.monthly_call_count,
+            },
+        )
         raise DataUnavailable("quota exceeded")
 
     try:
@@ -111,6 +118,16 @@ def run_etl(
         raise
     finally:
         session.close()
+
+    logger.info(
+        "etl run completed",
+        extra={
+            "coingecko_calls_total": required_calls,
+            "monthly_call_count": budget.monthly_call_count if budget else None,
+            "last_refresh_at": now.isoformat(),
+            "rows": len(price_rows),
+        },
+    )
 
     return len(price_rows)
 
