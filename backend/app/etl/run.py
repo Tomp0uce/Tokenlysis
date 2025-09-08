@@ -62,12 +62,6 @@ def _fetch_markets(
     return coins[:limit], calls
 
 
-def _seed_rows() -> list[dict]:
-    path = Path(settings.SEED_FILE)
-    with path.open() as f:
-        return json.load(f)
-
-
 def run_etl(
     *,
     client: CoinGeckoClient | None = None,
@@ -141,8 +135,12 @@ def run_etl(
 
 def load_seed() -> None:
     """Load seed data into the database."""
-
-    rows = _seed_rows()
+    path = Path(settings.SEED_FILE)
+    if not path.exists():
+        logger.warning("seed file not found at %s", path)
+        return
+    with path.open() as f:
+        rows = json.load(f)
     now = dt.datetime.now(dt.timezone.utc)
     price_rows = [
         {
@@ -172,3 +170,13 @@ def load_seed() -> None:
         raise
     finally:
         session.close()
+    logger.info(
+        json.dumps(
+            {
+                "event": "seed load completed",
+                "seed_file": str(path),
+                "rows": len(price_rows),
+                "data_source": "seed",
+            }
+        )
+    )

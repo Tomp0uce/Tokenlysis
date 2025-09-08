@@ -5,6 +5,8 @@ const API_URL = document.querySelector('meta[name="api-url"]')?.content || '';
 let lastRequest = {};
 let marketMeta = {};
 let diagMeta = null;
+let backendLast = {};
+let appVersion = 'unknown';
 
 function formatPrice(p) {
   if (p === null || p === undefined) return '';
@@ -57,6 +59,7 @@ export async function loadCryptos() {
     console.error(err);
   }
   renderMeta();
+  renderDebug();
   await loadDiag();
 }
 
@@ -67,27 +70,38 @@ export async function loadVersion() {
     const res = await fetch(`${API_URL}/version`);
     if (res.ok) {
       const data = await res.json();
-      el.textContent = `Version: ${resolveVersion(data.version, local)}`;
+      appVersion = resolveVersion(data.version, local);
+      el.textContent = `Version: ${appVersion}`;
+      renderDebug();
       return;
     }
   } catch (err) {
     console.error(err);
   }
-  el.textContent = `Version: ${resolveVersion(null, local)}`;
+  appVersion = resolveVersion(null, local);
+  el.textContent = `Version: ${appVersion}`;
+  renderDebug();
 }
 
 export async function loadDiag() {
   try {
-    const res = await fetch(`${API_URL}/diag`);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
+    const [diagRes, lastRes] = await Promise.all([
+      fetch(`${API_URL}/diag`),
+      fetch(`${API_URL}/debug/last-request`).catch(() => null),
+    ]);
+    if (!diagRes.ok) throw new Error(`HTTP ${diagRes.status}`);
+    const data = await diagRes.json();
     diagMeta = data;
+    backendLast = lastRes && lastRes.ok ? await lastRes.json() : {};
     document.getElementById('diag').textContent = formatDiag(lastRequest, data);
     renderMeta();
+    renderDebug();
   } catch (err) {
     diagMeta = null;
+    backendLast = {};
     document.getElementById('diag').textContent = formatDiag(lastRequest, null);
     renderMeta();
+    renderDebug();
     console.error(err);
   }
 }
@@ -95,6 +109,16 @@ export async function loadDiag() {
 export function renderMeta() {
   const el = document.getElementById('meta');
   el.innerHTML = formatMeta(marketMeta, diagMeta ?? {});
+}
+
+function renderDebug() {
+  const el = document.getElementById('debug-panel');
+  if (!el) return;
+  const plan = diagMeta?.plan || 'unknown';
+  const base = diagMeta?.base_url || '';
+  const lastRefresh = marketMeta.last_refresh_at || '';
+  const source = marketMeta.data_source || '';
+  el.textContent = `version=${appVersion} plan=${plan} base=${base} last_refresh_at=${lastRefresh} source=${source} last_request=${backendLast.endpoint || ''} status=${backendLast.status || ''}`;
 }
 
 export function init() {

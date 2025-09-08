@@ -64,3 +64,56 @@ def test_coingecko_client_logs_json(monkeypatch, caplog):
     payload = json.loads(record.message)
     assert payload["endpoint"] == "/coins/markets"
     assert "latency_ms" in payload
+
+
+def test_coingecko_client_throttles_and_logs_demo(monkeypatch, caplog):
+    from backend.app.core import settings as settings_module
+    from backend.app.services.coingecko import CoinGeckoClient
+
+    monkeypatch.setattr(settings_module.settings, "CG_THROTTLE_MS", 100)
+
+    from types import SimpleNamespace
+
+    class DummySession:
+        def __init__(self) -> None:
+            self.headers: dict = {}
+
+        def mount(self, prefix, adapter):
+            pass
+
+        def get(self, url, params=None, timeout=None):
+            return SimpleNamespace(
+                status_code=200,
+                headers={"X-Request-Id": "rid"},
+                request=SimpleNamespace(headers=self.headers),
+                url=url,
+                json=lambda: [],
+                raise_for_status=lambda: None,
+            )
+
+    sleep_called = {"v": 0.0}
+
+    def fake_sleep(seconds):
+        sleep_called["v"] = seconds
+
+    counter = {"v": 0.0}
+
+    def fake_perf_counter() -> float:
+        counter["v"] += 0.001
+        return counter["v"]
+
+    monkeypatch.setattr(time, "perf_counter", fake_perf_counter)
+    monkeypatch.setattr(time, "sleep", fake_sleep)
+
+    client = CoinGeckoClient(api_key="demo-key", plan="demo", session=DummySession())
+
+    with caplog.at_level("INFO", logger="backend.app.services.coingecko"):
+        client.get_markets()
+
+    assert sleep_called["v"] >= 2.1
+    record = next(r for r in caplog.records if r.message.startswith("{"))
+    data = json.loads(record.message)
+    assert data["url"].endswith("/coins/markets")
+    assert data["status"] == 200
+    assert data["plan"] == "demo"
+    assert data["sent_demo_header"] is True

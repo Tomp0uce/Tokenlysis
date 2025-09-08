@@ -11,13 +11,14 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from .core.settings import settings
+from .core.settings import effective_coingecko_base_url, settings
 from .core.version import get_version
 from .db import Base, engine, get_session
 from .etl.run import DataUnavailable, load_seed, run_etl
 from .schemas.version import VersionResponse
 from .services.budget import CallBudget
 from .services.dao import PricesRepo, MetaRepo
+from .services.coingecko import get_last_request
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +106,7 @@ def diag(session: Session = Depends(get_session)) -> dict:
     monthly_call_count = budget.monthly_call_count if budget else 0
     return {
         "plan": settings.COINGECKO_PLAN,
+        "base_url": effective_coingecko_base_url(),
         "granularity": settings.REFRESH_GRANULARITY,
         "last_refresh_at": last_refresh_at,
         "last_etl_items": last_etl_items,
@@ -164,6 +166,11 @@ def readyz(session: Session = Depends(get_session)) -> dict:
     return {"ready": True}
 
 
+@app.get("/api/debug/last-request")
+def debug_last_request() -> dict:
+    return get_last_request() or {}
+
+
 @app.get("/version", response_model=VersionResponse)
 @app.get("/api/version", response_model=VersionResponse, include_in_schema=False)
 def version() -> VersionResponse:
@@ -181,25 +188,44 @@ async def startup() -> None:
     budget = None
     if settings.BUDGET_FILE:
         path = Path(settings.BUDGET_FILE)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        budget = CallBudget(path, settings.CG_MONTHLY_QUOTA)
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.touch(exist_ok=True)
+            budget = CallBudget(path, settings.CG_MONTHLY_QUOTA)
+        except OSError as exc:
+            logger.warning("budget file unavailable at %s: %s", path, exc)
+            budget = None
     app.state.budget = budget
 
     session = next(get_session())
     meta_repo = MetaRepo(session)
+    prices_repo = PricesRepo(session)
+    path_taken = "skip"
     try:
         if meta_repo.get("bootstrap_done") != "true":
             try:
                 run_etl(budget=budget)
+                path_taken = "ETL"
             except DataUnavailable:
-                load_seed()
+                if settings.use_seed_on_failure:
+                    load_seed()
+                    path_taken = "seed"
             meta_repo.set("bootstrap_done", "true")
         else:
-            load_seed()
+            has_data = bool(prices_repo.get_top("usd", 1))
+            if not has_data:
+                try:
+                    run_etl(budget=budget)
+                    path_taken = "ETL"
+                except DataUnavailable:
+                    if settings.use_seed_on_failure:
+                        load_seed()
+                        path_taken = "seed"
         session.commit()
     finally:
         session.close()
 
+    logger.info("startup path: %s", path_taken)
     asyncio.create_task(etl_loop())
 
 
