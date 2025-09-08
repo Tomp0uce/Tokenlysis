@@ -18,7 +18,6 @@ from .etl.run import DataUnavailable, load_seed, run_etl
 from .schemas.version import VersionResponse
 from .services.budget import CallBudget
 from .services.dao import PricesRepo, MetaRepo
-from .services.coingecko import get_last_request
 
 logger = logging.getLogger(__name__)
 
@@ -171,11 +170,6 @@ def readyz(session: Session = Depends(get_session)) -> dict:
     except Exception:  # pragma: no cover - defensive
         raise HTTPException(status_code=503)
     return {"ready": True}
-
-
-@app.get("/api/debug/last-request")
-def debug_last_request() -> dict:
-    return get_last_request() or {}
 
 
 @app.get("/version", response_model=VersionResponse)
