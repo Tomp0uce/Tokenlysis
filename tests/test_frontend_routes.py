@@ -18,8 +18,8 @@ def test_frontend_version_scripts_present():
     assert '<script type="module" src="./main.js"></script>' in html
 
 
-def test_debug_panel_present():
+def test_no_debug_panel_or_endpoint():
     html = Path("frontend/index.html").read_text()
-    assert 'id="debug-panel"' in html
+    assert 'id="debug-panel"' not in html
     js = Path("frontend/main.js").read_text()
-    assert "/debug/last-request" in js
+    assert "/debug/last-request" not in js
