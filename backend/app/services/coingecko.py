@@ -1,17 +1,34 @@
 import json
 import logging
 import time
-from typing import List
+from typing import Any, List, Optional
 
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from ..core.settings import settings, mask_secret
+from ..db import SessionLocal
+from .dao import MetaRepo
 
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://api.coingecko.com/api/v3"
+
+last_request: Optional[dict[str, Any]] = None
+
+
+def get_last_request() -> Optional[dict[str, Any]]:
+    global last_request
+    if last_request is not None:
+        return last_request
+    session = SessionLocal()
+    try:
+        val = MetaRepo(session).get("last_request")
+        last_request = json.loads(val) if val else None
+        return last_request
+    finally:
+        session.close()
 
 
 class CoinGeckoClient:
@@ -45,10 +62,17 @@ class CoinGeckoClient:
             masked = mask_secret(api_key)
             logger.info("CoinGecko auth header set: %s=%s", header_name, masked)
         self.api_key = api_key
+        throttle = settings.CG_THROTTLE_MS
+        if plan == "demo" and throttle < 2100:
+            logger.warning(
+                "CG_THROTTLE_MS %s too low for demo plan; using 2100 ms", throttle
+            )
+            throttle = 2100
+        self.throttle_ms = throttle
 
     def _request(self, path: str, params: dict | None = None) -> requests.Response:
         url = f"{self.base_url}{path}"
-        time.sleep(settings.CG_THROTTLE_MS / 1000.0)
+        time.sleep(self.throttle_ms / 1000.0)
         params_local = params.copy() if params else None
         for attempt in range(2):
             t0 = time.perf_counter()
@@ -70,6 +94,18 @@ class CoinGeckoClient:
                     }
                 )
             )
+            global last_request
+            last_request = {
+                "endpoint": path,
+                "query": params_local,
+                "status": resp.status_code,
+            }
+            db = SessionLocal()
+            try:
+                MetaRepo(db).set("last_request", json.dumps(last_request))
+                db.commit()
+            finally:
+                db.close()
             if (
                 resp.status_code == 401
                 and params_local

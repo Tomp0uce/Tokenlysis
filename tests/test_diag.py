@@ -3,6 +3,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from backend.app.core.settings import settings
+from backend.app.core.settings import effective_coingecko_base_url
 from backend.app.db import Base, get_session
 from backend.app.services.dao import MetaRepo
 from backend.app.services.budget import CallBudget
@@ -43,6 +44,7 @@ def test_diag_returns_debug(monkeypatch, tmp_path):
     assert resp.status_code == 200
     data = resp.json()
     assert data["plan"] == settings.COINGECKO_PLAN
+    assert data["base_url"] == effective_coingecko_base_url()
     assert data["granularity"] == "12h"
     assert data["last_refresh_at"] == "2025-09-07T20:51:26Z"
     assert data["last_etl_items"] == 50

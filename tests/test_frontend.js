@@ -84,7 +84,7 @@ test('resolveVersion defaults to dev', () => {
 // DOM Tests
 
 function setupDom() {
-  const dom = new JSDOM(`<!DOCTYPE html><meta name="api-url" content="">\n<div id="demo-banner" style="display:none"></div>\n<div id="status"></div>\n<table id="cryptos" style="display:none"><thead><tr><th>Coin</th><th>Rank</th><th>Price</th><th>Market Cap</th><th>Volume 24h</th><th>Change 24h</th></tr></thead><tbody></tbody></table>\n<div id="meta"></div>\n<div id="version"></div>\n<div id="diag"></div>`);
+  const dom = new JSDOM(`<!DOCTYPE html><meta name="api-url" content="">\n<div id="demo-banner" style="display:none"></div>\n<div id="status"></div>\n<table id="cryptos" style="display:none"><thead><tr><th>Coin</th><th>Rank</th><th>Price</th><th>Market Cap</th><th>Volume 24h</th><th>Change 24h</th></tr></thead><tbody></tbody></table>\n<div id="meta"></div>\n<div id="version"></div>\n<div id="diag"></div>\n<div id="debug-panel"></div>`);
   global.window = dom.window;
   global.document = dom.window.document;
   return dom;
@@ -92,7 +92,7 @@ function setupDom() {
 
 test('loadCryptos renders table and diagnostics', async () => {
   setupDom();
-  const { loadCryptos } = await import('../frontend/main.js');
+  const { loadCryptos, loadVersion } = await import('../frontend/main.js');
   const markets = {
     items: [
       {
@@ -118,6 +118,7 @@ test('loadCryptos renders table and diagnostics', async () => {
     data_source: 'api',
     top_n: 50,
   };
+  const lastReq = { endpoint: '/coins/markets', status: 200 };
   global.fetch = async (url) => {
     if (url.endsWith('/markets/top?limit=20&vs=usd')) {
       return new Response(JSON.stringify(markets), { status: 200 });
@@ -125,22 +126,27 @@ test('loadCryptos renders table and diagnostics', async () => {
     if (url.endsWith('/diag')) {
       return new Response(JSON.stringify(diag), { status: 200 });
     }
+    if (url.endsWith('/debug/last-request')) {
+      return new Response(JSON.stringify(lastReq), { status: 200 });
+    }
     if (url.endsWith('/version')) {
       return new Response(JSON.stringify({ version: '1.0.0' }), { status: 200 });
     }
     throw new Error('unexpected fetch ' + url);
   };
 
+  await loadVersion();
   await loadCryptos();
 
   const cells = [...document.querySelectorAll('#cryptos tbody tr td')].map((c) => c.textContent);
   assert.deepEqual(cells, ['bitcoin', '1', '1.00', '2', '3', '4.00%']);
   assert.match(document.getElementById('diag').textContent, /plan=demo/);
+  assert.match(document.getElementById('debug-panel').textContent, /plan=demo/);
 });
 
 test('loadCryptos tolerates diag failure', async () => {
   setupDom();
-  const { loadCryptos } = await import('../frontend/main.js');
+  const { loadCryptos, loadVersion } = await import('../frontend/main.js');
   const markets = {
     items: [
       {
@@ -156,6 +162,7 @@ test('loadCryptos tolerates diag failure', async () => {
     stale: false,
     data_source: 'api',
   };
+  const lastReq = { endpoint: '/coins/markets', status: 200 };
   global.fetch = async (url) => {
     if (url.endsWith('/markets/top?limit=20&vs=usd')) {
       return new Response(JSON.stringify(markets), { status: 200 });
@@ -163,12 +170,16 @@ test('loadCryptos tolerates diag failure', async () => {
     if (url.endsWith('/diag')) {
       return new Response('oops', { status: 500 });
     }
+    if (url.endsWith('/debug/last-request')) {
+      return new Response(JSON.stringify(lastReq), { status: 200 });
+    }
     if (url.endsWith('/version')) {
       return new Response(JSON.stringify({ version: '1.0.0' }), { status: 200 });
     }
     throw new Error('unexpected fetch ' + url);
   };
 
+  await loadVersion();
   await loadCryptos();
 
   const firstCell = document.querySelector('#cryptos tbody tr td').textContent;
