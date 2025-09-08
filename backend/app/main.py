@@ -17,7 +17,7 @@ from .db import Base, engine, get_session
 from .etl.run import DataUnavailable, load_seed, run_etl
 from .schemas.version import VersionResponse
 from .services.budget import CallBudget
-from .services.dao import PricesRepo, MetaRepo
+from .services.dao import PricesRepo, MetaRepo, CoinsRepo
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,8 @@ app.add_middleware(
 )
 
 
-def _serialize_price(p) -> dict:
+def _serialize_price(p, categories: tuple[list[str], list[str]]) -> dict:
+    names, ids = categories
     return {
         "coin_id": p.coin_id,
         "vs_currency": p.vs_currency,
@@ -41,6 +42,8 @@ def _serialize_price(p) -> dict:
         "rank": p.rank,
         "pct_change_24h": p.pct_change_24h,
         "snapshot_at": p.snapshot_at,
+        "category_names": names,
+        "category_ids": ids,
     }
 
 
@@ -57,7 +60,9 @@ def markets_top(
     logger.info("markets_top", extra={"limit_effective": limit_effective, "vs": vs})
     prices_repo = PricesRepo(session)
     meta_repo = MetaRepo(session)
+    coins_repo = CoinsRepo(session)
     rows = prices_repo.get_top(vs, limit_effective)
+    categories_map = coins_repo.get_categories_bulk([r.coin_id for r in rows])
     last_refresh_at = meta_repo.get("last_refresh_at")
     data_source = meta_repo.get("data_source")
     stale = True
@@ -68,7 +73,9 @@ def markets_top(
         except Exception:  # pragma: no cover - defensive
             pass
     return {
-        "items": [_serialize_price(r) for r in rows],
+        "items": [
+            _serialize_price(r, categories_map.get(r.coin_id, ([], []))) for r in rows
+        ],
         "last_refresh_at": last_refresh_at,
         "data_source": data_source,
         "stale": stale,
@@ -82,10 +89,19 @@ def price_detail(
     session: Session = Depends(get_session),
 ):
     prices_repo = PricesRepo(session)
+    coins_repo = CoinsRepo(session)
     row = prices_repo.get_price(coin_id, vs)
     if row is None:
         raise HTTPException(status_code=404)
-    return _serialize_price(row)
+    cats = coins_repo.get_categories(coin_id)
+    return _serialize_price(row, cats)
+
+
+@app.get("/api/coins/{coin_id}/categories")
+def coin_categories(coin_id: str, session: Session = Depends(get_session)) -> dict:
+    coins_repo = CoinsRepo(session)
+    names, ids = coins_repo.get_categories(coin_id)
+    return {"category_names": names, "category_ids": ids}
 
 
 @app.get("/api/diag")

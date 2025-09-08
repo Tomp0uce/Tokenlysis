@@ -119,9 +119,20 @@ def test_run_etl_tracks_actual_calls(monkeypatch, tmp_path, caplog):
         def set(self, key: str, value: str) -> None:
             self.data[key] = value
 
+    class DummyCoinsRepo:
+        def __init__(self, session) -> None:  # pragma: no cover - trivial
+            pass
+
+        def upsert(self, rows) -> None:  # pragma: no cover - trivial
+            pass
+
+        def get_categories_with_timestamp(self, coin_id):  # pragma: no cover - trivial
+            return [], [], None
+
     monkeypatch.setattr(run_module, "SessionLocal", lambda: DummySession())
     monkeypatch.setattr(run_module, "PricesRepo", DummyPricesRepo)
     monkeypatch.setattr(run_module, "MetaRepo", DummyMetaRepo)
+    monkeypatch.setattr(run_module, "CoinsRepo", DummyCoinsRepo)
 
     class PagedClient:
         def __init__(self) -> None:
@@ -199,9 +210,20 @@ def test_run_etl_downgrades_per_page_on_4xx(monkeypatch, tmp_path, caplog):
         def set(self, key: str, value: str) -> None:
             self.data[key] = value
 
+    class DummyCoinsRepo:
+        def __init__(self, session) -> None:  # pragma: no cover - trivial
+            pass
+
+        def upsert(self, rows) -> None:  # pragma: no cover - trivial
+            pass
+
+        def get_categories_with_timestamp(self, coin_id):  # pragma: no cover - trivial
+            return [], [], None
+
     monkeypatch.setattr(run_module, "SessionLocal", lambda: DummySession())
     monkeypatch.setattr(run_module, "PricesRepo", DummyPricesRepo)
     monkeypatch.setattr(run_module, "MetaRepo", DummyMetaRepo)
+    monkeypatch.setattr(run_module, "CoinsRepo", DummyCoinsRepo)
 
     class FallbackClient:
         def __init__(self) -> None:
@@ -284,9 +306,20 @@ def test_run_etl_stops_when_budget_exhausted(monkeypatch, tmp_path):
         def set(self, key: str, value: str) -> None:
             self.data[key] = value
 
+    class DummyCoinsRepo:
+        def __init__(self, session) -> None:  # pragma: no cover - trivial
+            pass
+
+        def upsert(self, rows) -> None:  # pragma: no cover - trivial
+            pass
+
+        def get_categories_with_timestamp(self, coin_id):  # pragma: no cover - trivial
+            return [], [], None
+
     monkeypatch.setattr(run_module, "SessionLocal", lambda: DummySession())
     monkeypatch.setattr(run_module, "PricesRepo", DummyPricesRepo)
     monkeypatch.setattr(run_module, "MetaRepo", DummyMetaRepo)
+    monkeypatch.setattr(run_module, "CoinsRepo", DummyCoinsRepo)
 
     class PagedClient:
         def __init__(self) -> None:

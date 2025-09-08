@@ -5,14 +5,16 @@ from __future__ import annotations
 import datetime as dt
 import json
 import logging
+import time
 from pathlib import Path
 
 import requests
 
-from ..core.settings import settings, effective_coingecko_base_url
+from ..core.settings import settings
 from ..services.budget import CallBudget
 from ..services.coingecko import CoinGeckoClient
-from ..services.dao import PricesRepo, MetaRepo
+from ..services.dao import PricesRepo, MetaRepo, CoinsRepo
+from ..services.categories import slugify
 from ..db import SessionLocal
 
 logger = logging.getLogger(__name__)
@@ -70,9 +72,15 @@ def run_etl(
     """Fetch markets and persist them. Returns number of rows processed."""
 
     if client is None:
+        base_url = settings.COINGECKO_BASE_URL or (
+            "https://pro-api.coingecko.com/api/v3"
+            if settings.COINGECKO_PLAN == "pro"
+            else "https://api.coingecko.com/api/v3"
+        )
         client = CoinGeckoClient(
-            base_url=effective_coingecko_base_url(),
             api_key=settings.COINGECKO_API_KEY or settings.coingecko_api_key,
+            plan=settings.COINGECKO_PLAN,
+            base_url=base_url,
         )
 
     limit = max(10, settings.CG_TOP_N)
@@ -100,12 +108,52 @@ def run_etl(
         for c in markets
     ]
 
+    mapping: dict[str, str] = {}
+    try:
+        cats_list = client.get_categories_list()
+        calls += 1
+        if budget:
+            budget.spend(1)
+        mapping = {slugify(c["name"]): c["category_id"] for c in cats_list}
+    except Exception:  # pragma: no cover - network failures
+        mapping = {}
+
     session = SessionLocal()
     prices_repo = PricesRepo(session)
     meta_repo = MetaRepo(session)
+    coins_repo = CoinsRepo(session)
+
+    coin_rows: list[dict] = []
+    for c in markets:
+        names: list[str]
+        ids: list[str]
+        cached_names, cached_ids, ts = coins_repo.get_categories_with_timestamp(c["id"])
+        if ts is not None:
+            names, ids = cached_names, cached_ids
+        else:
+            try:
+                names = client.get_coin_categories(c["id"])
+                calls += 1
+                if budget:
+                    budget.spend(1)
+                time.sleep(0.2)
+            except Exception:  # pragma: no cover - network failures
+                names = []
+            ids = [mapping.get(slugify(n), slugify(n)) for n in names]
+        coin_rows.append(
+            {
+                "id": c["id"],
+                "symbol": c.get("symbol", ""),
+                "name": c.get("name", ""),
+                "category_names": json.dumps(names),
+                "category_ids": json.dumps(ids),
+                "updated_at": now,
+            }
+        )
     try:
         prices_repo.upsert_latest(price_rows)
         prices_repo.insert_snapshot(price_rows)
+        coins_repo.upsert(coin_rows)
         meta_repo.set("last_refresh_at", now.isoformat())
         meta_repo.set("last_etl_items", str(len(price_rows)))
         if budget:

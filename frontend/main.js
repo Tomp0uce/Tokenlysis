@@ -3,6 +3,7 @@ import { extractItems, resolveVersion } from './utils.js';
 
 const API_URL = document.querySelector('meta[name="api-url"]')?.content || '';
 let appVersion = 'unknown';
+export const selectedCategories = [];
 
 function formatPrice(p) {
   if (p === null || p === undefined) return '';
@@ -39,12 +40,25 @@ export async function loadCryptos() {
       : 'Dernière mise à jour : inconnue';
     items.forEach((item) => {
       const tr = document.createElement('tr');
-      tr.innerHTML = `<td>${item.coin_id}</td><td>${item.rank ?? ''}</td><td>${formatPrice(item.price)}</td><td>${formatNumber(item.market_cap)}</td><td>${formatNumber(item.volume_24h)}</td><td>${formatPct(item.pct_change_24h)}</td>`;
+      const cats = item.category_names || [];
+      let badges = '';
+      cats.slice(0, 3).forEach((name) => {
+        badges += `<span class="badge">${name}</span> `;
+      });
+      if (cats.length > 3) {
+        badges += `<span class="badge">+${cats.length - 3}</span>`;
+      }
+      tr.innerHTML = `<td>${item.coin_id}</td><td>${badges.trim()}</td><td>${item.rank ?? ''}</td><td>${formatPrice(item.price)}</td><td>${formatNumber(item.market_cap)}</td><td>${formatNumber(item.volume_24h)}</td><td>${formatPct(item.pct_change_24h)}</td>`;
       tbody.appendChild(tr);
     });
     document.getElementById('cryptos').style.display = 'table';
     statusEl.textContent = '';
-    document.getElementById('demo-banner').style.display = 'block';
+    try {
+      const diag = await fetch(`${API_URL}/diag`).then(r => (r.ok ? r.json() : null));
+      if (diag?.plan === 'demo') {
+        document.getElementById('demo-banner').style.display = 'block';
+      }
+    } catch {}
   } catch (err) {
     statusEl.innerHTML = `Error fetching data <button id="retry">Retry</button>`;
     document.getElementById('retry').onclick = loadCryptos;

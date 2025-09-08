@@ -23,6 +23,8 @@ class CryptoSummary(BaseModel):
     symbol: str
     name: str
     sectors: List[str]
+    category_names: List[str] = Field(default_factory=list)
+    category_ids: List[str] = Field(default_factory=list)
     latest: Latest
 
 
@@ -38,6 +40,8 @@ class CryptoDetail(BaseModel):
     symbol: str
     name: str
     sectors: List[str]
+    category_names: List[str] = Field(default_factory=list)
+    category_ids: List[str] = Field(default_factory=list)
     latest: Latest
 
 
