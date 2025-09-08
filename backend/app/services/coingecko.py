@@ -152,3 +152,28 @@ class CoinGeckoClient:
         return self._request(
             f"/coins/{coin_id.lower()}/market_chart/range", params=params
         ).json()
+
+    def get_coin_categories(self, coin_id: str) -> list[str]:
+        params = {
+            "localization": "false",
+            "tickers": "false",
+            "market_data": "false",
+            "community_data": "false",
+            "developer_data": "false",
+            "sparkline": "false",
+        }
+        try:
+            data = self._request(f"/coins/{coin_id.lower()}", params=params).json()
+            cats = data.get("categories", [])
+            if isinstance(cats, list):
+                return [c for c in cats if isinstance(c, str)]
+        except requests.HTTPError as exc:  # pragma: no cover - defensive
+            logger.warning("coin categories fetch failed for %s: %s", coin_id, exc)
+        return []
+
+    def get_categories_list(self) -> list[dict]:
+        try:
+            return self._request("/coins/categories/list").json()
+        except requests.HTTPError as exc:  # pragma: no cover - defensive
+            logger.warning("categories list fetch failed: %s", exc)
+            return []

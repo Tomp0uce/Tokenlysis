@@ -35,7 +35,7 @@ function setupDom() {
   const dom = new JSDOM(`<!DOCTYPE html><meta name="api-url" content="">
     <div id="demo-banner" style="display:none"></div>
     <div id="status"></div>
-    <table id="cryptos" style="display:none"><thead><tr><th>Coin</th><th>Rank</th><th>Price</th><th>Market Cap</th><th>Volume 24h</th><th>Change 24h</th></tr></thead><tbody></tbody></table>
+    <table id="cryptos" style="display:none"><thead><tr><th>Coin</th><th>Catégories</th><th>Rank</th><th>Price</th><th>Market Cap</th><th>Volume 24h</th><th>Change 24h</th></tr></thead><tbody></tbody></table>
     <div id="last-update"></div>
     <div id="version"></div>`);
   global.window = dom.window;
@@ -43,7 +43,7 @@ function setupDom() {
   return dom;
 }
 
-test('loadCryptos renders table and last update', async () => {
+test('loadCryptos renders table and last update with categories', async () => {
   setupDom();
   const { loadCryptos, loadVersion } = await import('../frontend/main.js');
   const markets = {
@@ -55,6 +55,18 @@ test('loadCryptos renders table and last update', async () => {
         market_cap: 2,
         volume_24h: 3,
         pct_change_24h: 4,
+        category_names: ['Layer 1', 'DeFi', 'NFT', 'Payments'],
+        category_ids: ['layer-1', 'defi', 'nft', 'payments'],
+      },
+      {
+        coin_id: 'nocat',
+        rank: 2,
+        price: 0.5,
+        market_cap: 1,
+        volume_24h: 1,
+        pct_change_24h: 0,
+        category_names: [],
+        category_ids: [],
       },
     ],
     last_refresh_at: '2025-09-07T20:51:26Z',
@@ -67,17 +79,40 @@ test('loadCryptos renders table and last update', async () => {
     if (url.endsWith('/version')) {
       return new Response(JSON.stringify({ version: '1.0.0' }), { status: 200 });
     }
+    if (url.endsWith('/diag')) {
+      return new Response(JSON.stringify({ plan: 'demo' }), { status: 200 });
+    }
     throw new Error('unexpected fetch ' + url);
   };
   await loadVersion();
   await loadCryptos();
-  const cells = [...document.querySelectorAll('#cryptos tbody tr td')].map((c) => c.textContent);
-  assert.deepEqual(cells, ['bitcoin', '1', '1.00', '2', '3', '4.00%']);
+  const rows = [...document.querySelectorAll('#cryptos tbody tr')];
+  const cells1 = [...rows[0].querySelectorAll('td')].map((c) => c.textContent.trim().replace(/\s+/g, ' '));
+  assert.deepEqual(cells1, ['bitcoin', 'Layer 1 DeFi NFT +1', '1', '1.00', '2', '3', '4.00%']);
+  const cells2 = [...rows[1].querySelectorAll('td')].map((c) => c.textContent.trim());
+  assert.deepEqual(cells2, ['nocat', '', '2', '0.5000', '1', '1', '0.00%']);
   assert.equal(document.getElementById('demo-banner').style.display, 'block');
   assert.match(
     document.getElementById('last-update').textContent,
     /Dernière mise à jour : 2025-09-07T20:51:26Z \(source: api\)/
   );
+});
+
+test('loadCryptos hides demo banner when plan is not demo', async () => {
+  setupDom();
+  const { loadCryptos } = await import('../frontend/main.js');
+  const markets = { items: [], last_refresh_at: null, data_source: null };
+  global.fetch = async (url) => {
+    if (url.endsWith('/markets/top?limit=20&vs=usd')) {
+      return new Response(JSON.stringify(markets), { status: 200 });
+    }
+    if (url.endsWith('/diag')) {
+      return new Response(JSON.stringify({ plan: 'pro' }), { status: 200 });
+    }
+    throw new Error('unexpected fetch ' + url);
+  };
+  await loadCryptos();
+  assert.equal(document.getElementById('demo-banner').style.display, 'none');
 });
 
 test('loadCryptos handles failure', async () => {
