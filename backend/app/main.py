@@ -185,6 +185,7 @@ async def startup() -> None:
         format="%(message)s",
         force=True,
     )
+    logger.info("startup", extra={"version": get_version()})
     Base.metadata.create_all(bind=engine)
     budget = None
     if settings.BUDGET_FILE:

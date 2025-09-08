@@ -99,6 +99,13 @@ uvicorn backend.app.main:app --reload
 The frontend is served statically by the API under `/` while the REST endpoints
 are exposed under `/api`.
 
+Set `APP_VERSION` when launching locally so the interface displays the
+expected version:
+
+```bash
+APP_VERSION=1.2.3 uvicorn backend.app.main:app --reload
+```
+
 #### Configuration
 
 Copy `.env.example` to `.env` and adjust the values as needed. This file holds sensitive settings such as API keys and database passwords. Keep it outside version control (it is ignored by `.gitignore`) and restrict access on your NAS, for example with `chmod 600 .env`.
@@ -208,27 +215,25 @@ the local source code.
 4. **Build and start** – from the NAS terminal run:
 
    ```bash
-   docker compose -f docker-compose.yml -f docker-compose.synology.yml up -d --build
+   APP_VERSION=1.0.123 \
+   docker compose -f docker-compose.yml -f docker-compose.synology.yml build --no-cache
+   docker compose -f docker-compose.yml -f docker-compose.synology.yml up -d
    ```
 
-   This builds the image with the main `Dockerfile` and forwards an optional
-   `APP_VERSION` build argument. Define `APP_VERSION` to pin a specific version
-   or let it default to `dev`.
-   A healthcheck inside the container polls `http://localhost:8000/readyz` every 30 seconds.
+   The build step injects the desired version into the image (defaults to
+   `dev`). The subsequent `up` starts the container. A healthcheck inside the
+   container polls `http://localhost:8000/readyz` every 30 seconds.
 5. **Access the app** – once running the interface is available at
    `http://<NAS_IP>:8002`.
 
 #### Updating
 
-When new commits are pushed to the repository you can rebuild the container to
-fetch the latest code. Either use the Synology UI’s **Recreate** option or run:
-
+To update with a pinned version:
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.synology.yml up -d --build
+APP_VERSION=1.0.123 \
+docker compose -f docker-compose.yml -f docker-compose.synology.yml build --no-cache
+docker compose -f docker-compose.yml -f docker-compose.synology.yml up -d
 ```
-
-The `--build` flag forces Compose to rebuild the image, ensuring the container
-runs the newest version of Tokenlysis.
 
 ### Testing
 
@@ -250,6 +255,15 @@ building locally you can override the version:
 
 ```bash
 docker build --build-arg APP_VERSION=42 -t tokenlysis:test -f ./Dockerfile .
+```
+
+To propagate a new version to the dashboard and API, the image must be rebuilt
+with the desired value:
+
+```bash
+APP_VERSION=1.2.3 \
+docker compose -f docker-compose.yml -f docker-compose.synology.yml build --no-cache
+docker compose -f docker-compose.yml -f docker-compose.synology.yml up -d
 ```
 
 At runtime the container exposes `APP_VERSION` so it can be inspected with
