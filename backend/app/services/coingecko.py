@@ -1,34 +1,17 @@
 import json
 import logging
 import time
-from typing import Any, List, Optional
+from typing import List
 
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from ..core.settings import settings, mask_secret
-from ..db import SessionLocal
-from .dao import MetaRepo
 
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://api.coingecko.com/api/v3"
-
-last_request: Optional[dict[str, Any]] = None
-
-
-def get_last_request() -> Optional[dict[str, Any]]:
-    global last_request
-    if last_request is not None:
-        return last_request
-    session = SessionLocal()
-    try:
-        val = MetaRepo(session).get("last_request")
-        last_request = json.loads(val) if val else None
-        return last_request
-    finally:
-        session.close()
 
 
 class CoinGeckoClient:
@@ -94,18 +77,6 @@ class CoinGeckoClient:
                     }
                 )
             )
-            global last_request
-            last_request = {
-                "endpoint": path,
-                "query": params_local,
-                "status": resp.status_code,
-            }
-            db = SessionLocal()
-            try:
-                MetaRepo(db).set("last_request", json.dumps(last_request))
-                db.commit()
-            finally:
-                db.close()
             if (
                 resp.status_code == 401
                 and params_local
