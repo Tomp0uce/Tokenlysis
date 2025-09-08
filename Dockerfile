@@ -3,9 +3,13 @@ FROM python:3.11.8-slim
 
 ARG APP_VERSION=dev
 ARG GIT_COMMIT=unknown
-ENV APP_VERSION=$APP_VERSION GIT_COMMIT=$GIT_COMMIT
-LABEL org.opencontainers.image.version=$APP_VERSION \
-      org.opencontainers.image.revision=$GIT_COMMIT
+ARG BUILD_TIME=unknown
+ENV APP_VERSION=${APP_VERSION} \
+    GIT_COMMIT=${GIT_COMMIT} \
+    BUILD_TIME=${BUILD_TIME}
+LABEL org.opencontainers.image.version=${APP_VERSION} \
+      org.opencontainers.image.revision=${GIT_COMMIT} \
+      org.opencontainers.image.created=${BUILD_TIME}
 
 
 WORKDIR /app
