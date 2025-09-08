@@ -25,6 +25,23 @@ function formatPct(p) {
   return `${p.toFixed(2)}%`;
 }
 
+export async function loadLastRefresh() {
+  const el = document.getElementById('last-update');
+  if (!el) return;
+  try {
+    const res = await fetch(`${API_URL}/last-refresh`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const ts = data.last_refresh_at;
+    el.textContent = ts
+      ? `Dernière mise à jour : ${ts}`
+      : 'Dernière mise à jour : inconnue';
+  } catch (err) {
+    el.textContent = 'Dernière mise à jour : inconnue';
+    console.error(err);
+  }
+}
+
 export async function loadCryptos() {
   const statusEl = document.getElementById('status');
   statusEl.textContent = 'Loading...';
@@ -61,6 +78,7 @@ export async function loadCryptos() {
   renderMeta();
   renderDebug();
   await loadDiag();
+  await loadLastRefresh();
 }
 
 export async function loadVersion() {
@@ -124,6 +142,7 @@ function renderDebug() {
 export function init() {
   loadVersion();
   loadCryptos();
+  setInterval(loadLastRefresh, 60000);
 }
 
 if (typeof window !== 'undefined') {

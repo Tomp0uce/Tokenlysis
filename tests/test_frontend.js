@@ -84,7 +84,7 @@ test('resolveVersion defaults to dev', () => {
 // DOM Tests
 
 function setupDom() {
-  const dom = new JSDOM(`<!DOCTYPE html><meta name="api-url" content="">\n<div id="demo-banner" style="display:none"></div>\n<div id="status"></div>\n<table id="cryptos" style="display:none"><thead><tr><th>Coin</th><th>Rank</th><th>Price</th><th>Market Cap</th><th>Volume 24h</th><th>Change 24h</th></tr></thead><tbody></tbody></table>\n<div id="meta"></div>\n<div id="version"></div>\n<div id="diag"></div>\n<div id="debug-panel"></div>`);
+  const dom = new JSDOM(`<!DOCTYPE html><meta name="api-url" content="">\n<div id="demo-banner" style="display:none"></div>\n<div id="status"></div>\n<table id="cryptos" style="display:none"><thead><tr><th>Coin</th><th>Rank</th><th>Price</th><th>Market Cap</th><th>Volume 24h</th><th>Change 24h</th></tr></thead><tbody></tbody></table>\n<div id="last-update"></div>\n<div id="meta"></div>\n<div id="version"></div>\n<div id="diag"></div>\n<div id="debug-panel"></div>`);
   global.window = dom.window;
   global.document = dom.window.document;
   return dom;
@@ -128,6 +128,12 @@ test('loadCryptos renders table and diagnostics', async () => {
     }
     if (url.endsWith('/debug/last-request')) {
       return new Response(JSON.stringify(lastReq), { status: 200 });
+    }
+    if (url.endsWith('/last-refresh')) {
+      return new Response(
+        JSON.stringify({ last_refresh_at: '2025-09-07T20:51:26Z' }),
+        { status: 200 }
+      );
     }
     if (url.endsWith('/version')) {
       return new Response(JSON.stringify({ version: '1.0.0' }), { status: 200 });
@@ -173,6 +179,12 @@ test('loadCryptos tolerates diag failure', async () => {
     if (url.endsWith('/debug/last-request')) {
       return new Response(JSON.stringify(lastReq), { status: 200 });
     }
+    if (url.endsWith('/last-refresh')) {
+      return new Response(
+        JSON.stringify({ last_refresh_at: '2025-09-07T20:51:26Z' }),
+        { status: 200 }
+      );
+    }
     if (url.endsWith('/version')) {
       return new Response(JSON.stringify({ version: '1.0.0' }), { status: 200 });
     }
@@ -185,4 +197,32 @@ test('loadCryptos tolerates diag failure', async () => {
   const firstCell = document.querySelector('#cryptos tbody tr td').textContent;
   assert.equal(firstCell, 'bitcoin');
   assert.match(document.getElementById('diag').textContent, /plan=unknown/);
+});
+
+test('loadLastRefresh updates indicator', async () => {
+  setupDom();
+  const { loadLastRefresh } = await import('../frontend/main.js');
+  const api = { last_refresh_at: '2025-09-07T20:51:26Z' };
+  global.fetch = async (url) => {
+    if (url.endsWith('/last-refresh')) {
+      return new Response(JSON.stringify(api), { status: 200 });
+    }
+    throw new Error('unexpected fetch ' + url);
+  };
+  await loadLastRefresh();
+  assert.equal(
+    document.getElementById('last-update').textContent,
+    'Dernière mise à jour : 2025-09-07T20:51:26Z'
+  );
+});
+
+test('loadLastRefresh handles failure', async () => {
+  setupDom();
+  const { loadLastRefresh } = await import('../frontend/main.js');
+  global.fetch = async () => new Response('oops', { status: 500 });
+  await loadLastRefresh();
+  assert.equal(
+    document.getElementById('last-update').textContent,
+    'Dernière mise à jour : inconnue'
+  );
 });

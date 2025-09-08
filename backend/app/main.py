@@ -117,6 +117,13 @@ def diag(session: Session = Depends(get_session)) -> dict:
     }
 
 
+@app.get("/api/last-refresh")
+def last_refresh(session: Session = Depends(get_session)) -> dict:
+    meta_repo = MetaRepo(session)
+    last_refresh_at = meta_repo.get("last_refresh_at")
+    return {"last_refresh_at": last_refresh_at}
+
+
 def refresh_interval_seconds(value: str | None = None) -> int:
     granularity = value or settings.REFRESH_GRANULARITY
     try:
