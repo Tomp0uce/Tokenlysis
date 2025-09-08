@@ -2,8 +2,11 @@
 FROM python:3.11.8-slim
 
 ARG APP_VERSION=dev
-ENV APP_VERSION=${APP_VERSION}
-LABEL org.opencontainers.image.version=${APP_VERSION}
+ARG GIT_COMMIT=unknown
+ENV APP_VERSION=$APP_VERSION GIT_COMMIT=$GIT_COMMIT
+LABEL org.opencontainers.image.version=$APP_VERSION \
+      org.opencontainers.image.revision=$GIT_COMMIT
+
 
 WORKDIR /app
 
