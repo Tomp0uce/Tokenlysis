@@ -23,7 +23,14 @@ from .services.dao import PricesRepo, MetaRepo, CoinsRepo
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Tokenlysis")
+app = FastAPI(title="Tokenlysis", version=os.getenv("APP_VERSION", "dev"))
+@app.get("/info")
+def info():
+    return {
+        "version": os.getenv("APP_VERSION", "dev"),
+        "commit": os.getenv("GIT_COMMIT", "unknown"),
+        "build_time": os.getenv("BUILD_TIME", "")
+    }
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
