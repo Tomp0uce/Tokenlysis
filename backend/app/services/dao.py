@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import datetime as dt
 from typing import Iterable
+import logging
 
 from sqlalchemy import select, insert
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.dialects.sqlite import insert as sqlite_upsert
 from sqlalchemy.orm import Session
 
 from ..models import Coin, LatestPrice, Meta, Price
+
+logger = logging.getLogger(__name__)
 
 
 class PricesRepo:
@@ -93,7 +97,11 @@ class CoinsRepo:
         stmt = select(Coin.id, Coin.category_names, Coin.category_ids).where(
             Coin.id.in_(coin_ids)
         )
-        rows = self.session.execute(stmt).all()
+        try:
+            rows = self.session.execute(stmt).all()
+        except OperationalError as exc:
+            logger.warning("schema out-of-date: %s", exc)
+            return {cid: ([], []) for cid in coin_ids}
         import json
 
         return {
@@ -112,17 +120,23 @@ class CoinsRepo:
         stmt = select(
             Coin.id, Coin.category_names, Coin.category_ids, Coin.updated_at
         ).where(Coin.id.in_(coin_ids))
-        rows = self.session.execute(stmt).all()
+        try:
+            rows = self.session.execute(stmt).all()
+        except OperationalError as exc:
+            logger.warning("schema out-of-date: %s", exc)
+            return {cid: ([], [], None) for cid in coin_ids}
         import json
 
-        return {
-            r[0]: (
-                json.loads(r[1]) if r[1] else [],
-                json.loads(r[2]) if r[2] else [],
-                r[3],
-            )
-            for r in rows
-        }
+        result: dict[str, tuple[list[str], list[str], dt.datetime | None]] = {}
+        for cid, names_raw, ids_raw, ts in rows:
+            names = json.loads(names_raw) if names_raw else []
+            ids = json.loads(ids_raw) if ids_raw else []
+            if names_raw is None or ids_raw is None:
+                ts = None
+            if ts is not None and ts.tzinfo is None:
+                ts = ts.replace(tzinfo=dt.timezone.utc)
+            result[cid] = (names, ids, ts)
+        return result
 
     def get_categories_with_timestamp(
         self, coin_id: str
@@ -130,14 +144,23 @@ class CoinsRepo:
         stmt = select(Coin.category_names, Coin.category_ids, Coin.updated_at).where(
             Coin.id == coin_id
         )
-        row = self.session.execute(stmt).first()
+        try:
+            row = self.session.execute(stmt).first()
+        except OperationalError as exc:
+            logger.warning("schema out-of-date: %s", exc)
+            return [], [], None
         if not row:
             return [], [], None
         import json
 
-        names = json.loads(row[0]) if row[0] else []
-        ids = json.loads(row[1]) if row[1] else []
-        return names, ids, row[2]
+        names_raw, ids_raw, ts = row
+        names = json.loads(names_raw) if names_raw else []
+        ids = json.loads(ids_raw) if ids_raw else []
+        if names_raw is None or ids_raw is None:
+            ts = None
+        if ts is not None and ts.tzinfo is None:
+            ts = ts.replace(tzinfo=dt.timezone.utc)
+        return names, ids, ts
 
 
 class MetaRepo:

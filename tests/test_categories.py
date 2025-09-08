@@ -1,5 +1,3 @@
-import json
-import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -8,6 +6,7 @@ from backend.app.db import Base, get_session
 from backend.app.services.coingecko import CoinGeckoClient
 from backend.app.services.categories import slugify
 from backend.app.schemas.crypto import CryptoSummary, Latest, Scores
+from backend.app.schemas.price import PriceResponse
 import backend.app.main as main_module
 from backend.app.etl import run as run_module
 
@@ -25,6 +24,7 @@ class DummyResp:
     def raise_for_status(self):
         if self.status_code >= 400:
             import requests
+
             raise requests.HTTPError(response=self)
 
 
@@ -44,11 +44,20 @@ def test_slugify_normalizes_name():
 
 
 def test_schema_defaults_are_independent():
-    latest = Latest(date="2025-01-01", scores=Scores(global_=0, liquidite=0, opportunite=0))
+    latest = Latest(
+        date="2025-01-01",
+        scores=Scores(global_=0, liquidite=0, opportunite=0),
+    )
     a = CryptoSummary(id=1, symbol="a", name="A", sectors=[], latest=latest)
     b = CryptoSummary(id=2, symbol="b", name="B", sectors=[], latest=latest)
     a.category_names.append("foo")
     assert b.category_names == []
+
+
+def test_price_response_has_category_fields():
+    resp = PriceResponse(coin_id="btc", usd=1.0)
+    assert resp.category_names == []
+    assert resp.category_ids == []
 
 
 def test_get_coin_categories(monkeypatch):

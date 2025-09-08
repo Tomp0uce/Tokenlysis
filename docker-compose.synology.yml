@@ -8,11 +8,12 @@ services:
     env_file:
       - .env
     volumes:
-      - /volume1/docker/tokenlysis/db:/app/db
-      - /volume1/docker/tokenlysis/meta:/app/meta
+      - /volume1/docker/tokenlysis/data:/data
     environment:
-      - DATABASE_URL=sqlite:////app/db/tokenlysis.db
-      - BUDGET_FILE=/app/meta/cg_budget.json
+      - DATABASE_URL=sqlite:////data/tokenlysis.db
+      - BUDGET_FILE=/data/budget.json
+      - COINGECKO_PLAN=demo
+      - CG_THROTTLE_MS=2100
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8000/readyz || exit 1"]
       interval: 30s

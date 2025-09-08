@@ -125,6 +125,7 @@ Runtime behaviour can be tweaked with environment variables:
   public URL or Pro URL based on `COINGECKO_PLAN`)
 - `COINGECKO_API_KEY` – optional API key for CoinGecko
 - `COINGECKO_PLAN` – `demo` (default) or `pro` to select the API header
+- `CG_THROTTLE_MS` – minimum delay in milliseconds between CoinGecko API calls
 - `BUDGET_FILE` – path to the persisted CoinGecko call budget JSON file
 - `DATABASE_URL` – SQLAlchemy database URL
 - `USE_SEED_ON_FAILURE` – fall back to bundled seed data when live ETL fails
@@ -144,16 +145,14 @@ When deploying on a Synology NAS, mount persistent volumes so the database and
 budget survive container restarts:
 
 ```
-/volume1/docker/tokenlysis/db   ↔  /app/db
-/volume1/docker/tokenlysis/meta ↔  /app/meta
+/volume1/docker/tokenlysis/data ↔ /data
 ```
 
 The `.env.example` illustrates the host paths to persist data:
 
-- `DATABASE_URL=sqlite:////volume1/docker/tokenlysis/db/tokenlysis.db`
-- `BUDGET_FILE=/volume1/docker/tokenlysis/meta/cg_budget.json`
-
-These map inside the container to `/app/db` and `/app/meta` respectively.
+- `DATABASE_URL=sqlite:////volume1/docker/tokenlysis/data/tokenlysis.db`
+- `BUDGET_FILE=/volume1/docker/tokenlysis/data/budget.json`
+These map inside the container to `/data`.
 Ensure the container user has write permissions on the host directories.
 
 Do **not** define environment variables with empty values. If a value is not

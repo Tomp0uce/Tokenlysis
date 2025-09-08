@@ -19,6 +19,9 @@ from ..db import SessionLocal
 
 logger = logging.getLogger(__name__)
 
+_categories_cache: dict[str, str] = {}
+_categories_cache_ts: dt.datetime | None = None
+
 
 class DataUnavailable(Exception):
     """Raised when live data could not be fetched."""
@@ -108,15 +111,22 @@ def run_etl(
         for c in markets
     ]
 
-    mapping: dict[str, str] = {}
-    try:
-        cats_list = client.get_categories_list()
-        calls += 1
-        if budget:
-            budget.spend(1)
-        mapping = {slugify(c["name"]): c["category_id"] for c in cats_list}
-    except Exception:  # pragma: no cover - network failures
-        mapping = {}
+    global _categories_cache, _categories_cache_ts
+    mapping = _categories_cache
+    if not _categories_cache_ts or (now - _categories_cache_ts) > dt.timedelta(
+        hours=24
+    ):
+        try:
+            cats_list = client.get_categories_list()
+            calls += 1
+            if budget:
+                budget.spend(1)
+            mapping = {slugify(c["name"]): c["category_id"] for c in cats_list}
+            _categories_cache = mapping
+        except Exception:  # pragma: no cover - network failures
+            mapping = {}
+            _categories_cache = {}
+        _categories_cache_ts = now
 
     session = SessionLocal()
     prices_repo = PricesRepo(session)
@@ -128,18 +138,34 @@ def run_etl(
         names: list[str]
         ids: list[str]
         cached_names, cached_ids, ts = coins_repo.get_categories_with_timestamp(c["id"])
-        if ts is not None:
-            names, ids = cached_names, cached_ids
-        else:
-            try:
-                names = client.get_coin_categories(c["id"])
-                calls += 1
-                if budget:
-                    budget.spend(1)
-                time.sleep(0.2)
-            except Exception:  # pragma: no cover - network failures
-                names = []
+        stale = ts is None or (now - ts) > dt.timedelta(hours=24)
+        if stale:
+            delays = [0.25, 1.0, 2.0]
+            names = []
+            for i in range(len(delays) + 1):
+                try:
+                    names = client.get_coin_categories(c["id"])
+                    calls += 1
+                    if budget:
+                        budget.spend(1)
+                    time.sleep(0.2)
+                    break
+                except requests.HTTPError as exc:
+                    calls += 1
+                    if budget:
+                        budget.spend(1)
+                    status = exc.response.status_code if exc.response is not None else 0
+                    if status == 429 and i < len(delays):
+                        time.sleep(delays[i])
+                        continue
+                    names = []
+                    break
+                except Exception:
+                    names = []
+                    break
             ids = [mapping.get(slugify(n), slugify(n)) for n in names]
+        else:
+            names, ids = cached_names, cached_ids
         coin_rows.append(
             {
                 "id": c["id"],

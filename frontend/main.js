@@ -43,10 +43,11 @@ export async function loadCryptos() {
       const cats = item.category_names || [];
       let badges = '';
       cats.slice(0, 3).forEach((name) => {
-        badges += `<span class="badge">${name}</span> `;
+        badges += `<span class="badge" title="${name}">${name}</span> `;
       });
       if (cats.length > 3) {
-        badges += `<span class="badge">+${cats.length - 3}</span>`;
+        const extra = cats.slice(3).join(', ');
+        badges += `<span class="badge" title="${extra}">+${cats.length - 3}</span>`;
       }
       tr.innerHTML = `<td>${item.coin_id}</td><td>${badges.trim()}</td><td>${item.rank ?? ''}</td><td>${formatPrice(item.price)}</td><td>${formatNumber(item.market_cap)}</td><td>${formatNumber(item.volume_24h)}</td><td>${formatPct(item.pct_change_24h)}</td>`;
       tbody.appendChild(tr);
