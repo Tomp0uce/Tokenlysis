@@ -10,10 +10,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import OperationalError
 
 from .core.settings import effective_coingecko_base_url, settings
 from .core.version import get_version
 from .db import Base, engine, get_session
+from .db.migrations import run_migrations
 from .etl.run import DataUnavailable, load_seed, run_etl
 from .schemas.version import VersionResponse
 from .services.budget import CallBudget
@@ -155,6 +157,8 @@ async def etl_loop() -> None:
             run_etl(budget=app.state.budget)
         except DataUnavailable as exc:  # pragma: no cover - network failures
             logger.warning("ETL skipped: %s", exc)
+        except OperationalError as exc:
+            logger.warning("ETL failed: schema out-of-date: %s", exc)
         await asyncio.sleep(refresh_interval_seconds())
 
 
@@ -202,6 +206,7 @@ async def startup() -> None:
         force=True,
     )
     logger.info("startup", extra={"version": get_version()})
+    run_migrations()
     Base.metadata.create_all(bind=engine)
     budget = None
     if settings.BUDGET_FILE:
@@ -228,6 +233,11 @@ async def startup() -> None:
                 if settings.use_seed_on_failure:
                     load_seed()
                     path_taken = "seed"
+            except OperationalError as exc:
+                logger.warning("startup ETL failed: %s", exc)
+                if settings.use_seed_on_failure:
+                    load_seed()
+                    path_taken = "seed"
             meta_repo.set("bootstrap_done", "true")
         else:
             has_data = bool(prices_repo.get_top("usd", 1))
@@ -236,6 +246,11 @@ async def startup() -> None:
                     run_etl(budget=budget)
                     path_taken = "ETL"
                 except DataUnavailable:
+                    if settings.use_seed_on_failure:
+                        load_seed()
+                        path_taken = "seed"
+                except OperationalError as exc:
+                    logger.warning("startup ETL failed: %s", exc)
                     if settings.use_seed_on_failure:
                         load_seed()
                         path_taken = "seed"

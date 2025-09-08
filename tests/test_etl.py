@@ -1,14 +1,19 @@
+import asyncio
+import datetime as dt
 import json
 import requests
 import pytest
 from sqlalchemy import create_engine
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import sessionmaker
 
 from backend.app.core.settings import settings
 from backend.app.db import Base
 from backend.app.etl import run as run_module
+from backend.app.models import Coin
 from backend.app.services.budget import CallBudget
 from backend.app.services.dao import PricesRepo, MetaRepo
+import backend.app.main as main_module
 
 
 class DummyClient:
@@ -348,3 +353,154 @@ def test_run_etl_stops_when_budget_exhausted(monkeypatch, tmp_path):
     assert budget.monthly_call_count == 3
     assert len(client.calls) == 3
     assert DummyMetaRepo.last_instance is None
+
+
+def test_run_etl_backfills_missing_categories(monkeypatch, tmp_path):
+    engine = create_engine(
+        f"sqlite:///{tmp_path/'test.db'}", connect_args={"check_same_thread": False}
+    )
+    TestingSessionLocal = sessionmaker(
+        bind=engine, autoflush=False, autocommit=False, expire_on_commit=False
+    )
+    Base.metadata.create_all(bind=engine)
+    session = TestingSessionLocal()
+    session.add(
+        Coin(
+            id="bitcoin",
+            symbol="btc",
+            name="Bitcoin",
+            category_names=None,
+            category_ids=None,
+            updated_at=dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=2),
+        )
+    )
+    session.commit()
+    session.close()
+    monkeypatch.setattr(run_module, "SessionLocal", TestingSessionLocal)
+    monkeypatch.setattr(run_module, "_categories_cache", {})
+    monkeypatch.setattr(run_module, "_categories_cache_ts", None)
+
+    class StubClient:
+        def __init__(self) -> None:
+            self.cat_calls = 0
+            self.list_calls = 0
+
+        def get_markets(self, *, vs, per_page, page):
+            return [
+                {
+                    "id": "bitcoin",
+                    "symbol": "btc",
+                    "name": "Bitcoin",
+                    "current_price": 1.0,
+                    "market_cap": 2.0,
+                    "total_volume": 3.0,
+                    "market_cap_rank": 1,
+                    "price_change_percentage_24h": 4.0,
+                }
+            ]
+
+        def get_categories_list(self):
+            self.list_calls += 1
+            return [{"category_id": "layer-1", "name": "Layer 1"}]
+
+        def get_coin_categories(self, coin_id):
+            self.cat_calls += 1
+            return ["Layer 1"]
+
+    client = StubClient()
+    run_module.run_etl(client=client, budget=None)
+    assert client.cat_calls == 1
+    assert client.list_calls == 1
+    session = TestingSessionLocal()
+    names, ids, _ = run_module.CoinsRepo(session).get_categories_with_timestamp(
+        "bitcoin"
+    )
+    session.close()
+    assert names == ["Layer 1"]
+    assert ids == ["layer-1"]
+
+    run_module.run_etl(client=client, budget=None)
+    assert client.cat_calls == 1
+    assert client.list_calls == 1
+
+
+def test_run_etl_retries_on_429(monkeypatch, tmp_path):
+    engine = create_engine(
+        f"sqlite:///{tmp_path/'test.db'}", connect_args={"check_same_thread": False}
+    )
+    TestingSessionLocal = sessionmaker(
+        bind=engine, autoflush=False, autocommit=False, expire_on_commit=False
+    )
+    Base.metadata.create_all(bind=engine)
+    session = TestingSessionLocal()
+    session.add(
+        Coin(
+            id="bitcoin",
+            symbol="btc",
+            name="Bitcoin",
+            category_names=None,
+            category_ids=None,
+            updated_at=dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=2),
+        )
+    )
+    session.commit()
+    session.close()
+    monkeypatch.setattr(run_module, "SessionLocal", TestingSessionLocal)
+    monkeypatch.setattr(run_module, "_categories_cache", {})
+    monkeypatch.setattr(run_module, "_categories_cache_ts", None)
+
+    class StubClient:
+        def __init__(self) -> None:
+            self.cat_calls = 0
+            self.resp = requests.Response()
+            self.resp.status_code = 429
+
+        def get_markets(self, *, vs, per_page, page):
+            return [
+                {
+                    "id": "bitcoin",
+                    "symbol": "btc",
+                    "name": "Bitcoin",
+                    "current_price": 1.0,
+                    "market_cap": 2.0,
+                    "total_volume": 3.0,
+                    "market_cap_rank": 1,
+                    "price_change_percentage_24h": 4.0,
+                }
+            ]
+
+        def get_categories_list(self):
+            return []
+
+        def get_coin_categories(self, coin_id):
+            self.cat_calls += 1
+            raise requests.HTTPError(response=self.resp)
+
+    sleep_calls: list[float] = []
+    monkeypatch.setattr(run_module.time, "sleep", lambda s: sleep_calls.append(s))
+
+    client = StubClient()
+    run_module.run_etl(client=client, budget=None)
+    assert client.cat_calls == 4
+    assert sleep_calls[:3] == [0.25, 1.0, 2.0]
+    session = TestingSessionLocal()
+    names, ids, _ = run_module.CoinsRepo(session).get_categories_with_timestamp(
+        "bitcoin"
+    )
+    session.close()
+    assert names == [] and ids == []
+
+
+def test_etl_loop_handles_operational_error(monkeypatch):
+    def boom(*, budget):
+        raise OperationalError("stmt", {}, "err")
+
+    async def fake_sleep(_):
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(main_module, "run_etl", boom)
+    monkeypatch.setattr(main_module, "refresh_interval_seconds", lambda value=None: 0)
+    monkeypatch.setattr(main_module.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(main_module.app.state, "budget", None, raising=False)
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(main_module.etl_loop())

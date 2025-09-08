@@ -89,8 +89,12 @@ test('loadCryptos renders table and last update with categories', async () => {
   const rows = [...document.querySelectorAll('#cryptos tbody tr')];
   const cells1 = [...rows[0].querySelectorAll('td')].map((c) => c.textContent.trim().replace(/\s+/g, ' '));
   assert.deepEqual(cells1, ['bitcoin', 'Layer 1 DeFi NFT +1', '1', '1.00', '2', '3', '4.00%']);
+  const badges = rows[0].querySelectorAll('td')[1].querySelectorAll('.badge');
+  assert.equal(badges[0].getAttribute('title'), 'Layer 1');
+  assert.equal(badges[3].getAttribute('title'), 'Payments');
   const cells2 = [...rows[1].querySelectorAll('td')].map((c) => c.textContent.trim());
   assert.deepEqual(cells2, ['nocat', '', '2', '0.5000', '1', '1', '0.00%']);
+  assert.equal(rows[1].querySelectorAll('td')[1].children.length, 0);
   assert.equal(document.getElementById('demo-banner').style.display, 'block');
   assert.match(
     document.getElementById('last-update').textContent,
@@ -121,4 +125,9 @@ test('loadCryptos handles failure', async () => {
   global.fetch = async () => new Response('oops', { status: 500 });
   await loadCryptos();
   assert.match(document.getElementById('status').innerHTML, /Error fetching data/);
+});
+
+test('selectedCategories defaults to empty array', async () => {
+  const { selectedCategories } = await import('../frontend/main.js');
+  assert.deepEqual(selectedCategories, []);
 });

@@ -5,13 +5,19 @@ from logging.config import fileConfig
 from sqlalchemy import engine_from_config, pool
 from alembic import context
 
-from ..app.db import Base
+from backend.app.core.settings import settings
+from backend.app.db import Base
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
+url = settings.DATABASE_URL
+if url:
+    config.set_main_option("sqlalchemy.url", url)
 
-if config.config_file_name is not None:  # pragma: no cover - alembic side effect
+if config.config_file_name is not None and not config.attributes.get(
+    "skip_logging", False
+):  # pragma: no cover - alembic side effect
     fileConfig(config.config_file_name)
 
 target_metadata = Base.metadata
