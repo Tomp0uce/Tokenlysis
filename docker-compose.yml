@@ -17,6 +17,6 @@ services:
     volumes:
       - ./data:/data
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/readyz || exit 1"]
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8002/readyz || exit 1"]
       interval: 30s
       retries: 3
