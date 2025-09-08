@@ -16,6 +16,6 @@ COPY start.sh ./start.sh
 RUN printf "%s" "${APP_VERSION}" > /app/VERSION \
  && printf "window.APP_VERSION='%s';\n" "${APP_VERSION}" > /app/frontend/app-version.js
 
-EXPOSE 8000
+EXPOSE 8002
 RUN chmod +x /app/start.sh
 CMD ["/app/start.sh"]
