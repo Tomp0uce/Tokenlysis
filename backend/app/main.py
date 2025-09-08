@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 import logging
+import os
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException
@@ -15,7 +16,6 @@ from sqlalchemy.exc import OperationalError
 from .core.settings import effective_coingecko_base_url, settings
 from .core.version import get_version
 from .db import Base, engine, get_session
-from .db.migrations import run_migrations
 from .etl.run import DataUnavailable, load_seed, run_etl
 from .schemas.version import VersionResponse
 from .services.budget import CallBudget
@@ -24,13 +24,17 @@ from .services.dao import PricesRepo, MetaRepo, CoinsRepo
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Tokenlysis", version=os.getenv("APP_VERSION", "dev"))
+
+
 @app.get("/info")
 def info():
     return {
         "version": os.getenv("APP_VERSION", "dev"),
         "commit": os.getenv("GIT_COMMIT", "unknown"),
-        "build_time": os.getenv("BUILD_TIME", "")
+        "build_time": os.getenv("BUILD_TIME", ""),
     }
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -213,7 +217,6 @@ async def startup() -> None:
         force=True,
     )
     logger.info("startup", extra={"version": get_version()})
-    run_migrations()
     Base.metadata.create_all(bind=engine)
     budget = None
     if settings.BUDGET_FILE:
