@@ -12,10 +12,13 @@ services:
     volumes:
       - /volume1/docker/tokenlysis/data:/data
     environment:
-      - DATABASE_URL=sqlite:////data/tokenlysis.db
-      - BUDGET_FILE=/data/budget.json
-      - COINGECKO_PLAN=demo
-      - CG_THROTTLE_MS=2100
+      DATABASE_URL: sqlite:////data/tokenlysis.db
+      BUDGET_FILE: /data/budget.json
+      COINGECKO_PLAN: demo
+      CG_THROTTLE_MS: 2100
+      APP_VERSION: ${APP_VERSION}
+      GIT_COMMIT: ${GIT_COMMIT}
+      BUILD_TIME: ${BUILD_TIME}
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8000/readyz || exit 1"]
       interval: 30s
