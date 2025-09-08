@@ -2,8 +2,8 @@
 FROM python:3.11.8-slim
 
 ARG APP_VERSION=dev
-LABEL org.opencontainers.image.version=$APP_VERSION
-ENV APP_VERSION=$APP_VERSION
+ENV APP_VERSION=${APP_VERSION}
+LABEL org.opencontainers.image.version=${APP_VERSION}
 
 WORKDIR /app
 
@@ -12,8 +12,8 @@ RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/* \
     && pip install --no-cache-dir -r requirements.txt
 COPY backend ./backend
 COPY frontend ./frontend
-RUN echo "${APP_VERSION}" > VERSION \
-    && echo "window.APP_VERSION='${APP_VERSION}';" > frontend/app-version.js
+RUN printf "%s" "${APP_VERSION}" > /app/VERSION \
+ && printf "window.APP_VERSION='%s';\n" "${APP_VERSION}" > /app/frontend/app-version.js
 
 EXPOSE 8000
 CMD ["uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -4,7 +4,7 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        APP_VERSION: "${APP_VERSION:-dev}"
+        APP_VERSION: ${APP_VERSION:-dev}
     env_file:
       - .env
     volumes:
@@ -17,4 +17,3 @@ services:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8000/readyz || exit 1"]
       interval: 30s
       retries: 3
-

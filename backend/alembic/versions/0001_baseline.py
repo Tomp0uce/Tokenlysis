@@ -64,4 +64,3 @@ def downgrade() -> None:
     op.drop_index("ix_latest_prices_rank", table_name="latest_prices")
     op.drop_table("latest_prices")
     op.drop_table("coins")
-
