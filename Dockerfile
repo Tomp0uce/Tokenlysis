@@ -7,6 +7,7 @@ ARG BUILD_TIME=unknown
 ENV APP_VERSION=${APP_VERSION} \
     GIT_COMMIT=${GIT_COMMIT} \
     BUILD_TIME=${BUILD_TIME}
+ENV PYTHONPATH=/app:${PYTHONPATH}
 LABEL org.opencontainers.image.version=${APP_VERSION} \
       org.opencontainers.image.revision=${GIT_COMMIT} \
       org.opencontainers.image.created=${BUILD_TIME}
