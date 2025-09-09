@@ -2,7 +2,9 @@ services:
   tokenlysis:
     container_name: tokenlysis
     image: tokenlysis:${APP_VERSION:-dev}
+    working_dir: /app
     environment:
+      - PYTHONPATH=/app
       - DATABASE_URL=sqlite:////data/tokenlysis.db
       - BUDGET_FILE=/data/budget.json
       - COINGECKO_PLAN=demo
@@ -16,6 +18,7 @@ services:
     restart: unless-stopped
     volumes:
       - ./data:/data
+      - ./:/app
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8000/readyz || exit 1"]
       interval: 30s
