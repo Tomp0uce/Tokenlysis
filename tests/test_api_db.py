@@ -28,9 +28,12 @@ def test_markets_top_reads_db_and_stale_flag(monkeypatch, tmp_path):
                 "vs_currency": "usd",
                 "price": 1.0,
                 "market_cap": 1.0,
+                "fully_diluted_market_cap": 2.0,
                 "volume_24h": 1.0,
                 "rank": 1,
                 "pct_change_24h": 0.0,
+                "pct_change_7d": 0.5,
+                "pct_change_30d": -1.0,
                 "snapshot_at": now,
             }
         ]
@@ -55,6 +58,9 @@ def test_markets_top_reads_db_and_stale_flag(monkeypatch, tmp_path):
     resp = client.get("/api/markets/top?limit=1&vs=usd")
     data = resp.json()
     assert data["items"][0]["coin_id"] == "bitcoin"
+    assert data["items"][0]["fully_diluted_market_cap"] == 2.0
+    assert data["items"][0]["pct_change_7d"] == 0.5
+    assert data["items"][0]["pct_change_30d"] == -1.0
     assert data["data_source"] == "api"
     assert data["stale"] is False
 
@@ -90,9 +96,12 @@ def test_markets_top_wraps_items_and_limit(monkeypatch, tmp_path):
                 "vs_currency": "usd",
                 "price": 1.0,
                 "market_cap": 1.0,
+                "fully_diluted_market_cap": 2.0,
                 "volume_24h": 1.0,
                 "rank": i + 1,
                 "pct_change_24h": 0.0,
+                "pct_change_7d": 0.0,
+                "pct_change_30d": 0.0,
                 "snapshot_at": now,
             }
             for i in range(10)

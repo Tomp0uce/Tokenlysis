@@ -116,7 +116,7 @@ class CoinGeckoClient:
             "per_page": per_page,
             "page": page,
             "sparkline": "false",
-            "price_change_percentage": "24h",
+            "price_change_percentage": "24h,7d,30d",
         }
         return self._request("/coins/markets", params).json()
 
