@@ -3,6 +3,7 @@ from typing import List, Optional
 
 
 def _percentile(values: List[float], p: float) -> float:
+    """Return the percentile value using linear interpolation for non-integer indexes."""
     if not values:
         return 0.0
     vals = sorted(values)
@@ -17,7 +18,7 @@ def _percentile(values: List[float], p: float) -> float:
 
 
 def _normalize(values: List[float], log: bool = False) -> List[int]:
-    """Generic normalization to 0-100 with optional log10 transform."""
+    """Normalise values on a 0–100 scale with optional log10 transform for heavy tails."""
     if log:
         vals = [math.log10(max(v, 1e-12)) for v in values]
     else:
@@ -36,6 +37,7 @@ def _normalize(values: List[float], log: bool = False) -> List[int]:
 def score_liquidite(
     volume: List[float], market_cap: List[float], listings: List[int]
 ) -> List[int]:
+    """Blend liquidity metrics into a weighted score emphasising depth and activity."""
     sv = _normalize(volume, log=True)
     sm = _normalize(market_cap, log=True)
     sl = _normalize(listings, log=False)
@@ -45,6 +47,7 @@ def score_liquidite(
 
 
 def score_opportunite(rsi: List[float], vol_change: List[float]) -> List[int]:
+    """Score opportunity by combining RSI reversal logic with normalised volume spikes."""
     s_rsi = [max(0.0, min((70 - v) / 40.0, 1.0)) for v in rsi]
     s_vol = [x / 100 for x in _normalize(vol_change, log=False)]
     return [round(100 * (0.60 * r + 0.40 * v)) for r, v in zip(s_rsi, s_vol)]
@@ -53,6 +56,7 @@ def score_opportunite(rsi: List[float], vol_change: List[float]) -> List[int]:
 def score_global(
     liq: List[Optional[int]], opp: List[Optional[int]]
 ) -> List[Optional[int]]:
+    """Aggregate available category scores while tolerating missing components."""
     res: List[Optional[int]] = []
     for liq_score, opp_score in zip(liq, opp):
         parts = [p for p in (liq_score, opp_score) if p is not None]

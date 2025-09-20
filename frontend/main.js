@@ -1,6 +1,7 @@
 import { getAppVersion } from './version.js';
 import { extractItems, resolveVersion } from './utils.js';
 
+// ===== Application state & configuration =====
 const API_URL = document.querySelector('meta[name="api-url"]')?.content || '';
 let appVersion = 'unknown';
 export const selectedCategories = [];
@@ -20,6 +21,7 @@ let marketItems = [];
 const boundSortableHeaders = new WeakSet();
 let sortState = { columnIndex: null, direction: 'asc' };
 
+// ===== Formatting helpers =====
 function formatPrice(p) {
   if (p === null || p === undefined) return '';
   if (p >= 1) return p.toFixed(2);
@@ -90,6 +92,7 @@ function renderRows(items) {
   tbody.appendChild(fragment);
 }
 
+// ===== Sorting helpers =====
 function clearSortIndicators() {
   document.querySelectorAll('#cryptos thead th').forEach((th) => {
     th.classList.remove('sort-asc', 'sort-desc');

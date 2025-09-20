@@ -2,6 +2,7 @@ from typing import Iterable, List
 
 
 def rsi(prices: Iterable[float], period: int = 14) -> List[float]:
+    """Compute the Relative Strength Index while tolerating short price sequences."""
     prices = list(prices)
     n = len(prices)
     if n < 2:

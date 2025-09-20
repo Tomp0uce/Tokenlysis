@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+"""ETL helpers fetching CoinGecko markets and persisting them in SQLite."""
+
 import datetime as dt
 import json
 import logging
@@ -34,6 +36,7 @@ def _fetch_markets(
     per_page_max: int,
     budget: CallBudget | None,
 ) -> tuple[list[dict], int]:
+    """Fetch market pages until the limit is reached while tracking API calls."""
     per_page = min(per_page_max, 250)
     coins: list[dict] = []
     page = 1
