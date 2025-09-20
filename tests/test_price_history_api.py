@@ -135,6 +135,39 @@ def test_price_history_rejects_invalid_range(tmp_path):
     assert resp.json()['detail'] == 'unsupported range'
 
 
+def test_price_history_accepts_extended_ranges(tmp_path):
+    TestingSessionLocal = _setup_session(tmp_path)
+    session = TestingSessionLocal()
+    now = dt.datetime.now(dt.timezone.utc)
+    _insert_price(
+        session,
+        'bitcoin',
+        'usd',
+        now - dt.timedelta(days=2000),
+        price=1.5,
+        market_cap=2.5,
+        volume_24h=3.5,
+    )
+    _insert_price(
+        session,
+        'bitcoin',
+        'usd',
+        now - dt.timedelta(days=1),
+        price=4.5,
+        market_cap=5.5,
+        volume_24h=6.5,
+    )
+    session.commit()
+    session.close()
+
+    main_module.app.dependency_overrides[get_session] = lambda: TestingSessionLocal()
+    client = TestClient(main_module.app)
+    for range_key in ['1y', '2y', '5y']:
+        resp = client.get(f'/api/price/bitcoin/history?range={range_key}&vs=usd')
+        assert resp.status_code == 200
+        assert resp.json()['range'] == range_key
+
+
 @pytest.fixture(autouse=True)
 def cleanup_dependency_overrides():
     yield

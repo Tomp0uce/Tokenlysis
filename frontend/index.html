@@ -1,61 +1,101 @@
 <!DOCTYPE html>
-<html>
+<html lang="fr">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="api-url" content="/api">
-  <title>Tokenlysis Dashboard</title>
-  <style>
-    body { font-family: Arial, sans-serif; margin: 20px; }
-    table { border-collapse: collapse; width: 100%; }
-    th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
-    th { background-color: #f2f2f2; }
-    th.sortable { cursor: pointer; user-select: none; }
-    th.sortable.sort-asc::after { content: ' ▲'; font-size: 0.75em; }
-    th.sortable.sort-desc::after { content: ' ▼'; font-size: 0.75em; }
-    #status { margin: 10px 0; }
-    .badge { background:#eee; border-radius:4px; padding:2px 4px; margin-right:2px; }
-    .change-cell { font-weight: 600; }
-    .change-positive { color: #1b5e20; }
-    .change-negative { color: #c62828; }
-    .details-link {
-      display: inline-block;
-      padding: 4px 10px;
-      border-radius: 4px;
-      background-color: #1976d2;
-      color: #fff;
-      text-decoration: none;
-      font-weight: 600;
-    }
-    .details-link:hover,
-    .details-link:focus {
-      background-color: #125a9c;
-    }
-  </style>
+  <title>Tokenlysis – Tableau de bord</title>
+  <link rel="stylesheet" href="./theme.css">
+  <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
 </head>
 <body>
-  <h1>Tokenlysis Cryptos</h1>
-  <div id="demo-banner" style="display:none;background:#fffae6;padding:6px;margin-bottom:10px;">mode demo : indicateurs avancés désactivés</div>
-  <div id="status">Loading...</div>
-  <div id="last-update"></div>
-  <table id="cryptos" style="display:none;">
-    <thead>
-      <tr>
-        <th>Coin</th>
-        <th>Catégories</th>
-        <th>Rank</th>
-        <th>Price (USD)</th>
-        <th>Market Cap</th>
-        <th>Fully Diluted Market Cap</th>
-        <th>Volume 24h</th>
-        <th>Change 24h</th>
-        <th>Change 7j</th>
-        <th>Change 30j</th>
-        <th>Détails</th>
-      </tr>
-    </thead>
-    <tbody></tbody>
-  </table>
-  <div id="version"></div>
+  <main class="dashboard">
+    <header class="dashboard-header">
+      <div class="brand">
+        <h1>Tokenlysis Dashboard</h1>
+        <p>Suivez l'évolution des principales crypto-actifs en un coup d'œil.</p>
+      </div>
+      <button type="button" class="theme-toggle" data-theme-toggle aria-label="Activer le thème sombre">Thème</button>
+    </header>
+    <div id="status" class="status-banner">Chargement...</div>
+    <section class="hero-card">
+      <div class="panel-header">
+        <div>
+          <h2>Vue d'ensemble du marché</h2>
+          <p>Capitalisation globale, volumes et tendances quotidiennes.</p>
+        </div>
+        <p id="last-update">Dernière mise à jour : —</p>
+      </div>
+      <div class="summary-grid">
+        <article class="summary-card">
+          <span>Capitalisation totale</span>
+          <strong id="summary-market-cap">—</strong>
+        </article>
+        <article class="summary-card">
+          <span>Volume 24h</span>
+          <strong id="summary-volume">—</strong>
+        </article>
+        <article class="summary-card">
+          <span>Variation moyenne 24h</span>
+          <strong id="summary-change">—</strong>
+        </article>
+      </div>
+    </section>
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <h2>Top capitalisations</h2>
+          <p id="market-overview-subtitle">Capitalisation cumulée des leaders sur la période sélectionnée.</p>
+        </div>
+        <div class="range-selector" id="market-range-selector" role="radiogroup" aria-label="Période du graphique">
+          <button type="button" data-range="24h" aria-pressed="false">24h</button>
+          <button type="button" data-range="7d" aria-pressed="false">7j</button>
+          <button type="button" data-range="1m" aria-pressed="false">1m</button>
+          <button type="button" data-range="3m" aria-pressed="false">3m</button>
+          <button type="button" data-range="1y" aria-pressed="false">1 an</button>
+          <button type="button" data-range="2y" aria-pressed="false">2 ans</button>
+          <button type="button" data-range="5y" aria-pressed="false">5 ans</button>
+          <button type="button" data-range="max" aria-pressed="false">Totalité</button>
+        </div>
+      </div>
+      <div class="chart-container">
+        <div id="market-overview-chart" class="chart-target"></div>
+      </div>
+    </section>
+    <div id="demo-banner" class="status-banner" style="display:none;">Mode démo : indicateurs avancés désactivés</div>
+    <section class="panel table-panel">
+      <div class="panel-header">
+        <div>
+          <h2>Classement des actifs</h2>
+          <p>Comparez prix, volumes et variations pour sélectionner vos opportunités.</p>
+        </div>
+      </div>
+      <div class="table-wrapper">
+        <table id="cryptos" style="display:none;">
+          <thead>
+            <tr>
+              <th>Actif</th>
+              <th>Catégories</th>
+              <th>Rank</th>
+              <th>Prix (USD)</th>
+              <th>Market Cap</th>
+              <th>Fully Diluted Market Cap</th>
+              <th>Volume 24h</th>
+              <th>Change 24h</th>
+              <th>Change 7j</th>
+              <th>Change 30j</th>
+              <th>Détails</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+    <footer class="footer-meta">
+      <span id="version">Version : —</span>
+      <span>© Tokenlysis</span>
+    </footer>
+  </main>
   <script src="./app-version.js"></script>
   <script type="module" src="./main.js"></script>
 </body>

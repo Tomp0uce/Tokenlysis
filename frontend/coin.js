@@ -1,83 +1,28 @@
+import { createAreaChart, refreshChartsTheme } from './charting.js';
+import { initThemeToggle, onThemeChange } from './theme.js';
+import { calculateAvailableRanges, pickInitialRange, syncRangeSelector } from './range.js';
+
 const API_URL = document.querySelector('meta[name="api-url"]')?.content || '';
-const DEFAULT_RANGE = '7d';
+const PREFERRED_RANGE = '7d';
 const RANGE_BUTTON_SELECTOR = '#range-selector [data-range]';
-const CHART_DIMENSIONS = { width: 600, height: 260, padding: 24 };
-const AXIS_TICK_LENGTH = 6;
-const MAX_Y_TICKS = 5;
-const MAX_X_TICKS = 5;
-
-function createSvgElement(tag, attributes = {}) {
-  const element = document.createElementNS('http://www.w3.org/2000/svg', tag);
-  Object.entries(attributes).forEach(([key, value]) => {
-    element.setAttribute(key, String(value));
-  });
-  return element;
-}
-
-function formatAxisDateLabel(iso) {
-  if (!iso) {
-    return '';
-  }
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) {
-    return iso;
-  }
-  return new Intl.DateTimeFormat('en-US', {
-    day: '2-digit',
-    month: 'short',
-  }).format(date);
-}
-
-function formatAxisValueLabel(value) {
-  if (value === null || value === undefined) {
-    return '';
-  }
-  const numeric = Number(value);
-  if (Number.isNaN(numeric) || !Number.isFinite(numeric)) {
-    return '';
-  }
-  const fractionDigits = numeric >= 1 ? 2 : 4;
-  return new Intl.NumberFormat('en-US', {
-    maximumFractionDigits: fractionDigits,
-  }).format(numeric);
-}
-
-function generateLinearTicks(min, max, count) {
-  if (!Number.isFinite(min) || !Number.isFinite(max) || count <= 0) {
-    return [];
-  }
-  if (Math.abs(max - min) < Number.EPSILON) {
-    return Array.from({ length: count }, () => min);
-  }
-  if (count === 1) {
-    return [min];
-  }
-  const step = (max - min) / (count - 1);
-  return Array.from({ length: count }, (_, index) => min + index * step);
-}
-
-function generateIndexTicks(length, count) {
-  if (length <= 0 || count <= 0) {
-    return [];
-  }
-  if (count >= length) {
-    return Array.from({ length }, (_, index) => index);
-  }
-  const maxIndex = length - 1;
-  const step = maxIndex / (count - 1);
-  const indices = new Set();
-  for (let i = 0; i < count; i += 1) {
-    const rawIndex = Math.round(i * step);
-    const clamped = Math.min(maxIndex, Math.max(0, rawIndex));
-    indices.add(clamped);
-  }
-  indices.add(0);
-  indices.add(maxIndex);
-  return Array.from(indices).sort((a, b) => a - b);
-}
+const MAX_RANGE_KEY = 'max';
+const CHART_COLORS = {
+  price: '--chart-price',
+  marketCap: '--chart-market',
+  volume: '--chart-volume',
+};
 
 let currentCoinId = '';
 let currentRange = null;
+let priceChart = null;
+let marketChart = null;
+let volumeChart = null;
+const historyCache = new Map();
+let availableHistoryRanges = new Set();
+
+function getRangeContainer() {
+  return document.getElementById('range-selector');
+}
 
 function setStatus(message) {
   const el = document.getElementById('status');
@@ -129,12 +74,61 @@ function formatDateTime(iso) {
   });
 }
 
-async function fetchJson(url) {
-  const res = await fetch(url);
-  if (!res.ok) {
-    throw new Error(`HTTP ${res.status}`);
+function normalizePointValue(value) {
+  if (value === null || value === undefined) {
+    return null;
   }
-  return res.json();
+  const numeric = Number(value);
+  if (Number.isNaN(numeric) || !Number.isFinite(numeric)) {
+    return null;
+  }
+  return numeric;
+}
+
+export function buildHistoricalDataset(points = []) {
+  if (!Array.isArray(points) || points.length === 0) {
+    return { categories: [], price: [], marketCap: [], volume: [] };
+  }
+  const categories = [];
+  const price = [];
+  const marketCap = [];
+  const volume = [];
+  points.forEach((point) => {
+    const timestamp = point?.snapshot_at || '';
+    categories.push(timestamp);
+    price.push(normalizePointValue(point?.price));
+    marketCap.push(normalizePointValue(point?.market_cap));
+    volume.push(normalizePointValue(point?.volume_24h));
+  });
+  return { categories, price, marketCap, volume };
+}
+
+function extractTimestamps(points = []) {
+  return (points || [])
+    .map((point) => (typeof point?.snapshot_at === 'string' ? point.snapshot_at : null))
+    .filter((value) => typeof value === 'string');
+}
+
+function updateRangeAvailability(points = []) {
+  availableHistoryRanges = calculateAvailableRanges(extractTimestamps(points));
+  const container = getRangeContainer();
+  if (container) {
+    syncRangeSelector(container, availableHistoryRanges);
+  }
+  return availableHistoryRanges;
+}
+
+function pruneUnavailableRange(range) {
+  if (!availableHistoryRanges.has(range)) {
+    return;
+  }
+  availableHistoryRanges = new Set(
+    Array.from(availableHistoryRanges.values()).filter((key) => key !== range),
+  );
+  const container = getRangeContainer();
+  if (container) {
+    syncRangeSelector(container, availableHistoryRanges);
+  }
 }
 
 function renderCategories(names) {
@@ -142,13 +136,14 @@ function renderCategories(names) {
   if (!container) return;
   container.innerHTML = '';
   if (!names || names.length === 0) {
-    container.textContent = 'Aucune catégorie renseignée.';
+    const empty = document.createElement('p');
+    empty.className = 'empty-state';
+    empty.textContent = 'Aucune catégorie renseignée.';
+    container.appendChild(empty);
     return;
   }
-  const title = document.createElement('h2');
-  title.textContent = 'Catégories';
-  container.appendChild(title);
   const wrap = document.createElement('div');
+  wrap.className = 'badge-grid';
   names.forEach((name) => {
     const badge = document.createElement('span');
     badge.className = 'badge';
@@ -198,226 +193,134 @@ function showEmptyHistory(isEmpty) {
   emptyEl.hidden = !isEmpty;
 }
 
-function clearSvg(svg) {
-  while (svg.firstChild) {
-    svg.removeChild(svg.firstChild);
-  }
+function hasValues(series) {
+  return Array.isArray(series) && series.some((value) => value !== null);
 }
 
-function renderChart(svg, series, color) {
-  clearSvg(svg);
-  if (!series.length) {
-    svg.setAttribute('data-empty', 'true');
+async function renderOrUpdateChart({ key, elementId, name, data, categories, colorVar }) {
+  const element = document.getElementById(elementId);
+  if (!element) {
     return;
   }
-  svg.removeAttribute('data-empty');
-  const { width, height, padding } = CHART_DIMENSIONS;
-  svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
-  const usableWidth = width - padding * 2;
-  const usableHeight = height - padding * 2;
-  const min = Math.min(...series.map((point) => point.value));
-  const max = Math.max(...series.map((point) => point.value));
-  const span = max - min || 1;
-  const step = series.length > 1 ? usableWidth / (series.length - 1) : 0;
-  const coordinates = series.map((point, index) => {
-    const x = padding + (series.length > 1 ? index * step : usableWidth / 2);
-    const y = padding + usableHeight - ((point.value - min) / span) * usableHeight;
-    return `${x.toFixed(2)},${y.toFixed(2)}`;
-  });
-  const leftX = padding;
-  const rightX = width - padding;
-  const topY = padding;
-  const bottomY = height - padding;
-  const yTickValues = generateLinearTicks(
-    min,
-    max,
-    Math.min(MAX_Y_TICKS, Math.max(2, series.length))
-  );
-  const xTickIndexes = generateIndexTicks(
-    series.length,
-    Math.min(MAX_X_TICKS, Math.max(2, series.length))
-  );
-  const toX = (index) =>
-    padding + (series.length > 1 ? index * step : usableWidth / 2);
-  const toY = (value) =>
-    padding + usableHeight - ((value - min) / span) * usableHeight;
-
-  const axisY = createSvgElement('g', { class: 'axis axis-y' });
-  axisY.appendChild(
-    createSvgElement('line', {
-      x1: leftX,
-      y1: topY,
-      x2: leftX,
-      y2: bottomY,
-    })
-  );
-  yTickValues.forEach((value, index) => {
-    const tickY = index === 0 ? bottomY : index === yTickValues.length - 1 ? topY : toY(value);
-    axisY.appendChild(
-      createSvgElement('line', {
-        x1: leftX - AXIS_TICK_LENGTH,
-        y1: tickY,
-        x2: leftX,
-        y2: tickY,
-      })
-    );
-    const textAttributes = {
-      x: leftX - AXIS_TICK_LENGTH - 2,
-      y:
-        index === 0
-          ? bottomY - 4
-          : index === yTickValues.length - 1
-          ? topY + 4
-          : tickY,
-      'text-anchor': 'end',
-      'dominant-baseline':
-        index === 0 ? 'alphabetic' : index === yTickValues.length - 1 ? 'hanging' : 'middle',
-    };
-    const text = createSvgElement('text', textAttributes);
-    const role =
-      index === 0
-        ? 'axis-y-min'
-        : index === yTickValues.length - 1
-        ? 'axis-y-max'
-        : 'axis-y-tick';
-    text.setAttribute('data-role', role);
-    text.setAttribute('data-value', String(value));
-    text.textContent = formatAxisValueLabel(value);
-    axisY.appendChild(text);
-  });
-
-  const axisX = createSvgElement('g', { class: 'axis axis-x' });
-  axisX.appendChild(
-    createSvgElement('line', {
-      x1: leftX,
-      y1: bottomY,
-      x2: rightX,
-      y2: bottomY,
-    })
-  );
-  xTickIndexes.forEach((tickIndex, position) => {
-    const point = series[tickIndex];
-    const x = toX(tickIndex);
-    axisX.appendChild(
-      createSvgElement('line', {
-        x1: x,
-        y1: bottomY,
-        x2: x,
-        y2: bottomY + AXIS_TICK_LENGTH,
-      })
-    );
-    const value = point?.snapshot_at || '';
-    const formattedValue = formatAxisDateLabel(value);
-    const isFirst = position === 0;
-    const isLast = position === xTickIndexes.length - 1;
-    const text = createSvgElement('text', {
-      x,
-      y: bottomY + AXIS_TICK_LENGTH + 8,
-      'text-anchor': isFirst ? 'start' : isLast ? 'end' : 'middle',
-      'dominant-baseline': 'hanging',
-    });
-    const role = isFirst ? 'axis-x-min' : isLast ? 'axis-x-max' : 'axis-x-tick';
-    text.setAttribute('data-role', role);
-    text.setAttribute('data-value', value);
-    text.textContent = formattedValue;
-    axisX.appendChild(text);
-    if (isFirst && isLast) {
-      const maxText = createSvgElement('text', {
-        x,
-        y: bottomY + AXIS_TICK_LENGTH + 8,
-        'text-anchor': 'end',
-        'dominant-baseline': 'hanging',
-      });
-      maxText.setAttribute('data-role', 'axis-x-max');
-      maxText.setAttribute('data-value', value);
-      maxText.textContent = formattedValue;
-      axisX.appendChild(maxText);
+  const existing =
+    key === 'price' ? priceChart : key === 'market' ? marketChart : volumeChart;
+  if (!existing) {
+    const chart = await createAreaChart(element, { name, categories, data, colorVar });
+    if (key === 'price') {
+      priceChart = chart;
+    } else if (key === 'market') {
+      marketChart = chart;
+    } else {
+      volumeChart = chart;
     }
-  });
-
-  svg.appendChild(axisY);
-  svg.appendChild(axisX);
-
-  const polyline = createSvgElement('polyline', {
-    fill: 'none',
-    stroke: color,
-    'stroke-width': 2,
-    points: coordinates.join(' '),
-  });
-  svg.appendChild(polyline);
-  series.forEach((point, index) => {
-    const x = padding + (series.length > 1 ? index * step : usableWidth / 2);
-    const y = padding + usableHeight - ((point.value - min) / span) * usableHeight;
-    const circle = createSvgElement('circle', {
-      cx: x.toFixed(2),
-      cy: y.toFixed(2),
-      r: 3,
-      fill: color,
-    });
-    const title = createSvgElement('title');
-    title.textContent = `${formatDateTime(point.snapshot_at)} • ${Number(point.value).toLocaleString('en-US')}`;
-    circle.appendChild(title);
-    svg.appendChild(circle);
-  });
+    return;
+  }
+  await existing.updateOptions(
+    {
+      xaxis: { categories },
+    },
+    false,
+    true,
+  );
+  await existing.updateSeries(
+    [
+      {
+        name,
+        data,
+      },
+    ],
+    true,
+  );
 }
 
-function buildSeries(points, key) {
-  return points
-    .map((point) => {
-      const raw = point[key];
-      if (raw === null || raw === undefined) {
-        return null;
-      }
-      const numeric = Number(raw);
-      if (Number.isNaN(numeric) || !Number.isFinite(numeric)) {
-        return null;
-      }
-      return { snapshot_at: point.snapshot_at, value: numeric };
-    })
-    .filter(Boolean);
+async function renderHistory(points) {
+  const dataset = buildHistoricalDataset(points);
+  const hasHistory =
+    dataset.categories.length > 0 &&
+    (hasValues(dataset.price) || hasValues(dataset.marketCap) || hasValues(dataset.volume));
+  showEmptyHistory(!hasHistory);
+  await Promise.all([
+    renderOrUpdateChart({
+      key: 'price',
+      elementId: 'price-chart',
+      name: 'Prix (USD)',
+      data: dataset.price,
+      categories: dataset.categories,
+      colorVar: CHART_COLORS.price,
+    }),
+    renderOrUpdateChart({
+      key: 'market',
+      elementId: 'market-cap-chart',
+      name: 'Capitalisation (USD)',
+      data: dataset.marketCap,
+      categories: dataset.categories,
+      colorVar: CHART_COLORS.marketCap,
+    }),
+    renderOrUpdateChart({
+      key: 'volume',
+      elementId: 'volume-chart',
+      name: 'Volume 24h (USD)',
+      data: dataset.volume,
+      categories: dataset.categories,
+      colorVar: CHART_COLORS.volume,
+    }),
+  ]);
 }
 
-function renderHistory(points) {
-  const priceSeries = buildSeries(points, 'price');
-  const marketSeries = buildSeries(points, 'market_cap');
-  const volumeSeries = buildSeries(points, 'volume_24h');
-  const hasData = priceSeries.length || marketSeries.length || volumeSeries.length;
-  showEmptyHistory(!hasData);
-  const priceSvg = document.getElementById('price-chart');
-  const marketSvg = document.getElementById('market-cap-chart');
-  const volumeSvg = document.getElementById('volume-chart');
-  if (priceSvg) {
-    renderChart(priceSvg, priceSeries, '#1976d2');
+async function fetchJson(url) {
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status}`);
   }
-  if (marketSvg) {
-    renderChart(marketSvg, marketSeries, '#388e3c');
-  }
-  if (volumeSvg) {
-    renderChart(volumeSvg, volumeSeries, '#f57c00');
-  }
+  return res.json();
 }
 
-async function loadHistory(range, { force = false } = {}) {
+async function getHistoryPoints(range) {
+  const key = typeof range === 'string' && range.trim() ? range : MAX_RANGE_KEY;
+  if (historyCache.has(key)) {
+    return historyCache.get(key);
+  }
+  const data = await fetchJson(
+    `${API_URL}/price/${encodeURIComponent(currentCoinId)}/history?range=${encodeURIComponent(key)}&vs=usd`,
+  );
+  const points = Array.isArray(data.points) ? data.points : [];
+  historyCache.set(key, points);
+  return points;
+}
+
+async function loadHistory(range, { force = false, pointsOverride } = {}) {
   if (!currentCoinId) {
     return;
   }
   if (!force && range === currentRange) {
     return;
   }
-  const data = await fetchJson(
-    `${API_URL}/price/${encodeURIComponent(currentCoinId)}/history?range=${encodeURIComponent(range)}&vs=usd`
-  );
+  let points = pointsOverride;
+  if (!points) {
+    points = await getHistoryPoints(range);
+  } else {
+    historyCache.set(range, points);
+  }
+  const hasPoints = Array.isArray(points) && points.length > 0;
+  if (!hasPoints && range !== MAX_RANGE_KEY) {
+    pruneUnavailableRange(range);
+    const fallback = pickInitialRange(availableHistoryRanges, PREFERRED_RANGE);
+    if (fallback && fallback !== range) {
+      await loadHistory(fallback, { force: true });
+      return;
+    }
+  }
   currentRange = range;
   setActiveRange(range);
-  renderHistory(data.points || []);
+  await renderHistory(points || []);
 }
 
 function bindRangeButtons() {
   document.querySelectorAll(RANGE_BUTTON_SELECTOR).forEach((button) => {
     button.addEventListener('click', async () => {
       const { range } = button.dataset;
-      if (!range) return;
-      setStatus('Chargement de l\'historique...');
+      if (!range || button.disabled || !availableHistoryRanges.has(range)) return;
+      setStatus("Chargement de l'historique...");
       try {
         await loadHistory(range);
         setStatus('');
@@ -434,10 +337,29 @@ async function loadCoin() {
     return;
   }
   setStatus('Chargement...');
+  historyCache.clear();
+  availableHistoryRanges = new Set();
+  currentRange = null;
+  setActiveRange('');
+  const container = getRangeContainer();
+  if (container) {
+    syncRangeSelector(container, new Set());
+  }
   try {
     const detail = await fetchJson(`${API_URL}/price/${encodeURIComponent(currentCoinId)}`);
     renderDetail(detail);
-    await loadHistory(DEFAULT_RANGE, { force: true });
+    const maxPoints = await getHistoryPoints(MAX_RANGE_KEY);
+    const ranges = updateRangeAvailability(maxPoints);
+    if (!ranges.size) {
+      showEmptyHistory(true);
+      setStatus('Aucune donnée historique disponible pour cet actif.');
+      return;
+    }
+    const initialRange = pickInitialRange(ranges, PREFERRED_RANGE) || MAX_RANGE_KEY;
+    await loadHistory(initialRange, {
+      force: true,
+      pointsOverride: initialRange === MAX_RANGE_KEY ? maxPoints : undefined,
+    });
     setStatus('');
   } catch (err) {
     console.error(err);
@@ -446,6 +368,10 @@ async function loadCoin() {
 }
 
 export async function init() {
+  initThemeToggle('[data-theme-toggle]');
+  onThemeChange((theme) => {
+    refreshChartsTheme(theme);
+  });
   const url = new URL(window.location.href);
   const coinId = url.searchParams.get('coin_id');
   if (!coinId) {
@@ -462,6 +388,6 @@ if (typeof window !== 'undefined') {
 }
 
 export const __test__ = {
-  buildSeries,
-  renderChart,
+  buildHistoricalDataset,
+  normalizePointValue,
 };

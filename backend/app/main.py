@@ -53,6 +53,9 @@ RANGE_TO_DELTA: dict[str, dt.timedelta] = {
     "7d": dt.timedelta(days=7),
     "1m": dt.timedelta(days=30),
     "3m": dt.timedelta(days=90),
+    "1y": dt.timedelta(days=365),
+    "2y": dt.timedelta(days=730),
+    "5y": dt.timedelta(days=1825),
 }
 
 
