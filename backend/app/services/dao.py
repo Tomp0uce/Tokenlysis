@@ -35,6 +35,15 @@ class PricesRepo:
         )
         return self.session.scalar(stmt)
 
+    def get_history(
+        self, coin_id: str, vs: str, since: dt.datetime | None = None
+    ) -> list[Price]:
+        stmt = select(Price).where(Price.coin_id == coin_id, Price.vs_currency == vs)
+        if since is not None:
+            stmt = stmt.where(Price.snapshot_at >= since)
+        stmt = stmt.order_by(Price.snapshot_at)
+        return list(self.session.scalars(stmt))
+
     def upsert_latest(self, rows: Iterable[dict]) -> None:
         if not rows:
             return

@@ -35,7 +35,7 @@ function setupDom() {
   const dom = new JSDOM(`<!DOCTYPE html><meta name="api-url" content="">
     <div id="demo-banner" style="display:none"></div>
     <div id="status"></div>
-    <table id="cryptos" style="display:none"><thead><tr><th>Coin</th><th>Catégories</th><th>Rank</th><th>Price</th><th>Market Cap</th><th>Fully Diluted Market Cap</th><th>Volume 24h</th><th>Change 24h</th><th>Change 7j</th><th>Change 30j</th></tr></thead><tbody></tbody></table>
+    <table id="cryptos" style="display:none"><thead><tr><th>Coin</th><th>Catégories</th><th>Rank</th><th>Price</th><th>Market Cap</th><th>Fully Diluted Market Cap</th><th>Volume 24h</th><th>Change 24h</th><th>Change 7j</th><th>Change 30j</th><th>Détails</th></tr></thead><tbody></tbody></table>
     <div id="last-update"></div>
     <div id="version"></div>`);
   global.window = dom.window;
@@ -119,6 +119,7 @@ test('loadCryptos renders table and last update with categories', async () => {
     '4.00%',
     '5.00%',
     '6.00%',
+    'Voir',
   ]);
   const badges = rows[0].querySelectorAll('td')[1].querySelectorAll('.badge');
   assert.equal(badges[0].getAttribute('title'), 'Layer 1');
@@ -135,6 +136,7 @@ test('loadCryptos renders table and last update with categories', async () => {
     '-2.00%',
     '-3.25%',
     '-10.00%',
+    'Voir',
   ]);
   assert.equal(rows[1].querySelectorAll('td')[1].children.length, 0);
   const cells3 = [...rows[2].querySelectorAll('td')].map((c) => c.textContent.trim());
@@ -149,6 +151,7 @@ test('loadCryptos renders table and last update with categories', async () => {
     '0.00%',
     '',
     '0.00%',
+    'Voir',
   ]);
   const changeCellsRow1 = rows[0].querySelectorAll('.change-cell');
   assert.equal(changeCellsRow1.length, 3);
@@ -171,11 +174,20 @@ test('loadCryptos renders table and last update with categories', async () => {
     assert.equal(cell.classList.contains('change-positive'), false);
     assert.equal(cell.classList.contains('change-negative'), false);
   });
+  const firstLink = rows[0].querySelector('.details-link');
+  assert.ok(firstLink);
+  assert.equal(firstLink.getAttribute('href'), './coin.html?coin_id=bitcoin');
+  assert.equal(
+    firstLink.getAttribute('aria-label'),
+    'Voir les détails pour bitcoin'
+  );
   assert.equal(document.getElementById('demo-banner').style.display, 'block');
   assert.match(
     document.getElementById('last-update').textContent,
     /Dernière mise à jour : 2025-09-07T20:51:26Z \(source: api\)/
   );
+  const rankHeader = document.querySelectorAll('#cryptos thead th')[2];
+  assert.equal(rankHeader.classList.contains('sort-asc'), true);
 });
 
 test('loadCryptos hides demo banner when plan is not demo', async () => {
@@ -266,14 +278,17 @@ test('clicking rank header toggles ascending then descending order', async () =>
     [...document.querySelectorAll('#cryptos tbody tr')].map((row) =>
       Number(row.querySelectorAll('td')[2].textContent)
     );
-  assert.deepEqual(ranks(), [2, 4, 1]);
-
-  const rankHeader = document.querySelectorAll('#cryptos thead th')[2];
-  rankHeader.dispatchEvent(new window.Event('click', { bubbles: true }));
   assert.deepEqual(ranks(), [1, 2, 4]);
 
+  const rankHeader = document.querySelectorAll('#cryptos thead th')[2];
+  assert.equal(rankHeader.classList.contains('sort-asc'), true);
   rankHeader.dispatchEvent(new window.Event('click', { bubbles: true }));
   assert.deepEqual(ranks(), [4, 2, 1]);
+  assert.equal(rankHeader.classList.contains('sort-desc'), true);
+
+  rankHeader.dispatchEvent(new window.Event('click', { bubbles: true }));
+  assert.deepEqual(ranks(), [1, 2, 4]);
+  assert.equal(rankHeader.classList.contains('sort-asc'), true);
 });
 
 test('sorting numeric columns keeps null values at the end', async () => {

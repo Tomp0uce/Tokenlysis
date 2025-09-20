@@ -19,7 +19,7 @@ const SORTABLE_COLUMN_ACCESSORS = new Map([
 
 let marketItems = [];
 const boundSortableHeaders = new WeakSet();
-let sortState = { columnIndex: null, direction: 'asc' };
+let sortState = { columnIndex: 2, direction: 'asc' };
 
 // ===== Formatting helpers =====
 function formatPrice(p) {
@@ -86,7 +86,20 @@ function renderRows(items) {
       const extra = cats.slice(3).join(', ');
       badges += `<span class="badge" title="${extra}">+${cats.length - 3}</span>`;
     }
-    tr.innerHTML = `<td>${item.coin_id}</td><td>${badges.trim()}</td><td>${item.rank ?? ''}</td><td>${formatPrice(item.price)}</td><td>${formatNumber(item.market_cap)}</td><td>${formatNumber(item.fully_diluted_market_cap)}</td><td>${formatNumber(item.volume_24h)}</td>${renderChangeCell(item.pct_change_24h)}${renderChangeCell(item.pct_change_7d)}${renderChangeCell(item.pct_change_30d)}`;
+    const coinId = item.coin_id ?? '';
+    tr.innerHTML = `<td>${coinId}</td><td>${badges.trim()}</td><td>${item.rank ?? ''}</td><td>${formatPrice(item.price)}</td><td>${formatNumber(item.market_cap)}</td><td>${formatNumber(item.fully_diluted_market_cap)}</td><td>${formatNumber(item.volume_24h)}</td>${renderChangeCell(item.pct_change_24h)}${renderChangeCell(item.pct_change_7d)}${renderChangeCell(item.pct_change_30d)}`;
+    const actionCell = document.createElement('td');
+    if (coinId) {
+      const link = document.createElement('a');
+      link.className = 'details-link';
+      link.textContent = 'Voir';
+      link.href = `./coin.html?coin_id=${encodeURIComponent(coinId)}`;
+      link.setAttribute('aria-label', `Voir les détails pour ${coinId}`);
+      actionCell.appendChild(link);
+    } else {
+      actionCell.textContent = '—';
+    }
+    tr.appendChild(actionCell);
     fragment.appendChild(tr);
   });
   tbody.appendChild(fragment);
