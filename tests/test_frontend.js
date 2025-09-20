@@ -203,6 +203,152 @@ test('loadCryptos handles failure', async () => {
   assert.match(document.getElementById('status').innerHTML, /Error fetching data/);
 });
 
+test('clicking rank header toggles ascending then descending order', async () => {
+  setupDom();
+  const { loadCryptos } = await import('../frontend/main.js');
+  const markets = {
+    items: [
+      {
+        coin_id: 'beta',
+        rank: 2,
+        price: 10,
+        market_cap: 3,
+        fully_diluted_market_cap: 4,
+        volume_24h: 5,
+        pct_change_24h: -1,
+        pct_change_7d: -2,
+        pct_change_30d: -3,
+        category_names: [],
+        category_ids: [],
+      },
+      {
+        coin_id: 'delta',
+        rank: 4,
+        price: 20,
+        market_cap: 2,
+        fully_diluted_market_cap: 3,
+        volume_24h: 4,
+        pct_change_24h: 6,
+        pct_change_7d: 7,
+        pct_change_30d: 8,
+        category_names: [],
+        category_ids: [],
+      },
+      {
+        coin_id: 'alpha',
+        rank: 1,
+        price: 30,
+        market_cap: 1,
+        fully_diluted_market_cap: 2,
+        volume_24h: 3,
+        pct_change_24h: 9,
+        pct_change_7d: 10,
+        pct_change_30d: 11,
+        category_names: [],
+        category_ids: [],
+      },
+    ],
+    last_refresh_at: null,
+    data_source: null,
+  };
+  global.fetch = async (url) => {
+    if (url.endsWith('/markets/top?limit=20&vs=usd')) {
+      return new Response(JSON.stringify(markets), { status: 200 });
+    }
+    if (url.endsWith('/diag')) {
+      return new Response(JSON.stringify({ plan: 'pro' }), { status: 200 });
+    }
+    throw new Error('unexpected fetch ' + url);
+  };
+  await loadCryptos();
+
+  const ranks = () =>
+    [...document.querySelectorAll('#cryptos tbody tr')].map((row) =>
+      Number(row.querySelectorAll('td')[2].textContent)
+    );
+  assert.deepEqual(ranks(), [2, 4, 1]);
+
+  const rankHeader = document.querySelectorAll('#cryptos thead th')[2];
+  rankHeader.dispatchEvent(new window.Event('click', { bubbles: true }));
+  assert.deepEqual(ranks(), [1, 2, 4]);
+
+  rankHeader.dispatchEvent(new window.Event('click', { bubbles: true }));
+  assert.deepEqual(ranks(), [4, 2, 1]);
+});
+
+test('sorting numeric columns keeps null values at the end', async () => {
+  setupDom();
+  const { loadCryptos } = await import('../frontend/main.js');
+  const markets = {
+    items: [
+      {
+        coin_id: 'null-price',
+        rank: 1,
+        price: null,
+        market_cap: 3,
+        fully_diluted_market_cap: 5,
+        volume_24h: 7,
+        pct_change_24h: null,
+        pct_change_7d: 2,
+        pct_change_30d: 3,
+        category_names: [],
+        category_ids: [],
+      },
+      {
+        coin_id: 'negative',
+        rank: 2,
+        price: -3,
+        market_cap: 2,
+        fully_diluted_market_cap: null,
+        volume_24h: 5,
+        pct_change_24h: -5,
+        pct_change_7d: -1,
+        pct_change_30d: -2,
+        category_names: [],
+        category_ids: [],
+      },
+      {
+        coin_id: 'positive',
+        rank: 3,
+        price: 15,
+        market_cap: 1,
+        fully_diluted_market_cap: 2,
+        volume_24h: null,
+        pct_change_24h: 4,
+        pct_change_7d: 6,
+        pct_change_30d: 8,
+        category_names: [],
+        category_ids: [],
+      },
+    ],
+    last_refresh_at: null,
+    data_source: null,
+  };
+  global.fetch = async (url) => {
+    if (url.endsWith('/markets/top?limit=20&vs=usd')) {
+      return new Response(JSON.stringify(markets), { status: 200 });
+    }
+    if (url.endsWith('/diag')) {
+      return new Response(JSON.stringify({ plan: 'pro' }), { status: 200 });
+    }
+    throw new Error('unexpected fetch ' + url);
+  };
+  await loadCryptos();
+
+  const priceHeader = document.querySelectorAll('#cryptos thead th')[3];
+  priceHeader.dispatchEvent(new window.Event('click', { bubbles: true }));
+  let order = [...document.querySelectorAll('#cryptos tbody tr')].map((row) =>
+    row.querySelectorAll('td')[0].textContent.trim()
+  );
+  assert.deepEqual(order, ['negative', 'positive', 'null-price']);
+
+  priceHeader.dispatchEvent(new window.Event('click', { bubbles: true }));
+  order = [...document.querySelectorAll('#cryptos tbody tr')].map((row) =>
+    row.querySelectorAll('td')[0].textContent.trim()
+  );
+  assert.deepEqual(order, ['positive', 'negative', 'null-price']);
+});
+
 test('selectedCategories defaults to empty array', async () => {
   const { selectedCategories } = await import('../frontend/main.js');
   assert.deepEqual(selectedCategories, []);
