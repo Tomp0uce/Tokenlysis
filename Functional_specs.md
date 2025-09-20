@@ -1,123 +1,131 @@
 # Functional Specifications
 
 ## 1. Project Overview
-Tokenlysis is a public web platform that aims to rank more than 1,000 crypto-assets using daily computed scores. The current proof of concept focuses on a configurable top ``N`` assets (default 20) with **Liquidity**, **Opportunity** and global scores refreshed at 00:00 UTC. Users can view score history and explore a static ranking table. Highlighting 100 trending assets and additional categories are planned for the MVP.
+Tokenlysis is a public web platform that ranks a configurable top ``N`` cryptocurrencies using CoinGecko market data. The proof of concept focuses on the top 50 assets, computes **Liquidity**, **Opportunity** and a derived **Global** score, and refreshes data every 12 hours through a background ETL loop. A static dashboard built with vanilla JavaScript consumes the public API and displays a sortable table enriched with category badges and freshness indicators.
 
-## 2. Functional Requirements
-### 2.1 Asset Universe & Trending List
-- **POC**: configurable top ``N`` assets (default 20).
-- **MVP**: track the top 1,000 crypto-assets by market capitalization and maintain a secondary list of 100 trending assets outside the top 1,000 using recent activity (price change, volume, search interest, social mentions).
+## 2. Current Functional Scope
+### 2.1 Asset Universe & Data Freshness
+- Configurable universe controlled by `CG_TOP_N` (default 50) sourced from CoinGecko.
+- Background ETL fetches markets on startup and then at the cadence defined by `REFRESH_GRANULARITY` (default 12 h).
+- Fallback to bundled seed data when the live fetch fails and `USE_SEED_ON_FAILURE` is enabled.
 
 ### 2.2 Scoring System
-#### 2.2.1 Score Categories
-Each asset receives a 0–100 score. The POC implements the following:
-- **Liquidity** – Market capitalization, 24h volume, number of exchanges, order-book depth.
-- **Opportunity** – Technical indicators such as RSI, recent volatility, distance from ATH/ATL.
+- **Liquidity** – Log-scaled normalisation of market cap, 24 h volume and exchange listings.
+- **Opportunity** – Relative Strength Index (RSI) and day-over-day volume change, with RSI inverted above 70 to highlight oversold assets.
+- **Global** – Mean of available category scores, ignoring missing components.
+- Scores are persisted alongside market snapshots to power historical analysis in future iterations.
 
-The MVP will add the remaining categories:
-- **Community** – Twitter followers, engagement, Telegram/Discord activity.
-- **Security** – Audit history, time since launch without major incidents, decentralisation level.
-- **Technology** – GitHub commits, active contributors, release cadence, documentation quality.
-- **Tokenomics** – Supply distribution, fully-diluted market cap, inflation/burn mechanics, token unlock schedule.
+### 2.3 Category Management
+- CoinGecko categories are cached per asset with a 24-hour freshness threshold.
+- Categories are stored as JSON payloads in the `coins` table and exposed through `/api/coins/{coin_id}/categories` and the markets endpoint.
+- Slugs derived from category names provide stable identifiers when CoinGecko lacks explicit IDs.
 
-#### 2.2.2 Data Parameters
-Approximately 100 raw metrics are gathered daily for each asset from sources including CoinGecko, CoinMarketCap, Twitter API, GitHub API, and DeFiLlama. Data is refreshed once per day at 00:00 UTC.
+### 2.4 Public API
+- `GET /api/markets/top` – list latest market snapshots, clamping `limit` to `[1, CG_TOP_N]` and enforcing `vs=usd` (returns data source, last refresh timestamp and stale flag).
+- `GET /api/price/{coin_id}` – retrieve a single asset snapshot or `404` when unavailable.
+- `GET /api/coins/{coin_id}/categories` – expose cached category names and IDs.
+- `GET /api/diag` – diagnostics including CoinGecko plan, effective base URL, refresh interval, last ETL item count, persisted call budget and configured universe size.
+- `GET /api/last-refresh` – lightweight endpoint returning only the last refresh timestamp.
+- `GET /healthz` / `GET /readyz` – health probes for container orchestration.
+- `GET /version`, `GET /api/version` and `GET /info` – build metadata and versioning details.
 
-#### 2.2.3 Normalisation & Weighting
-- Each metric is transformed to a 0–100 scale using log-scaling, min–max, or threshold-based functions.
-- Category scores are weighted averages of their metrics. Default weights: Community 15%, Liquidity 20%, Opportunity 20%, Security 15%, Technology 15%, Tokenomics 15%.
-- Users can customise category weights; the system normalises user weights to 100% before aggregating.
+### 2.5 Frontend Experience
+- Static HTML/vanilla JavaScript application served by FastAPI under `/`.
+- Fetches `/api/markets/top?limit=20&vs=usd` on load, renders a sortable table and highlights CoinGecko categories as badges.
+- Uses `/api/diag` to show a banner when the CoinGecko demo plan is active and to display refresh metadata.
+- Provides retry affordance after network failures and surfaces the data source (API vs seed) to help operators detect stale information.
 
-#### 2.2.4 History & Backtesting
-- Store daily values of category and global scores for every asset.
-- Expose endpoints to fetch score history for charts and CSV export.
-- Allow comparisons of multiple assets and overlay of price data for backtesting strategies.
+### 2.6 Asset Intelligence Coverage
+- **Market intelligence & scores**: Score total dynamique (global aggregated score), score fondamental (news/ETF/regulation outlook) and detailed market overview (price, dominance, market cap, supply, volume, 24 h change). Categories and themes are exposed as badges to help users navigate comparable assets.
+- **Communauté & sentiment**: Abonnés Twitter, Telegram members, Reddit subscribers, Discord population, newsletter reach and Google Trends alerts deliver a consolidated community health view.
+- **Liquidité & DeFi depth**: Total Value Locked (TVL) trends, protocol dominance, exchange coverage, liquidity score, order book depth and fiat/stablecoin on-ramps surface how easy it is to enter/exit a position.
+- **Opportunité & momentum**: RSI 14 j, volume acceleration, breakout detection, volatility regimes, whale transactions and funding rate shifts indicate tactical opportunities.
+- **Sécurité & technologie**: Audit records, bug bounty programmes, incident history, GitHub commits/contributors/releases and infrastructure redundancy provide a trust profile.
+- **Tokenomics & distribution**: Emission schedule, inflation, burn rate, staking ratio, unlock calendar, treasury allocation visibility and whale concentration describe supply dynamics.
 
-### 2.3 User Interface
-- **Home/Ranking**: searchable table with global score, category subscores, price, and filters.
-- **Asset Detail**: radar chart of current subscores, historical line charts for scores and price.
-- **Custom Weights**: slider-based UI to adjust category weights and persist user preferences.
-- **Responsive Design**: cards on mobile, tables and advanced filters on desktop.
-- **Dark/Light Themes**.
+## 3. Non-Functional Requirements
+- **Performance**: respond to top-``N`` market requests within 200 ms on commodity hardware; ETL completes within the configured refresh interval.
+- **Reliability**: seed fallback keeps the dashboard usable during upstream outages; persisted call budget prevents quota exhaustion.
+- **Security**: HTTPS in production, masked API keys in logs, environment variables stripped of empty values.
+- **Operability**: structured logging for outbound HTTP requests, diagnostics endpoint exposing runtime configuration, health endpoints for container orchestrators.
 
-### 2.4 Accounts & API
-- Optional user accounts for saving custom weights and watchlists.
-- Public REST API with endpoints for ranking, asset details, and score history.
+## 4. Data Flow & Background Processing
+1. FastAPI startup configures logging, initialises the call budget and creates tables.
+2. Startup ETL fetches markets; on failure the application loads the bundled seed fallback.
+3. A background `asyncio` task reruns the ETL every `REFRESH_GRANULARITY` and records metadata (`last_refresh_at`, `last_etl_items`, `data_source`).
+4. Latest prices are upserted for quick access while historical prices are appended for long-term analysis.
+5. Category data is refreshed when stale and cached locally to limit CoinGecko calls.
+6. Diagnostics endpoint combines persisted metadata and budget state to expose operational insights.
 
-## 3. Non‑Functional Requirements
-- **Performance**: serve ranking requests for 1,100 assets in <200 ms; nightly data ingestion completes within 30 minutes.
-- **Scalability**: architecture supports adding new metrics without downtime.
-- **Security**: HTTPS only, rate limiting on public API, hashed user passwords, regular dependency scans.
-- **Accessibility**: WCAG 2.1 AA, keyboard navigation, descriptive alt text.
+## 5. System Architecture
+| Component | Responsibility |
+|-----------|----------------|
+| FastAPI application | Hosts REST API, diagnostics, health probes and static assets. |
+| ETL runner | Fetches CoinGecko markets, categories and persists snapshots. |
+| Persistence layer | SQLAlchemy models backed by SQLite (configurable via `DATABASE_URL`). |
+| Call budget service | JSON-backed counter enforcing `CG_MONTHLY_QUOTA` and surfacing usage in `/api/diag`. |
+| Frontend dashboard | Vanilla JavaScript + HTML table consuming the API. |
 
-## 4. System Architecture
-### 4.1 Components
-1. **Data Collector**: Python ETL jobs scheduled via APScheduler or Celery beat. Fetches metrics from external APIs and writes to the database. In development mode, seed asset symbols are translated to real CoinGecko IDs via `seed_mapping.py`; production environments obtain IDs directly from the CoinGecko `/coins/list` endpoint.
-2. **Scoring Service**: Python module that normalises metrics and computes category/global scores.
-3. **API Backend**: FastAPI application exposing REST endpoints and serving score calculations.
-4. **Frontend**: React application (TypeScript + Vite) consuming the API.
-5. **Database**: PostgreSQL for persistent storage; Redis for caching hot ranking results.
-6. **Worker Queue**: Celery workers for heavy computations and asynchronous tasks.
-7. **Containerisation**: Docker & Docker Compose for local development and deployment.
-
-### 4.2 Data Flow
-1. Scheduler triggers data collectors each day at 00:00 UTC.
-2. Raw metrics stored in PostgreSQL.
-3. Scoring service reads metrics, computes scores, and stores results with timestamps.
-4. API serves ranking and historical data to frontend and external clients.
-5. User custom weights are stored per account and applied on demand.
-
-### 4.3 Deployment
-- Production uses Docker images orchestrated by Kubernetes or Docker Compose.
-- CI/CD pipeline builds images, runs tests, and deploys to staging then production.
-
-## 5. Technology Choices
+## 6. Technology Stack
 | Layer | Technology |
-|------|------------|
-| Backend | Python 3.11, FastAPI, Pydantic, SQLAlchemy |
-| Data Processing | Pandas, NumPy, Celery, APScheduler |
-| Database | PostgreSQL 15, Redis 7 |
-| Frontend | React 18, TypeScript, Vite, Tailwind CSS |
-| Testing | Pytest, Jest + React Testing Library |
+|-------|------------|
+| Backend | Python 3.11, FastAPI, SQLAlchemy, Pydantic Settings |
+| Data fetching | Requests, Retry-enabled HTTP adapter |
+| Database | SQLite by default (PostgreSQL planned) |
+| Frontend | Static HTML, vanilla JavaScript, Fetch API |
+| Testing | Pytest for backend, Jest-style assertions with Node for frontend utilities |
 | DevOps | Docker, Docker Compose, GitHub Actions |
 
-## 6. Development Phases
-### 6.1 Proof of Concept (POC)
-Demonstrate the scoring concept with a minimal feature set deployable via Docker Compose.
-1. Ingest CoinGecko market data and compute **Liquidity** and **Opportunity** scores.
-2. Aggregate a global score from the available categories.
-3. Expose FastAPI endpoints: `/ranking`, `/asset/{id}`, and `/history/{id}`.
-4. Serve a static frontend table from the backend.
-5. Provide a `docker-compose.yml` that runs the backend and frontend together, including an example for Synology NAS Container Manager.
+## 7. Roadmap
 
-### 6.2 Minimum Viable Product (MVP)
-Build a usable platform with core functionality and persistent storage.
-1. Add remaining score categories (Community, Security, Technology, Tokenomics).
-2. Detect and display 100 trending assets outside the top 1,000. *(MVP)*
-3. Introduce PostgreSQL persistence for metrics and scores.
-4. Implement basic charts and user-defined weighting in the frontend.
-5. Ensure 60 % test coverage and nightly data refresh jobs.
+### Proof of Concept (delivered)
+- [x] Liquidity and Opportunity scoring with global aggregation.
+- [x] CoinGecko ETL with persisted snapshots, cached categories and seed fallback.
+- [x] REST API for markets, price detail, categories, diagnostics, health and version.
+- [x] Static dashboard delivered by the backend.
+- [x] Docker Compose deployment pipeline for backend + frontend.
 
-### 6.3 Engineering Validation Test (EVT)
-Harden the system for wider adoption and prepare for production.
-1. Add user accounts, authentication, and watchlists.
-2. Implement a worker queue, caching layer, and API rate limiting.
-3. Provide historical score charts with price overlays and CSV export.
-4. Expand tests to 80 % coverage and add load testing for ranking endpoints.
-5. Set up a CI/CD pipeline with staging environment and automated deployments.
+### Minimum Viable Product (planned)
+- [ ] Add Community, Security, Technology and Tokenomics scores.
+- [ ] Detect 100 trending assets outside the top 1,000.
+- [ ] Migrate persistence to PostgreSQL and introduce background workers.
+- [ ] Provide charts and configurable weighting controls on the frontend.
+- [ ] Strengthen observability and automated alerting for ETL freshness.
 
-## 7. Coding Standards & Guidelines
-- **Style**: PEP 8 for Python (enforced by `ruff` and `black`); ESLint + Prettier for TypeScript.
-- **Structure**: prefer pure functions in scoring; separate layers (API, services, repositories).
-- **Type Hints**: mandatory for all public functions; enable mypy for static typing.
-- **Commits**: Conventional Commits (feat, fix, docs, etc.).
-- **Testing**: Pytest and Jest with coverage reports; minimum 80 % line coverage before merge.
-- **Code Review**: all changes require PR review and passing CI.
-- **Security**: run `pip-audit` and `npm audit` in CI.
+### Engineering Validation Test (future)
+- **Market intelligence & scores**
+  - [ ] Score total dynamique consolidating thematic KPIs into a dynamic asset scorecard.
+  - [ ] Score fondamental combining curated news, ETF coverage and macro sentiment tracking.
+  - [ ] Automated category explorer linking comparable tokens by use case and sector.
+- **Community analytics & sentiment**
+  - [ ] Abonnés Twitter, Telegram, Reddit, Discord and YouTube dashboards with alert thresholds.
+  - [ ] Google Trends, media coverage and influencer tracking for community momentum.
+  - [ ] Newsletter performance and engagement scoring per asset.
+- **Liquidity & DeFi depth**
+  - [ ] Total Value Locked (TVL) history with protocol granularity and dominance ratios.
+  - [ ] Order book depth analytics, exchange quality scoring and fiat/stablecoin on-ramps visibility.
+  - [ ] Capital flow monitors for exchange inflow/outflow, stablecoin share and DeFi lock-up tracking.
+- **Opportunité & trading signals**
+  - [ ] RSI 14 j, breakout detection, volatility regime classification and funding rate direction.
+  - [ ] Volume acceleration, whale transaction alerts and derivative open-interest monitors.
+  - [ ] Seasonality, correlation clusters and relative strength versus benchmark indices.
+- **Sécurité & technologie**
+  - [ ] Audit registry integration, bug bounty coverage and incident response tracking.
+  - [ ] GitHub velocity (commits, contributors, releases) and code quality indicators.
+  - [ ] Node distribution, infrastructure redundancy and compliance controls.
+- **Tokenomics & supply distribution**
+  - [ ] Unlock and vesting calendar with impact scoring and alerts.
+  - [ ] Inflation, burn schedule, staking ratio and yield analytics.
+  - [ ] Treasury allocation visibility, whale concentration and token distribution monitoring.
 
-## 8. Future Enhancements
-- Integrate on-chain analytics providers.
-- Machine-learning based anomaly detection on scores.
-- Multi-language UI.
-- Mobile applications using React Native.
+## 8. Operational Guidelines
+- Configure `BUDGET_FILE` so the CoinGecko call budget survives restarts; diagnostics display both persisted and in-memory counts.
+- Avoid leaving environment variables empty—blank values are treated as unset and defaults kick in.
+- Monitor `/api/diag` for `stale=true` to detect ETL issues and intervene before the dashboard lags behind.
+- Use `/healthz` for liveness probes and `/readyz` for readiness checks in Docker/Kubernetes deployments.
 
+## 9. Future Enhancements
+- Replace SQLite with PostgreSQL and introduce Alembic migrations for schema evolution.
+- Extend frontend with charts, filtering and internationalisation.
+- Integrate additional data sources (Twitter, GitHub, on-chain metrics) once API quotas are validated.
+- Add automated anomaly detection and alerting around ETL freshness and budget consumption.

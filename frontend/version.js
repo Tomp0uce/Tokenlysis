@@ -1,3 +1,5 @@
+// ===== Version resolution helpers =====
+
 export function getAppVersion() {
   try {
     if (import.meta && import.meta.env && import.meta.env.VITE_APP_VERSION) {

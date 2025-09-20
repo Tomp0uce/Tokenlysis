@@ -1,21 +1,27 @@
-MIT License
+Proprietary License
 
-Copyright (c) 2025 Tomp0uce
+Copyright © 2025 Tokenlysis. All rights reserved.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+This software and its source code are proprietary to Tokenlysis.
+Unauthorized copying, distribution, modification, public display, or use of this software, in whole or in part, is strictly prohibited without prior written permission from Tokenlysis.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+Permitted Use
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+You may view, clone, and fork this repository for personal and non-commercial evaluation purposes only.
+
+Any commercial use, redistribution, sublicensing, or integration into other software or services is strictly prohibited unless an explicit written agreement has been granted by Tokenlysis.
+
+Restrictions
+
+You may not:
+
+Copy, modify, or distribute the software for commercial purposes.
+
+Sell, license, or otherwise commercialize any part of this software.
+
+Use the software in a way that competes with or substitutes the services offered by Tokenlysis.
+
+Liability
+
+This software is provided "as is," without warranty of any kind, express or implied.
+In no event shall Tokenlysis be liable for any claim, damages, or other liability arising from the use of the software.

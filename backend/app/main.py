@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""FastAPI entrypoint exposing Tokenlysis endpoints and background ETL."""
+
 import asyncio
 import datetime as dt
 import logging
@@ -28,7 +30,8 @@ app = FastAPI(title="Tokenlysis", version=os.getenv("APP_VERSION", "dev"))
 
 
 @app.get("/info")
-def info():
+def info() -> dict:
+    """Return build metadata so operators can verify deployed artifacts."""
     return {
         "version": os.getenv("APP_VERSION", "dev"),
         "commit": os.getenv("GIT_COMMIT", "unknown"),
@@ -46,6 +49,7 @@ app.add_middleware(
 
 
 def _serialize_price(p, categories: tuple[list[str], list[str]]) -> dict:
+    """Convert ORM rows and category metadata into an API payload."""
     names, ids = categories
     return {
         "coin_id": p.coin_id,
@@ -70,6 +74,7 @@ def markets_top(
     vs: str = "usd",
     session: Session = Depends(get_session),
 ):
+    """Return the top market snapshots, clamp the limit and emit HTTP 400 for unsupported vs."""
     vs = vs.lower()
     if vs != "usd":
         raise HTTPException(status_code=400, detail="unsupported vs")
@@ -105,6 +110,7 @@ def price_detail(
     vs: str = "usd",
     session: Session = Depends(get_session),
 ):
+    """Return the latest snapshot for a single asset or raise 404 when missing."""
     prices_repo = PricesRepo(session)
     coins_repo = CoinsRepo(session)
     row = prices_repo.get_price(coin_id, vs)
@@ -116,6 +122,7 @@ def price_detail(
 
 @app.get("/api/coins/{coin_id}/categories")
 def coin_categories(coin_id: str, session: Session = Depends(get_session)) -> dict:
+    """Expose cached category names and identifiers for the requested coin."""
     coins_repo = CoinsRepo(session)
     names, ids = coins_repo.get_categories(coin_id)
     return {"category_names": names, "category_ids": ids}
@@ -123,6 +130,7 @@ def coin_categories(coin_id: str, session: Session = Depends(get_session)) -> di
 
 @app.get("/api/diag")
 def diag(session: Session = Depends(get_session)) -> dict:
+    """Expose runtime diagnostics including call budget and ETL metadata."""
     meta_repo = MetaRepo(session)
     last_refresh_at = meta_repo.get("last_refresh_at")
     last_etl_items_raw = meta_repo.get("last_etl_items")
@@ -151,12 +159,14 @@ def diag(session: Session = Depends(get_session)) -> dict:
 
 @app.get("/api/last-refresh")
 def last_refresh(session: Session = Depends(get_session)) -> dict:
+    """Return the last ETL refresh timestamp for lightweight polling."""
     meta_repo = MetaRepo(session)
     last_refresh_at = meta_repo.get("last_refresh_at")
     return {"last_refresh_at": last_refresh_at}
 
 
 def refresh_interval_seconds(value: str | None = None) -> int:
+    """Convert refresh granularity hints to seconds with a 12h fallback."""
     granularity = value or settings.REFRESH_GRANULARITY
     try:
         if granularity.endswith("h"):
@@ -167,6 +177,7 @@ def refresh_interval_seconds(value: str | None = None) -> int:
 
 
 async def etl_loop() -> None:
+    """Background loop triggering the ETL and tolerating transient failures."""
     while True:
         try:
             run_etl(budget=app.state.budget)
@@ -179,6 +190,7 @@ async def etl_loop() -> None:
 
 @app.get("/healthz")
 def healthz(session: Session = Depends(get_session)) -> dict:
+    """Return database connectivity and bootstrap status for liveness probes."""
     db_connected = True
     try:
         session.execute(text("SELECT 1"))
@@ -200,6 +212,7 @@ def healthz(session: Session = Depends(get_session)) -> dict:
 
 @app.get("/readyz")
 def readyz(session: Session = Depends(get_session)) -> dict:
+    """Report readiness by issuing a lightweight database query."""
     try:
         session.execute(text("SELECT 1"))
     except Exception:  # pragma: no cover - defensive
@@ -210,11 +223,13 @@ def readyz(session: Session = Depends(get_session)) -> dict:
 @app.get("/version", response_model=VersionResponse)
 @app.get("/api/version", response_model=VersionResponse, include_in_schema=False)
 def version() -> VersionResponse:
+    """Expose the application version sourced from Git metadata or APP_VERSION."""
     return VersionResponse(version=get_version())
 
 
 @app.on_event("startup")
 async def startup() -> None:
+    """Configure logging, bootstrap persistence, run initial ETL and spawn the loop."""
     logging.basicConfig(
         level=settings.log_level or "INFO",
         format="%(message)s",
