@@ -8,7 +8,7 @@ import logging
 import os
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
@@ -46,6 +46,14 @@ app.add_middleware(
     allow_methods=["GET"],
     allow_headers=["*"],
 )
+
+
+RANGE_TO_DELTA: dict[str, dt.timedelta] = {
+    "24h": dt.timedelta(hours=24),
+    "7d": dt.timedelta(days=7),
+    "1m": dt.timedelta(days=30),
+    "3m": dt.timedelta(days=90),
+}
 
 
 def _serialize_price(p, categories: tuple[list[str], list[str]]) -> dict:
@@ -118,6 +126,48 @@ def price_detail(
         raise HTTPException(status_code=404)
     cats = coins_repo.get_categories(coin_id)
     return _serialize_price(row, cats)
+
+
+@app.get("/api/price/{coin_id}/history")
+def price_history(
+    coin_id: str,
+    range_: str = Query("7d", alias="range"),
+    vs: str = "usd",
+    session: Session = Depends(get_session),
+):
+    vs = vs.lower()
+    if vs != "usd":
+        raise HTTPException(status_code=400, detail="unsupported vs")
+    range_key = range_.lower()
+    delta = RANGE_TO_DELTA.get(range_key)
+    if range_key not in RANGE_TO_DELTA and range_key != "max":
+        raise HTTPException(status_code=400, detail="unsupported range")
+    since = None
+    if delta is not None:
+        now = dt.datetime.now(dt.timezone.utc)
+        since = now - delta
+    prices_repo = PricesRepo(session)
+    rows = prices_repo.get_history(coin_id, vs, since)
+    points: list[dict] = []
+    for row in rows:
+        snapshot = row.snapshot_at
+        if snapshot.tzinfo is None:
+            snapshot = snapshot.replace(tzinfo=dt.timezone.utc)
+        points.append(
+            {
+                "snapshot_at": snapshot.isoformat(),
+                "price": row.price,
+                "market_cap": row.market_cap,
+                "fully_diluted_market_cap": row.fully_diluted_market_cap,
+                "volume_24h": row.volume_24h,
+            }
+        )
+    return {
+        "coin_id": coin_id,
+        "vs_currency": vs,
+        "range": range_key,
+        "points": points,
+    }
 
 
 @app.get("/api/coins/{coin_id}/categories")
