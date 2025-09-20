@@ -28,9 +28,12 @@ class LatestPrice(Base):
     vs_currency: Mapped[str] = mapped_column(String, primary_key=True)
     price: Mapped[float | None] = mapped_column(Float)
     market_cap: Mapped[float | None] = mapped_column(Float)
+    fully_diluted_market_cap: Mapped[float | None] = mapped_column(Float)
     volume_24h: Mapped[float | None] = mapped_column(Float)
     rank: Mapped[int | None] = mapped_column(Integer)
     pct_change_24h: Mapped[float | None] = mapped_column(Float)
+    pct_change_7d: Mapped[float | None] = mapped_column(Float)
+    pct_change_30d: Mapped[float | None] = mapped_column(Float)
     snapshot_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True))
 
     __table_args__ = (Index("ix_latest_prices_rank", "rank"),)
@@ -46,9 +49,12 @@ class Price(Base):
     )
     price: Mapped[float | None] = mapped_column(Float)
     market_cap: Mapped[float | None] = mapped_column(Float)
+    fully_diluted_market_cap: Mapped[float | None] = mapped_column(Float)
     volume_24h: Mapped[float | None] = mapped_column(Float)
     rank: Mapped[int | None] = mapped_column(Integer)
     pct_change_24h: Mapped[float | None] = mapped_column(Float)
+    pct_change_7d: Mapped[float | None] = mapped_column(Float)
+    pct_change_30d: Mapped[float | None] = mapped_column(Float)
 
     __table_args__ = (
         Index("ix_prices_snapshot_at", "snapshot_at"),

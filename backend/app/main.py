@@ -22,6 +22,7 @@ from .services.budget import CallBudget
 from .services.dao import PricesRepo, MetaRepo, CoinsRepo
 
 logger = logging.getLogger(__name__)
+logger.setLevel(settings.log_level or "INFO")
 
 app = FastAPI(title="Tokenlysis", version=os.getenv("APP_VERSION", "dev"))
 
@@ -51,9 +52,12 @@ def _serialize_price(p, categories: tuple[list[str], list[str]]) -> dict:
         "vs_currency": p.vs_currency,
         "price": p.price,
         "market_cap": p.market_cap,
+        "fully_diluted_market_cap": p.fully_diluted_market_cap,
         "volume_24h": p.volume_24h,
         "rank": p.rank,
         "pct_change_24h": p.pct_change_24h,
+        "pct_change_7d": p.pct_change_7d,
+        "pct_change_30d": p.pct_change_30d,
         "snapshot_at": p.snapshot_at,
         "category_names": names,
         "category_ids": ids,
@@ -216,6 +220,7 @@ async def startup() -> None:
         format="%(message)s",
         force=True,
     )
+    logger.setLevel(settings.log_level or "INFO")
     logger.info("startup", extra={"version": get_version()})
     Base.metadata.create_all(bind=engine)
     budget = None
@@ -227,6 +232,7 @@ async def startup() -> None:
             budget = CallBudget(path, settings.CG_MONTHLY_QUOTA)
         except OSError as exc:
             logger.warning("budget file unavailable at %s: %s", path, exc)
+            logging.getLogger().warning("budget file unavailable at %s: %s", path, exc)
             budget = None
     app.state.budget = budget
 
@@ -268,7 +274,11 @@ async def startup() -> None:
     finally:
         session.close()
 
-    logger.info("startup path: %s", path_taken)
+    if logger.isEnabledFor(logging.INFO):
+        logger.info("startup path: %s", path_taken)
+    else:
+        logger.warning("startup path: %s", path_taken)
+    logging.getLogger().warning("startup path: %s", path_taken)
     asyncio.create_task(etl_loop())
 
 

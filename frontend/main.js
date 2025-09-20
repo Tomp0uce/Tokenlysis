@@ -19,7 +19,21 @@ function formatNumber(n) {
 
 function formatPct(p) {
   if (p === null || p === undefined) return '';
+  if (typeof p !== 'number' || Number.isNaN(p) || !Number.isFinite(p)) return '';
   return `${p.toFixed(2)}%`;
+}
+
+function changeClass(value) {
+  if (value === null || value === undefined) {
+    return 'change-cell';
+  }
+  if (value > 0) return 'change-cell change-positive';
+  if (value < 0) return 'change-cell change-negative';
+  return 'change-cell';
+}
+
+function renderChangeCell(value) {
+  return `<td class="${changeClass(value)}">${formatPct(value)}</td>`;
 }
 
 export async function loadCryptos() {
@@ -49,7 +63,7 @@ export async function loadCryptos() {
         const extra = cats.slice(3).join(', ');
         badges += `<span class="badge" title="${extra}">+${cats.length - 3}</span>`;
       }
-      tr.innerHTML = `<td>${item.coin_id}</td><td>${badges.trim()}</td><td>${item.rank ?? ''}</td><td>${formatPrice(item.price)}</td><td>${formatNumber(item.market_cap)}</td><td>${formatNumber(item.volume_24h)}</td><td>${formatPct(item.pct_change_24h)}</td>`;
+      tr.innerHTML = `<td>${item.coin_id}</td><td>${badges.trim()}</td><td>${item.rank ?? ''}</td><td>${formatPrice(item.price)}</td><td>${formatNumber(item.market_cap)}</td><td>${formatNumber(item.fully_diluted_market_cap)}</td><td>${formatNumber(item.volume_24h)}</td>${renderChangeCell(item.pct_change_24h)}${renderChangeCell(item.pct_change_7d)}${renderChangeCell(item.pct_change_30d)}`;
       tbody.appendChild(tr);
     });
     document.getElementById('cryptos').style.display = 'table';

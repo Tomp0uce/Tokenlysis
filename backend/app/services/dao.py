@@ -44,9 +44,12 @@ class PricesRepo:
             set_={
                 "price": stmt.excluded.price,
                 "market_cap": stmt.excluded.market_cap,
+                "fully_diluted_market_cap": stmt.excluded.fully_diluted_market_cap,
                 "volume_24h": stmt.excluded.volume_24h,
                 "rank": stmt.excluded.rank,
                 "pct_change_24h": stmt.excluded.pct_change_24h,
+                "pct_change_7d": stmt.excluded.pct_change_7d,
+                "pct_change_30d": stmt.excluded.pct_change_30d,
                 "snapshot_at": stmt.excluded.snapshot_at,
             },
         )

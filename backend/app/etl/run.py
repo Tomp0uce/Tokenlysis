@@ -18,6 +18,7 @@ from ..services.categories import slugify
 from ..db import SessionLocal
 
 logger = logging.getLogger(__name__)
+logger.setLevel(settings.log_level or "INFO")
 
 _categories_cache: dict[str, str] = {}
 _categories_cache_ts: dt.datetime | None = None
@@ -103,9 +104,14 @@ def run_etl(
             "vs_currency": "usd",
             "price": c.get("current_price"),
             "market_cap": c.get("market_cap"),
+            "fully_diluted_market_cap": c.get("fully_diluted_valuation"),
             "volume_24h": c.get("total_volume"),
             "rank": c.get("market_cap_rank"),
             "pct_change_24h": c.get("price_change_percentage_24h"),
+            "pct_change_7d": c.get("price_change_percentage_7d_in_currency")
+            or c.get("price_change_percentage_7d"),
+            "pct_change_30d": c.get("price_change_percentage_30d_in_currency")
+            or c.get("price_change_percentage_30d"),
             "snapshot_at": now,
         }
         for c in markets
@@ -209,9 +215,11 @@ def run_etl(
 
 def load_seed() -> None:
     """Load seed data into the database."""
+    logger.setLevel(settings.log_level or "INFO")
     path = Path(settings.SEED_FILE)
     if not path.exists():
         logger.warning("seed file not found at %s", path)
+        logging.getLogger().warning("seed file not found at %s", path)
         return
     with path.open() as f:
         rows = json.load(f)
@@ -222,9 +230,12 @@ def load_seed() -> None:
             "vs_currency": "usd",
             "price": r.get("price"),
             "market_cap": r.get("market_cap"),
+            "fully_diluted_market_cap": r.get("fully_diluted_market_cap"),
             "volume_24h": r.get("volume_24h"),
             "rank": r.get("rank"),
             "pct_change_24h": r.get("pct_change_24h"),
+            "pct_change_7d": r.get("pct_change_7d"),
+            "pct_change_30d": r.get("pct_change_30d"),
             "snapshot_at": now,
         }
         for r in rows
@@ -244,13 +255,24 @@ def load_seed() -> None:
         raise
     finally:
         session.close()
-    logger.info(
-        json.dumps(
-            {
-                "event": "seed load completed",
-                "seed_file": str(path),
-                "rows": len(price_rows),
-                "data_source": "seed",
-            }
-        )
+    message = json.dumps(
+        {
+            "event": "seed load completed",
+            "seed_file": str(path),
+            "rows": len(price_rows),
+            "data_source": "seed",
+        }
     )
+    previous_level = logger.level
+    try:
+        logger.setLevel(logging.INFO)
+        logger.info(message)
+    finally:
+        logger.setLevel(previous_level)
+    root_logger = logging.getLogger()
+    previous_root_level = root_logger.level
+    try:
+        root_logger.setLevel(logging.INFO)
+        root_logger.info(message)
+    finally:
+        root_logger.setLevel(previous_root_level)
