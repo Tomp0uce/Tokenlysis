@@ -163,6 +163,55 @@ def test_api_fng_latest_falls_back_to_history(monkeypatch):
     main_module.app.dependency_overrides.pop(main_module.get_fng_client, None)
 
 
+def test_api_fng_latest_uses_database_fallback(monkeypatch, TestingSessionLocal):
+    import backend.app.main as main_module
+
+    class StubClient:
+        def get_latest(self) -> dict:
+            raise requests.RequestException("down")
+
+        def get_historical(self, **_: object) -> list[dict]:
+            raise requests.RequestException("down history")
+
+    session = TestingSessionLocal()
+    from backend.app.services.dao import FearGreedRepo
+
+    repo = FearGreedRepo(session)
+    ts = dt.datetime(2024, 4, 1, tzinfo=dt.timezone.utc)
+    repo.upsert_many(
+        [
+            {
+                "timestamp": ts,
+                "value": 42,
+                "classification": "Greed",
+                "ingested_at": ts,
+            }
+        ]
+    )
+    session.commit()
+
+    def override_session():
+        try:
+            yield session
+        finally:
+            pass
+
+    main_module.app.dependency_overrides[main_module.get_session] = override_session
+    main_module.app.dependency_overrides[main_module.get_fng_client] = lambda: StubClient()
+
+    client = TestClient(main_module.app)
+    resp = client.get("/api/fng/latest")
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["score"] == 42
+    assert payload["label"] == "Greed"
+    assert payload["timestamp"].startswith("2024-04-01")
+
+    main_module.app.dependency_overrides.pop(main_module.get_session, None)
+    main_module.app.dependency_overrides.pop(main_module.get_fng_client, None)
+    session.close()
+
+
 def test_api_fng_latest_propagates_errors(monkeypatch):
     import backend.app.main as main_module
 
@@ -230,6 +279,70 @@ def test_api_fng_history_orders_points(monkeypatch):
     ]
 
     main_module.app.dependency_overrides.pop(main_module.get_fng_client, None)
+
+
+def test_api_fng_history_uses_database_fallback(monkeypatch, TestingSessionLocal):
+    import backend.app.main as main_module
+
+    class StubClient:
+        def get_historical(self, **_: object) -> list[dict]:
+            raise requests.RequestException("history offline")
+
+        def get_latest(self) -> dict:
+            raise AssertionError("should not call latest")
+
+    session = TestingSessionLocal()
+    from backend.app.services.dao import FearGreedRepo
+
+    repo = FearGreedRepo(session)
+    ts1 = dt.datetime(2024, 3, 1, tzinfo=dt.timezone.utc)
+    ts2 = dt.datetime(2024, 3, 2, tzinfo=dt.timezone.utc)
+    ts3 = dt.datetime(2024, 3, 3, tzinfo=dt.timezone.utc)
+    repo.upsert_many(
+        [
+            {
+                "timestamp": ts1,
+                "value": 10,
+                "classification": "Extreme Fear",
+                "ingested_at": ts3,
+            },
+            {
+                "timestamp": ts2,
+                "value": 55,
+                "classification": "Neutral",
+                "ingested_at": ts3,
+            },
+            {
+                "timestamp": ts3,
+                "value": 75,
+                "classification": "Greed",
+                "ingested_at": ts3,
+            },
+        ]
+    )
+    session.commit()
+
+    def override_session():
+        try:
+            yield session
+        finally:
+            pass
+
+    main_module.app.dependency_overrides[main_module.get_session] = override_session
+    main_module.app.dependency_overrides[main_module.get_fng_client] = lambda: StubClient()
+
+    client = TestClient(main_module.app)
+    resp = client.get("/api/fng/history?days=2")
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["days"] == 2
+    assert [point["score"] for point in payload["points"]] == [55, 75]
+    assert payload["points"][0]["timestamp"].startswith("2024-03-02")
+    assert payload["points"][1]["label"] == "Greed"
+
+    main_module.app.dependency_overrides.pop(main_module.get_session, None)
+    main_module.app.dependency_overrides.pop(main_module.get_fng_client, None)
+    session.close()
 
 
 def test_api_fng_history_rejects_invalid_days(monkeypatch):
