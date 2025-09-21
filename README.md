@@ -31,8 +31,8 @@ The long-term roadmap is to analyse more than 1,000 assets with additional thema
 | `GET /api/price/{coin_id}` | Latest market snapshot for a single asset or `404` when unknown. |
 | `GET /api/price/{coin_id}/history` | Historical price, market cap and volume series for the requested `range` (`24h`, `7d`, `1m`, `3m`, `1y`, `2y`, `5y`, `max`). |
 | `GET /api/coins/{coin_id}/categories` | Cached CoinGecko category names and identifiers for an asset. |
-| `GET /api/fear-greed/latest` | Most recent Crypto Fear & Greed datapoint with classification, or `404` when unavailable. |
-| `GET /api/fear-greed/history` | Historical values filtered by `range` (`30d`, `90d`, `1y`, `max`). |
+| `GET /api/fng/latest` | Most recent Crypto Fear & Greed datapoint (score + label) with automatic historical fallback. |
+| `GET /api/fng/history` | Historical scores sorted by timestamp, optionally filtered by `days` (e.g. 30, 90). |
 | `GET /api/diag` | Operational diagnostics: CoinGecko plan, effective base URL, refresh interval, last ETL metadata, coin quota usage and data source. |
 | `GET /api/last-refresh` | Shortcut exposing the most recent ETL timestamp. |
 | `GET /healthz` / `GET /readyz` | Liveness and readiness endpoints used by container health checks. |

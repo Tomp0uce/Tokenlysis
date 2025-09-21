@@ -158,12 +158,12 @@ function createResponse(json, status = 200) {
 
 test('fear-greed init renders gauge, legend and history chart with neutral scale', async (t) => {
   const dom = setupDom();
-  const latest = { value: 58, classification: 'Greed', timestamp: '2024-03-10T00:00:00Z' };
+  const latest = { timestamp: '2024-03-10T00:00:00Z', score: 58, label: 'Greed' };
   const history = {
-    range: '90d',
+    days: 90,
     points: [
-      { timestamp: '2024-01-01T00:00:00Z', value: 40, classification: 'Fear' },
-      { timestamp: '2024-02-01T00:00:00Z', value: 55, classification: 'Neutral' },
+      { timestamp: '2024-01-01T00:00:00Z', score: 40, label: 'Fear' },
+      { timestamp: '2024-02-01T00:00:00Z', score: 55, label: 'Neutral' },
     ],
   };
   mockFetchSequence([
@@ -214,13 +214,13 @@ test('fear-greed init renders gauge, legend and history chart with neutral scale
 
 test('fear-greed snapshots reflect recent periods with color coding', async (t) => {
   const dom = setupDom();
-  const latest = { value: 68, classification: 'Greed', timestamp: '2024-03-12T12:00:00Z' };
+  const latest = { timestamp: '2024-03-12T12:00:00Z', score: 68, label: 'Greed' };
   const history = {
-    range: '90d',
+    days: 90,
     points: [
-      { timestamp: '2024-02-10T12:00:00Z', value: 20, classification: 'Extreme Fear' },
-      { timestamp: '2024-03-05T12:00:00Z', value: 48, classification: 'Neutral' },
-      { timestamp: '2024-03-11T12:00:00Z', value: 60, classification: 'Greed' },
+      { timestamp: '2024-02-10T12:00:00Z', score: 20, label: 'Extreme Fear' },
+      { timestamp: '2024-03-05T12:00:00Z', score: 48, label: 'Neutral' },
+      { timestamp: '2024-03-11T12:00:00Z', score: 60, label: 'Greed' },
     ],
   };
   mockFetchSequence([
@@ -266,7 +266,7 @@ test('fear-greed snapshots reflect recent periods with color coding', async (t) 
 
 test('fear-greed init shows fallback when history fails', async (t) => {
   const dom = setupDom();
-  const latest = { value: 42, classification: 'Neutral', timestamp: '2024-03-10T00:00:00Z' };
+  const latest = { timestamp: '2024-03-10T00:00:00Z', score: 42, label: 'Neutral' };
   mockFetchSequence([
     createResponse(latest),
     new Response('', { status: 404 }),

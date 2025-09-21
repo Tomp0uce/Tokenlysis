@@ -11,6 +11,7 @@ import threading
 from pathlib import Path
 from urllib.parse import urlparse
 
+import requests
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -18,6 +19,10 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import OperationalError
 
+from .clients.cmc_fng import (
+    CoinMarketCapFearGreedClient,
+    build_default_client as build_fng_client,
+)
 from .core.settings import effective_coingecko_base_url, settings
 from .core.version import get_version
 from .db import Base, engine, get_session
@@ -78,11 +83,28 @@ RANGE_TO_DELTA: dict[str, dt.timedelta] = {
     "5y": dt.timedelta(days=1825),
 }
 
-FEAR_GREED_RANGE_TO_DELTA: dict[str, dt.timedelta] = {
-    "30d": dt.timedelta(days=30),
-    "90d": dt.timedelta(days=90),
-    "1y": dt.timedelta(days=365),
-}
+
+def get_fng_client() -> CoinMarketCapFearGreedClient:
+    """Dependency factory returning the configured Fear & Greed API client."""
+
+    return build_fng_client()
+
+
+def _parse_fng_timestamp(raw: object) -> dt.datetime:
+    if isinstance(raw, str):
+        candidate = raw.strip()
+        if candidate:
+            if candidate.endswith("Z"):
+                candidate = f"{candidate[:-1]}+00:00"
+            try:
+                parsed = dt.datetime.fromisoformat(candidate)
+            except ValueError:
+                pass
+            else:
+                return parsed.replace(tzinfo=parsed.tzinfo or dt.timezone.utc).astimezone(
+                    dt.timezone.utc
+                )
+    return dt.datetime.min.replace(tzinfo=dt.timezone.utc)
 
 
 def _normalize_link(value: object) -> str | None:
@@ -241,57 +263,50 @@ def coin_categories(coin_id: str, session: Session = Depends(get_session)) -> di
     return {"category_names": names, "category_ids": ids}
 
 
-@app.get("/api/fear-greed/latest")
-def fear_greed_latest(session: Session = Depends(get_session)) -> dict:
-    """Return the most recent Crypto Fear & Greed datapoint."""
+@app.get("/api/fng/latest")
+def fng_latest(client: CoinMarketCapFearGreedClient = Depends(get_fng_client)) -> dict:
+    """Return the latest Fear & Greed datapoint from CoinMarketCap."""
 
-    repo = FearGreedRepo(session)
-    row = repo.get_latest()
-    if row is None:
-        raise HTTPException(status_code=404)
-    timestamp = row.timestamp
-    if timestamp.tzinfo is None:
-        timestamp = timestamp.replace(tzinfo=dt.timezone.utc)
-    else:
-        timestamp = timestamp.astimezone(dt.timezone.utc)
-    return {
-        "timestamp": timestamp.isoformat(),
-        "value": row.value,
-        "classification": row.classification,
-    }
+    try:
+        latest = client.get_latest()
+    except requests.RequestException as exc:
+        logger.warning("fear & greed latest fetch failed: %s", exc)
+        latest = None
+    if latest:
+        return latest
+    try:
+        history = client.get_historical(limit=1)
+    except requests.RequestException as exc:
+        logger.error("fear & greed fallback fetch failed: %s", exc)
+        raise HTTPException(status_code=502, detail="fear & greed data unavailable") from exc
+    if not history:
+        raise HTTPException(status_code=502, detail="fear & greed data unavailable")
+    return history[-1]
 
 
-@app.get("/api/fear-greed/history")
-def fear_greed_history(
-    range_: str = Query("90d", alias="range"),
-    session: Session = Depends(get_session),
+@app.get("/api/fng/history")
+def fng_history(
+    days: int | None = Query(None),
+    client: CoinMarketCapFearGreedClient = Depends(get_fng_client),
 ) -> dict:
-    """Return historical values for the Crypto Fear & Greed index."""
+    """Return historical Fear & Greed datapoints sorted chronologically."""
 
-    range_key = (range_ or "max").lower()
-    if range_key != "max" and range_key not in FEAR_GREED_RANGE_TO_DELTA:
-        raise HTTPException(status_code=400, detail="unsupported range")
-    since: dt.datetime | None = None
-    if range_key != "max":
-        delta = FEAR_GREED_RANGE_TO_DELTA[range_key]
-        since = dt.datetime.now(dt.timezone.utc) - delta
-    repo = FearGreedRepo(session)
-    rows = repo.get_history(since)
-    points: list[dict] = []
-    for row in rows:
-        timestamp = row.timestamp
-        if timestamp.tzinfo is None:
-            timestamp = timestamp.replace(tzinfo=dt.timezone.utc)
-        else:
-            timestamp = timestamp.astimezone(dt.timezone.utc)
-        points.append(
-            {
-                "timestamp": timestamp.isoformat(),
-                "value": row.value,
-                "classification": row.classification,
-            }
-        )
-    return {"range": range_key, "points": points}
+    limit: int | None = None
+    if days is not None:
+        try:
+            limit = int(days)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="invalid days parameter") from None
+        if limit <= 0:
+            raise HTTPException(status_code=400, detail="days must be positive")
+    try:
+        points = client.get_historical(limit=limit)
+    except requests.RequestException as exc:
+        logger.error("fear & greed history fetch failed: %s", exc)
+        raise HTTPException(status_code=502, detail="fear & greed history unavailable") from exc
+    filtered = [point for point in points if isinstance(point, dict)]
+    ordered = sorted(filtered, key=lambda item: _parse_fng_timestamp(item.get("timestamp")))
+    return {"days": limit, "points": ordered}
 
 
 @app.get("/api/debug/history-gaps")

@@ -8,8 +8,11 @@ from typing import Iterable
 
 import requests
 
+from ..clients.cmc_fng import (
+    CoinMarketCapFearGreedClient,
+    build_default_client,
+)
 from ..db import SessionLocal
-from .coinmarketcap import CoinMarketCapClient, build_default_client
 from .dao import FearGreedRepo, MetaRepo
 
 DEFAULT_CLASSIFICATION = "Indéterminé"
@@ -56,11 +59,13 @@ def _normalize_entry(entry: dict, ingested_at: dt.datetime) -> dict | None:
     timestamp = _parse_timestamp(entry.get("timestamp") or entry.get("time"))
     if timestamp is None:
         return None
-    value = _normalize_value(entry.get("value"))
+    score_source = entry.get("score") if "score" in entry else entry.get("value")
+    value = _normalize_value(score_source)
     if value is None:
         return None
     classification_raw = (
-        entry.get("value_classification")
+        entry.get("label")
+        or entry.get("value_classification")
         or entry.get("classification")
         or DEFAULT_CLASSIFICATION
     )
@@ -92,7 +97,7 @@ def _ingest_history(
 def sync_fear_greed_index(
     *,
     session=None,
-    client: CoinMarketCapClient | None = None,
+    client: CoinMarketCapFearGreedClient | None = None,
     now: dt.datetime | None = None,
 ) -> int:
     """Seed the database and fetch the latest values from CoinMarketCap."""
@@ -108,12 +113,12 @@ def sync_fear_greed_index(
     processed = 0
     try:
         try:
-            history = client.get_fear_greed_history()
+            history = client.get_historical()
             processed += _ingest_history(repo, history, timestamp_now)
         except requests.RequestException as exc:
             logger.warning("fear & greed history fetch failed: %s", exc)
         try:
-            latest = client.get_fear_greed_latest()
+            latest = client.get_latest()
             if latest:
                 processed += _ingest_history(repo, [latest], timestamp_now)
         except requests.RequestException as exc:

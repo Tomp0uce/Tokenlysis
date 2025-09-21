@@ -153,25 +153,25 @@ test('loadFearGreedWidget met à jour la jauge et les étiquettes', async (t) =>
   }
   ApexChartsStub.instances = [];
   const latest = {
-    value: 62,
-    classification: 'Greed',
     timestamp: '2024-03-12T00:00:00Z',
+    score: 62,
+    label: 'Greed',
   };
   const history = {
-    range: '90d',
+    days: 90,
     points: [
-      { timestamp: '2024-02-10T00:00:00Z', value: 22, classification: 'Extreme Fear' },
-      { timestamp: '2024-03-05T00:00:00Z', value: 50, classification: 'Neutral' },
-      { timestamp: '2024-03-11T00:00:00Z', value: 57, classification: 'Greed' },
+      { timestamp: '2024-02-10T00:00:00Z', score: 22, label: 'Extreme Fear' },
+      { timestamp: '2024-03-05T00:00:00Z', score: 50, label: 'Neutral' },
+      { timestamp: '2024-03-11T00:00:00Z', score: 57, label: 'Greed' },
     ],
   };
   const calls = [];
   global.fetch = async (url) => {
     calls.push(url);
-    if (url === 'https://example.test/api/fear-greed/latest') {
+    if (url === 'https://example.test/api/fng/latest') {
       return new Response(JSON.stringify(latest), { status: 200 });
     }
-    if (url === 'https://example.test/api/fear-greed/history?range=90d') {
+    if (url === 'https://example.test/api/fng/history?days=90') {
       return new Response(JSON.stringify(history), { status: 200 });
     }
     throw new Error(`unexpected fetch ${url}`);
@@ -197,8 +197,8 @@ test('loadFearGreedWidget met à jour la jauge et les étiquettes', async (t) =>
   assert.equal(document.getElementById('fear-greed-classification').textContent, 'Greed');
   assert.equal(document.querySelector('.sentiment-updated'), null);
   assert.deepEqual(calls, [
-    'https://example.test/api/fear-greed/latest',
-    'https://example.test/api/fear-greed/history?range=90d',
+    'https://example.test/api/fng/latest',
+    'https://example.test/api/fng/history?days=90',
   ]);
   const card = document.getElementById('fear-greed-card');
   assert.ok(card);
