@@ -301,16 +301,49 @@ def refresh_interval_seconds(value: str | None = None) -> int:
     return 12 * 60 * 60
 
 
-async def etl_loop() -> None:
-    """Background loop triggering the ETL and tolerating transient failures."""
-    while True:
-        try:
-            run_etl(budget=app.state.budget)
-        except DataUnavailable as exc:  # pragma: no cover - network failures
-            logger.warning("ETL skipped: %s", exc)
-        except OperationalError as exc:
-            logger.warning("ETL failed: schema out-of-date: %s", exc)
-        await asyncio.sleep(refresh_interval_seconds())
+async def run_etl_async(*, budget: CallBudget | None) -> int:
+    """Execute the ETL in a worker thread and refresh budget counters."""
+
+    if budget is not None:
+        budget.reset_if_needed()
+    result = await asyncio.to_thread(run_etl, budget=budget)
+    if budget is not None:
+        budget.reset_if_needed()
+    return result
+
+
+async def sync_fear_greed_async() -> int:
+    """Synchronise the Fear & Greed index without blocking the event loop."""
+
+    return await asyncio.to_thread(sync_fear_greed_index)
+
+
+async def etl_loop(stop_event: asyncio.Event) -> None:
+    """Run the ETL periodically until ``stop_event`` is set.
+
+    The loop retries indefinitely: failures are logged, then the worker sleeps
+    for :func:`refresh_interval_seconds` before trying again.
+    """
+
+    budget: CallBudget | None = getattr(app.state, "budget", None)
+    try:
+        while not stop_event.is_set():
+            try:
+                await run_etl_async(budget=budget)
+            except DataUnavailable as exc:  # pragma: no cover - network failures
+                logger.warning("ETL skipped: %s", exc)
+            except OperationalError as exc:
+                logger.warning("ETL failed: schema out-of-date: %s", exc)
+            except Exception as exc:  # pragma: no cover - defensive logging
+                logger.exception("ETL failed unexpectedly: %s", exc)
+            interval = refresh_interval_seconds()
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=interval)
+            except asyncio.TimeoutError:
+                continue
+    except asyncio.CancelledError:
+        stop_event.set()
+        raise
 
 
 @app.get("/healthz")
@@ -383,7 +416,7 @@ async def startup() -> None:
     try:
         if meta_repo.get("bootstrap_done") != "true":
             try:
-                run_etl(budget=budget)
+                await run_etl_async(budget=budget)
                 path_taken = "ETL"
             except DataUnavailable:
                 if settings.use_seed_on_failure:
@@ -399,7 +432,7 @@ async def startup() -> None:
             has_data = bool(prices_repo.get_top("usd", 1))
             if not has_data:
                 try:
-                    run_etl(budget=budget)
+                    await run_etl_async(budget=budget)
                     path_taken = "ETL"
                 except DataUnavailable:
                     if settings.use_seed_on_failure:
@@ -415,7 +448,7 @@ async def startup() -> None:
         session.close()
 
     try:
-        sync_fear_greed_index()
+        await sync_fear_greed_async()
     except Exception as exc:  # pragma: no cover - defensive
         logger.warning("startup fear & greed sync skipped: %s", exc)
 
@@ -424,10 +457,34 @@ async def startup() -> None:
     else:
         logger.warning("startup path: %s", path_taken)
     logging.getLogger().warning("startup path: %s", path_taken)
-    asyncio.create_task(etl_loop())
+    stop_event = asyncio.Event()
+    app.state.etl_stop_event = stop_event
+    task = asyncio.create_task(etl_loop(stop_event))
+    app.state.etl_task = task if isinstance(task, asyncio.Task) else None
+
+
+@app.on_event("shutdown")
+async def shutdown() -> None:
+    """Signal the ETL loop to stop and wait for the worker."""
+
+    stop_event: asyncio.Event | None = getattr(app.state, "etl_stop_event", None)
+    task = getattr(app.state, "etl_task", None)
+    if stop_event is not None:
+        stop_event.set()
+    if isinstance(task, asyncio.Task):
+        try:
+            await task
+        except asyncio.CancelledError:  # pragma: no cover - defensive
+            pass
 
 
 app.mount("/", StaticFiles(directory="frontend", html=True), name="static")
 
 
-__all__ = ["app", "etl_loop", "refresh_interval_seconds"]
+__all__ = [
+    "app",
+    "etl_loop",
+    "refresh_interval_seconds",
+    "run_etl_async",
+    "sync_fear_greed_async",
+]

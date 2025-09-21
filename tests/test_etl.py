@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import datetime as dt
 import json
 import requests
@@ -499,15 +500,20 @@ def test_run_etl_retries_on_429(monkeypatch, tmp_path):
 
 
 def test_etl_loop_handles_operational_error(monkeypatch):
-    def boom(*, budget):
+    async def boom_async(*, budget):
         raise OperationalError("stmt", {}, "err")
 
-    async def fake_sleep(_):
+    async def fake_wait_for(awaitable, timeout):
+        task = asyncio.create_task(awaitable)
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
         raise asyncio.CancelledError
 
-    monkeypatch.setattr(main_module, "run_etl", boom)
+    monkeypatch.setattr(main_module, "run_etl_async", boom_async)
     monkeypatch.setattr(main_module, "refresh_interval_seconds", lambda value=None: 0)
-    monkeypatch.setattr(main_module.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(main_module.asyncio, "wait_for", fake_wait_for)
     monkeypatch.setattr(main_module.app.state, "budget", None, raising=False)
+    stop_event = asyncio.Event()
     with pytest.raises(asyncio.CancelledError):
-        asyncio.run(main_module.etl_loop())
+        asyncio.run(main_module.etl_loop(stop_event))

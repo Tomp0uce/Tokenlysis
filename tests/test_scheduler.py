@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import datetime as dt
 import logging
 import pytest
@@ -39,13 +40,18 @@ def test_startup_runs_etl_when_not_bootstrapped(monkeypatch, tmp_path, caplog):
     monkeypatch.setattr(main_module.asyncio, "create_task", lambda coro: coro.close())
     called = {"etl": 0, "seed": 0}
 
-    def fake_run_etl(*_a, **_k):
+    async def fake_run_etl_async(*_a, **_k):
         called["etl"] += 1
+        return 0
+
+    async def fake_sync_async() -> int:
+        return 0
 
     def fake_load_seed():
         called["seed"] += 1
 
-    monkeypatch.setattr(main_module, "run_etl", fake_run_etl)
+    monkeypatch.setattr(main_module, "run_etl_async", fake_run_etl_async)
+    monkeypatch.setattr(main_module, "sync_fear_greed_async", fake_sync_async)
     monkeypatch.setattr(main_module, "load_seed", fake_load_seed)
 
     asyncio.run(main_module.startup())
@@ -89,13 +95,18 @@ def test_startup_skips_when_bootstrapped_and_has_data(monkeypatch, tmp_path, cap
     monkeypatch.setattr(main_module.asyncio, "create_task", lambda coro: coro.close())
     called = {"etl": 0, "seed": 0}
 
-    def fake_run_etl(*_a, **_k):
+    async def fake_run_etl_async(*_a, **_k):
         called["etl"] += 1
+        return 0
+
+    async def fake_sync_async() -> int:
+        return 0
 
     def fake_load_seed():
         called["seed"] += 1
 
-    monkeypatch.setattr(main_module, "run_etl", fake_run_etl)
+    monkeypatch.setattr(main_module, "run_etl_async", fake_run_etl_async)
+    monkeypatch.setattr(main_module, "sync_fear_greed_async", fake_sync_async)
     monkeypatch.setattr(main_module, "load_seed", fake_load_seed)
 
     asyncio.run(main_module.startup())
@@ -126,14 +137,18 @@ def test_startup_handles_missing_seed_when_etl_fails(monkeypatch, tmp_path, capl
 
     seed_calls = {"count": 0}
 
-    def fake_run_etl(*_a, **_k):
+    async def fake_run_etl_async(*_a, **_k):
         raise main_module.DataUnavailable
+
+    async def fake_sync_async() -> int:
+        return 0
 
     def fake_load_seed():
         seed_calls["count"] += 1
         run_module.load_seed()
 
-    monkeypatch.setattr(main_module, "run_etl", fake_run_etl)
+    monkeypatch.setattr(main_module, "run_etl_async", fake_run_etl_async)
+    monkeypatch.setattr(main_module, "sync_fear_greed_async", fake_sync_async)
     monkeypatch.setattr(main_module, "load_seed", fake_load_seed)
     monkeypatch.setattr(settings, "SEED_FILE", str(tmp_path / "missing.json"))
 
@@ -169,13 +184,18 @@ def test_startup_bootstrapped_empty_table_runs_etl(monkeypatch, tmp_path, caplog
 
     called = {"etl": 0, "seed": 0}
 
-    def fake_run_etl(*_a, **_k):
+    async def fake_run_etl_async(*_a, **_k):
         called["etl"] += 1
+        return 0
+
+    async def fake_sync_async() -> int:
+        return 0
 
     def fake_load_seed():
         called["seed"] += 1
 
-    monkeypatch.setattr(main_module, "run_etl", fake_run_etl)
+    monkeypatch.setattr(main_module, "run_etl_async", fake_run_etl_async)
+    monkeypatch.setattr(main_module, "sync_fear_greed_async", fake_sync_async)
     monkeypatch.setattr(main_module, "load_seed", fake_load_seed)
 
     asyncio.run(main_module.startup())
@@ -210,14 +230,18 @@ def test_startup_bootstrapped_empty_table_etl_fails_uses_seed(
 
     called = {"etl": 0, "seed": 0}
 
-    def fake_run_etl(*_a, **_k):
+    async def fake_run_etl_async(*_a, **_k):
         called["etl"] += 1
         raise main_module.DataUnavailable
+
+    async def fake_sync_async() -> int:
+        return 0
 
     def fake_load_seed():
         called["seed"] += 1
 
-    monkeypatch.setattr(main_module, "run_etl", fake_run_etl)
+    monkeypatch.setattr(main_module, "run_etl_async", fake_run_etl_async)
+    monkeypatch.setattr(main_module, "sync_fear_greed_async", fake_sync_async)
     monkeypatch.setattr(main_module, "load_seed", fake_load_seed)
 
     asyncio.run(main_module.startup())
@@ -260,11 +284,21 @@ def test_scheduler_waits_between_runs(monkeypatch, tmp_path):
     run_calls = []
     sleep_args = []
 
-    def fake_run_etl(*_a, **_k):
-        run_calls.append(1)
+    original_create_task = asyncio.create_task
 
-    async def fake_sleep(seconds):
-        sleep_args.append(seconds)
+    async def fake_run_etl_async(*_a, **_k):
+        run_calls.append(1)
+        return 0
+
+    async def fake_sync_async() -> int:
+        return 0
+
+    async def fake_wait_for(awaitable, timeout):
+        sleep_args.append(timeout)
+        task = original_create_task(awaitable)
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
         raise RuntimeError
 
     tasks = []
@@ -273,9 +307,10 @@ def test_scheduler_waits_between_runs(monkeypatch, tmp_path):
         tasks.append(coro)
         return None
 
-    monkeypatch.setattr(main_module, "run_etl", fake_run_etl)
+    monkeypatch.setattr(main_module, "run_etl_async", fake_run_etl_async)
+    monkeypatch.setattr(main_module, "sync_fear_greed_async", fake_sync_async)
     monkeypatch.setattr(main_module, "load_seed", lambda: None)
-    monkeypatch.setattr(main_module.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(main_module.asyncio, "wait_for", fake_wait_for)
     monkeypatch.setattr(main_module.asyncio, "create_task", fake_create_task)
 
     asyncio.run(main_module.startup())
@@ -291,21 +326,30 @@ def test_scheduler_reschedules_on_granularity_change(monkeypatch):
     from backend.app.core.settings import settings
 
     sleep_calls: list[int] = []
+    original_create_task = asyncio.create_task
 
-    async def fake_sleep(seconds):
-        sleep_calls.append(seconds)
+    async def fake_run_etl_async(*_a, **_k):
+        return 0
+
+    async def fake_wait_for(awaitable, timeout):
+        sleep_calls.append(timeout)
+        task = original_create_task(awaitable)
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
         if len(sleep_calls) == 1:
             settings.REFRESH_GRANULARITY = "1h"
-            return
+            raise asyncio.TimeoutError
         raise RuntimeError
 
-    monkeypatch.setattr(main_module.asyncio, "sleep", fake_sleep)
-    monkeypatch.setattr(main_module, "run_etl", lambda *_a, **_k: None)
+    monkeypatch.setattr(main_module, "run_etl_async", fake_run_etl_async)
+    monkeypatch.setattr(main_module.asyncio, "wait_for", fake_wait_for)
 
     orig = settings.REFRESH_GRANULARITY
     settings.REFRESH_GRANULARITY = "2h"
+    stop_event = asyncio.Event()
     with pytest.raises(RuntimeError):
-        asyncio.run(main_module.etl_loop())
+        asyncio.run(main_module.etl_loop(stop_event))
     assert sleep_calls == [2 * 60 * 60, 1 * 60 * 60]
     settings.REFRESH_GRANULARITY = orig
 
@@ -325,7 +369,15 @@ def test_startup_creates_budget_dir(monkeypatch, tmp_path):
 
     monkeypatch.setattr(main_module.logging, "basicConfig", lambda **_k: None)
     monkeypatch.setattr(main_module, "get_session", _session_override)
-    monkeypatch.setattr(main_module, "run_etl", lambda *_a, **_k: None)
+
+    async def fake_run_etl_async(*_a, **_k):
+        return 0
+
+    async def fake_sync_async() -> int:
+        return 0
+
+    monkeypatch.setattr(main_module, "run_etl_async", fake_run_etl_async)
+    monkeypatch.setattr(main_module, "sync_fear_greed_async", fake_sync_async)
     monkeypatch.setattr(main_module, "load_seed", lambda: None)
     monkeypatch.setattr(main_module.asyncio, "create_task", lambda coro: coro.close())
 
@@ -356,7 +408,15 @@ def test_startup_handles_unwritable_budget_file(monkeypatch, tmp_path, caplog):
     caplog.set_level(logging.WARNING, logger="backend.app.main")
     monkeypatch.setattr(main_module.logging, "basicConfig", lambda **_k: None)
     monkeypatch.setattr(main_module, "get_session", _session_override)
-    monkeypatch.setattr(main_module, "run_etl", lambda *_a, **_k: None)
+
+    async def fake_run_etl_async(*_a, **_k):
+        return 0
+
+    async def fake_sync_async() -> int:
+        return 0
+
+    monkeypatch.setattr(main_module, "run_etl_async", fake_run_etl_async)
+    monkeypatch.setattr(main_module, "sync_fear_greed_async", fake_sync_async)
     monkeypatch.setattr(main_module, "load_seed", lambda: None)
     monkeypatch.setattr(main_module.asyncio, "create_task", lambda coro: coro.close())
 
