@@ -152,7 +152,7 @@ def markets_top(
     if vs != "usd":
         raise HTTPException(status_code=400, detail="unsupported vs")
     limit_effective = min(max(limit, 1), settings.CG_TOP_N)
-    logger.info("markets_top", extra={"limit_effective": limit_effective, "vs": vs})
+    logger.debug("markets_top", extra={"limit_effective": limit_effective, "vs": vs})
     prices_repo = PricesRepo(session)
     meta_repo = MetaRepo(session)
     coins_repo = CoinsRepo(session)
@@ -609,11 +609,8 @@ async def startup() -> None:
     except Exception as exc:  # pragma: no cover - defensive
         logger.warning("startup fear & greed sync skipped: %s", exc)
 
-    if logger.isEnabledFor(logging.INFO):
-        logger.info("startup path: %s", path_taken)
-    else:
-        logger.warning("startup path: %s", path_taken)
-    logging.getLogger().warning("startup path: %s", path_taken)
+    logger.debug("startup path: %s", path_taken)
+    app.state.startup_path = path_taken
     stop_event = asyncio.Event()
     app.state.etl_stop_event = stop_event
     task = asyncio.create_task(etl_loop(stop_event))

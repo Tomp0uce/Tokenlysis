@@ -22,7 +22,7 @@ def _setup_test_session(tmp_path):
     return TestingSessionLocal
 
 
-def test_startup_runs_etl_when_not_bootstrapped(monkeypatch, tmp_path, caplog):
+def test_startup_runs_etl_when_not_bootstrapped(monkeypatch, tmp_path):
     TestingSessionLocal = _setup_test_session(tmp_path)
 
     def _session_override():
@@ -34,7 +34,7 @@ def test_startup_runs_etl_when_not_bootstrapped(monkeypatch, tmp_path, caplog):
 
     import backend.app.main as main_module
 
-    caplog.set_level(logging.INFO, logger="backend.app.main")
+    monkeypatch.setattr(main_module.settings, "log_level", "DEBUG")
     monkeypatch.setattr(main_module.logging, "basicConfig", lambda **_k: None)
     monkeypatch.setattr(main_module, "get_session", _session_override)
     monkeypatch.setattr(main_module.asyncio, "create_task", lambda coro: coro.close())
@@ -54,14 +54,15 @@ def test_startup_runs_etl_when_not_bootstrapped(monkeypatch, tmp_path, caplog):
     monkeypatch.setattr(main_module, "sync_fear_greed_async", fake_sync_async)
     monkeypatch.setattr(main_module, "load_seed", fake_load_seed)
 
+    main_module.app.state.startup_path = None
     asyncio.run(main_module.startup())
 
     assert called["etl"] == 1
     assert called["seed"] == 0
-    assert any("startup path: ETL" in r.message for r in caplog.records)
+    assert getattr(main_module.app.state, "startup_path", None) == "ETL"
 
 
-def test_startup_skips_when_bootstrapped_and_has_data(monkeypatch, tmp_path, caplog):
+def test_startup_skips_when_bootstrapped_and_has_data(monkeypatch, tmp_path):
     TestingSessionLocal = _setup_test_session(tmp_path)
     session = TestingSessionLocal()
     MetaRepo(session).set("bootstrap_done", "true")
@@ -89,7 +90,7 @@ def test_startup_skips_when_bootstrapped_and_has_data(monkeypatch, tmp_path, cap
 
     import backend.app.main as main_module
 
-    caplog.set_level(logging.INFO, logger="backend.app.main")
+    monkeypatch.setattr(main_module.settings, "log_level", "DEBUG")
     monkeypatch.setattr(main_module.logging, "basicConfig", lambda **_k: None)
     monkeypatch.setattr(main_module, "get_session", _session_override)
     monkeypatch.setattr(main_module.asyncio, "create_task", lambda coro: coro.close())
@@ -109,14 +110,15 @@ def test_startup_skips_when_bootstrapped_and_has_data(monkeypatch, tmp_path, cap
     monkeypatch.setattr(main_module, "sync_fear_greed_async", fake_sync_async)
     monkeypatch.setattr(main_module, "load_seed", fake_load_seed)
 
+    main_module.app.state.startup_path = None
     asyncio.run(main_module.startup())
 
     assert called["etl"] == 0
     assert called["seed"] == 0
-    assert any("startup path: skip" in r.message for r in caplog.records)
+    assert getattr(main_module.app.state, "startup_path", None) == "skip"
 
 
-def test_startup_handles_missing_seed_when_etl_fails(monkeypatch, tmp_path, caplog):
+def test_startup_handles_missing_seed_when_etl_fails(monkeypatch, tmp_path):
     TestingSessionLocal = _setup_test_session(tmp_path)
 
     def _session_override():
@@ -130,7 +132,7 @@ def test_startup_handles_missing_seed_when_etl_fails(monkeypatch, tmp_path, capl
     from backend.app.core.settings import settings
     import backend.app.etl.run as run_module
 
-    caplog.set_level(logging.INFO, logger="backend.app.main")
+    monkeypatch.setattr(main_module.settings, "log_level", "DEBUG")
     monkeypatch.setattr(main_module.logging, "basicConfig", lambda **_k: None)
     monkeypatch.setattr(main_module, "get_session", _session_override)
     monkeypatch.setattr(main_module.asyncio, "create_task", lambda coro: coro.close())
@@ -152,16 +154,17 @@ def test_startup_handles_missing_seed_when_etl_fails(monkeypatch, tmp_path, capl
     monkeypatch.setattr(main_module, "load_seed", fake_load_seed)
     monkeypatch.setattr(settings, "SEED_FILE", str(tmp_path / "missing.json"))
 
+    main_module.app.state.startup_path = None
     asyncio.run(main_module.startup())
 
     assert seed_calls["count"] == 1
     session = TestingSessionLocal()
     assert MetaRepo(session).get("bootstrap_done") == "true"
     session.close()
-    assert any("startup path: seed" in r.message for r in caplog.records)
+    assert getattr(main_module.app.state, "startup_path", None) == "seed"
 
 
-def test_startup_bootstrapped_empty_table_runs_etl(monkeypatch, tmp_path, caplog):
+def test_startup_bootstrapped_empty_table_runs_etl(monkeypatch, tmp_path):
     TestingSessionLocal = _setup_test_session(tmp_path)
     session = TestingSessionLocal()
     MetaRepo(session).set("bootstrap_done", "true")
@@ -177,7 +180,7 @@ def test_startup_bootstrapped_empty_table_runs_etl(monkeypatch, tmp_path, caplog
 
     import backend.app.main as main_module
 
-    caplog.set_level(logging.INFO, logger="backend.app.main")
+    monkeypatch.setattr(main_module.settings, "log_level", "DEBUG")
     monkeypatch.setattr(main_module.logging, "basicConfig", lambda **_k: None)
     monkeypatch.setattr(main_module, "get_session", _session_override)
     monkeypatch.setattr(main_module.asyncio, "create_task", lambda coro: coro.close())
@@ -198,15 +201,16 @@ def test_startup_bootstrapped_empty_table_runs_etl(monkeypatch, tmp_path, caplog
     monkeypatch.setattr(main_module, "sync_fear_greed_async", fake_sync_async)
     monkeypatch.setattr(main_module, "load_seed", fake_load_seed)
 
+    main_module.app.state.startup_path = None
     asyncio.run(main_module.startup())
 
     assert called["etl"] == 1
     assert called["seed"] == 0
-    assert any("startup path: ETL" in r.message for r in caplog.records)
+    assert getattr(main_module.app.state, "startup_path", None) == "ETL"
 
 
 def test_startup_bootstrapped_empty_table_etl_fails_uses_seed(
-    monkeypatch, tmp_path, caplog
+    monkeypatch, tmp_path
 ):
     TestingSessionLocal = _setup_test_session(tmp_path)
     session = TestingSessionLocal()
@@ -223,7 +227,7 @@ def test_startup_bootstrapped_empty_table_etl_fails_uses_seed(
 
     import backend.app.main as main_module
 
-    caplog.set_level(logging.INFO, logger="backend.app.main")
+    monkeypatch.setattr(main_module.settings, "log_level", "DEBUG")
     monkeypatch.setattr(main_module.logging, "basicConfig", lambda **_k: None)
     monkeypatch.setattr(main_module, "get_session", _session_override)
     monkeypatch.setattr(main_module.asyncio, "create_task", lambda coro: coro.close())
@@ -244,11 +248,12 @@ def test_startup_bootstrapped_empty_table_etl_fails_uses_seed(
     monkeypatch.setattr(main_module, "sync_fear_greed_async", fake_sync_async)
     monkeypatch.setattr(main_module, "load_seed", fake_load_seed)
 
+    main_module.app.state.startup_path = None
     asyncio.run(main_module.startup())
 
     assert called["etl"] == 1
     assert called["seed"] == 1
-    assert any("startup path: seed" in r.message for r in caplog.records)
+    assert getattr(main_module.app.state, "startup_path", None) == "seed"
 
 
 def test_scheduler_waits_between_runs(monkeypatch, tmp_path):
