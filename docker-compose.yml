@@ -9,6 +9,7 @@ services:
       - BUDGET_FILE=/data/budget.json
       - COINGECKO_PLAN=demo
       - COINGECKO_API_KEY=${COINGECKO_API_KEY}
+      - CMC_API_KEY=${CMC_API_KEY}
       - CG_THROTTLE_MS=2100
       - CORS_ORIGINS=${CORS_ORIGINS}
       - USE_SEED_ON_FAILURE=${USE_SEED_ON_FAILURE}

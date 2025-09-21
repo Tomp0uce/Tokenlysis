@@ -28,3 +28,18 @@ def test_start_script_runs_migrations():
     assert "alembic -c /app/alembic.ini upgrade head" in text
     assert "alembic -c alembic.ini upgrade head" not in text
     assert "uvicorn backend.app.main:app" in text
+
+
+def test_compose_passes_cmc_api_key():
+    text = read("docker-compose.yml")
+    assert "CMC_API_KEY=${CMC_API_KEY}" in text
+
+
+def test_synology_compose_passes_cmc_api_key():
+    text = read("docker-compose.synology.yml")
+    assert "CMC_API_KEY: ${CMC_API_KEY}" in text
+
+
+def test_env_example_mentions_cmc_api_key():
+    text = read(".env.example")
+    assert "CMC_API_KEY=" in text
