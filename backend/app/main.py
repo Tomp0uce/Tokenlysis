@@ -30,6 +30,20 @@ logger.setLevel(settings.log_level or "INFO")
 app = FastAPI(title="Tokenlysis", version=os.getenv("APP_VERSION", "dev"))
 
 
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[2]
+
+
+def _static_directory() -> Path:
+    configured = settings.STATIC_ROOT
+    if configured:
+        path = Path(configured)
+        if not path.is_absolute():
+            return (_repo_root() / path).resolve()
+        return path.expanduser().resolve()
+    return (_repo_root() / "frontend").resolve()
+
+
 @app.get("/info")
 def info() -> dict:
     """Return build metadata so operators can verify deployed artifacts."""
@@ -77,7 +91,9 @@ def _serialize_price(p, details: dict[str, object]) -> dict:
     raw_symbol = details.get("symbol") if details else ""
     symbol = raw_symbol.strip() if isinstance(raw_symbol, str) else ""
     raw_logo = details.get("logo_url") if details else None
-    logo_url = raw_logo.strip() if isinstance(raw_logo, str) and raw_logo.strip() else None
+    logo_url = (
+        raw_logo.strip() if isinstance(raw_logo, str) and raw_logo.strip() else None
+    )
     return {
         "coin_id": p.coin_id,
         "vs_currency": p.vs_currency,
@@ -125,9 +141,7 @@ def markets_top(
         except Exception:  # pragma: no cover - defensive
             pass
     return {
-        "items": [
-            _serialize_price(r, details_map.get(r.coin_id, {})) for r in rows
-        ],
+        "items": [_serialize_price(r, details_map.get(r.coin_id, {})) for r in rows],
         "last_refresh_at": last_refresh_at,
         "data_source": data_source,
         "stale": stale,
@@ -478,7 +492,9 @@ async def shutdown() -> None:
             pass
 
 
-app.mount("/", StaticFiles(directory="frontend", html=True), name="static")
+STATIC_DIRECTORY = _static_directory()
+
+app.mount("/", StaticFiles(directory=str(STATIC_DIRECTORY), html=True), name="static")
 
 
 __all__ = [

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, List
 
 from pydantic import Field, field_validator
@@ -79,6 +80,7 @@ class Settings(BaseSettings):
     BUDGET_FILE: str | None = None
     DATABASE_URL: str | None = None
     SEED_FILE: str = "./backend/app/seed/top20.json"
+    STATIC_ROOT: Path | None = None
     CMC_API_KEY: str | None = None
     CMC_BASE_URL: str | None = None
     CMC_THROTTLE_MS: int = 1000
@@ -133,7 +135,9 @@ class Settings(BaseSettings):
             return int(s)
         return s.upper()
 
-    @field_validator("COINGECKO_API_KEY", "coingecko_api_key", "CMC_API_KEY", mode="before")
+    @field_validator(
+        "COINGECKO_API_KEY", "coingecko_api_key", "CMC_API_KEY", mode="before"
+    )
     @classmethod
     def _empty_api_key(cls, v: Any) -> Any:
         if isinstance(v, str):
@@ -150,6 +154,21 @@ class Settings(BaseSettings):
             return "demo"
         s = str(v).strip().lower()
         return "pro" if s == "pro" else "demo"
+
+    @field_validator("STATIC_ROOT", mode="before")
+    @classmethod
+    def _normalize_static_root(cls, v: Any) -> Path | None:
+        if v is None:
+            return None
+        if isinstance(v, Path):
+            text = str(v).strip()
+            return v if text else None
+        if isinstance(v, str):
+            stripped = v.strip()
+            if stripped == "":
+                return None
+            return Path(stripped).expanduser()
+        return Path(str(v)).expanduser()
 
 
 settings = Settings()

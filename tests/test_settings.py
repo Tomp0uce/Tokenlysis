@@ -67,6 +67,24 @@ def test_empty_cors_origins(monkeypatch):
     assert cfg.cors_origins == []
 
 
+def test_static_root_defaults_to_none(monkeypatch):
+    monkeypatch.delenv("STATIC_ROOT", raising=False)
+    cfg = settings_module.Settings()
+    assert cfg.STATIC_ROOT is None
+
+
+def test_static_root_empty_string(monkeypatch):
+    monkeypatch.setenv("STATIC_ROOT", "  ")
+    cfg = settings_module.Settings()
+    assert cfg.STATIC_ROOT is None
+
+
+def test_static_root_env_path(monkeypatch, tmp_path):
+    monkeypatch.setenv("STATIC_ROOT", str(tmp_path))
+    cfg = settings_module.Settings()
+    assert cfg.STATIC_ROOT == tmp_path
+
+
 def test_use_seed_on_failure_empty_is_true(monkeypatch):
     for value in ("", " "):
         monkeypatch.setenv("USE_SEED_ON_FAILURE", value)

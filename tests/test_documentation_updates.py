@@ -24,6 +24,13 @@ def test_readme_lists_market_endpoints() -> None:
     assert "seed fallback" in lowered or "fallback seed" in lowered
 
 
+def test_readme_documents_static_root_setting() -> None:
+    content = Path("README.md").read_text(encoding="utf-8")
+    assert "STATIC_ROOT" in content
+    lowered = content.lower()
+    assert "assets" in lowered or "statique" in lowered
+
+
 def test_readme_uses_checkboxes_for_phase_status() -> None:
     content = Path("README.md").read_text(encoding="utf-8")
     sections: dict[str, str] = {}
