@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import test from 'node:test';
+import { JSDOM } from 'jsdom';
 
 import {
   evaluateRatios,
@@ -154,4 +157,85 @@ test('normalizeBudgetCategories filters invalid inputs gracefully', () => {
   assert.deepEqual(breakdown.categories, [
     { name: 'markets', count: 5, ratio: 5 / 12 },
   ]);
+});
+
+test('debug page exposes a theme toggle control for accessibility', () => {
+  const htmlPath = path.join('frontend', 'debug.html');
+  const html = fs.readFileSync(htmlPath, 'utf8');
+  const dom = new JSDOM(html);
+  const toggle = dom.window.document.querySelector('[data-theme-toggle]');
+  assert.ok(toggle, 'theme toggle should exist on debug page');
+  assert.equal(toggle.getAttribute('type'), 'button');
+  assert.equal(toggle.classList.contains('theme-toggle'), true);
+});
+
+test('debug initialization reuses stored theme preference', async () => {
+  const htmlPath = path.join('frontend', 'debug.html');
+  const html = fs.readFileSync(htmlPath, 'utf8');
+  const dom = new JSDOM(html, { url: 'http://localhost' });
+
+  global.window = dom.window;
+  global.document = dom.window.document;
+  global.localStorage = dom.window.localStorage;
+  dom.window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
+  global.fetch = async (url) => {
+    if (url.endsWith('/diag')) {
+      return { ok: true, status: 200, json: async () => ({}) };
+    }
+    if (url.endsWith('/markets/top?limit=1')) {
+      return { ok: true, status: 200, json: async () => ({}) };
+    }
+    if (url.endsWith('/debug/categories')) {
+      return { ok: true, status: 200, json: async () => ({ items: [] }) };
+    }
+    throw new Error(`Unexpected fetch ${url}`);
+  };
+
+  localStorage.setItem('tokenlysis-theme', 'dark');
+
+  try {
+    const module = await import('../frontend/debug.js');
+
+    await module.initializeDebugPage();
+
+    const toggle = document.querySelector('[data-theme-toggle]');
+    assert.equal(document.documentElement.dataset.theme, 'dark');
+    assert.equal(toggle?.dataset.themeState, 'dark');
+    assert.equal(toggle?.getAttribute('aria-checked'), 'true');
+  } finally {
+    delete global.window;
+    delete global.document;
+    delete global.localStorage;
+    delete global.fetch;
+  }
+});
+
+test('debug styles rely on theme tokens for surfaces and text', () => {
+  const htmlPath = path.join('frontend', 'debug.html');
+  const html = fs.readFileSync(htmlPath, 'utf8');
+  assert.match(html, /body\s*{[\s\S]*background:\s*var\(--surface-base\)[\s\S]*color:\s*var\(--text-primary\)/);
+  assert.match(html, /\.metric-card\s*{[\s\S]*background:\s*var\(--surface-card\)/);
+  assert.match(html, /\.metric-values\s*{[\s\S]*color:\s*var\(--text-muted\)/);
+});
+
+test('status pills use dedicated theme variables for contrast in light and dark modes', () => {
+  const htmlPath = path.join('frontend', 'debug.html');
+  const cssPath = path.join('frontend', 'theme.css');
+  const html = fs.readFileSync(htmlPath, 'utf8');
+  const css = fs.readFileSync(cssPath, 'utf8');
+
+  assert.match(css, /:root\s*{[\s\S]*--status-ok-bg:[^;]+;[\s\S]*--status-ok-text:[^;]+;/);
+  assert.match(css, /:root\s*{[\s\S]*--status-warn-bg:[^;]+;[\s\S]*--status-warn-text:[^;]+;/);
+  assert.match(css, /:root\s*{[\s\S]*--status-error-bg:[^;]+;[\s\S]*--status-error-text:[^;]+;/);
+  assert.match(css, /:root\s*{[\s\S]*--status-unknown-bg:[^;]+;[\s\S]*--status-unknown-text:[^;]+;/);
+
+  assert.match(css, /:root\[data-theme='dark'\][\s\S]*--status-ok-bg:[^;]+;[\s\S]*--status-ok-text:[^;]+;/);
+  assert.match(css, /:root\[data-theme='dark'\][\s\S]*--status-warn-bg:[^;]+;[\s\S]*--status-warn-text:[^;]+;/);
+  assert.match(css, /:root\[data-theme='dark'\][\s\S]*--status-error-bg:[^;]+;[\s\S]*--status-error-text:[^;]+;/);
+  assert.match(css, /:root\[data-theme='dark'\][\s\S]*--status-unknown-bg:[^;]+;[\s\S]*--status-unknown-text:[^;]+;/);
+
+  assert.match(html, /\.status-ok\s*{[\s\S]*background:\s*var\(--status-ok-bg\)[\s\S]*color:\s*var\(--status-ok-text\)/);
+  assert.match(html, /\.status-warn\s*{[\s\S]*background:\s*var\(--status-warn-bg\)[\s\S]*color:\s*var\(--status-warn-text\)/);
+  assert.match(html, /\.status-error\s*{[\s\S]*background:\s*var\(--status-error-bg\)[\s\S]*color:\s*var\(--status-error-text\)/);
+  assert.match(html, /\.status-unknown\s*{[\s\S]*background:\s*var\(--status-unknown-bg\)[\s\S]*color:\s*var\(--status-unknown-text\)/);
 });

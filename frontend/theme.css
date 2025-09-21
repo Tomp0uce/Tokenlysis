@@ -23,6 +23,14 @@
   --fg-neutral: #facc15;
   --fg-greed: #22c55e;
   --fg-extreme-greed: #0ea5e9;
+  --status-ok-bg: rgba(34, 197, 94, 0.16);
+  --status-ok-text: #166534;
+  --status-warn-bg: rgba(234, 179, 8, 0.18);
+  --status-warn-text: #b45309;
+  --status-error-bg: rgba(248, 113, 113, 0.2);
+  --status-error-text: #b91c1c;
+  --status-unknown-bg: rgba(100, 116, 139, 0.18);
+  --status-unknown-text: #1f2937;
 }
 
 :root[data-theme='dark'] {
@@ -49,6 +57,14 @@
   --fg-neutral: #fde68a;
   --fg-greed: #86efac;
   --fg-extreme-greed: #38bdf8;
+  --status-ok-bg: rgba(34, 197, 94, 0.22);
+  --status-ok-text: #4ade80;
+  --status-warn-bg: rgba(234, 179, 8, 0.22);
+  --status-warn-text: #facc15;
+  --status-error-bg: rgba(248, 113, 113, 0.25);
+  --status-error-text: #fca5a5;
+  --status-unknown-bg: rgba(148, 163, 184, 0.22);
+  --status-unknown-text: #cbd5f5;
 }
 
 body {
