@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="api-url" content="/api">
+  <title>Tokenlysis – Diagnostics</title>
+  <link rel="stylesheet" href="./theme.css">
+  <style>
+    body {
+      font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--color-background, #0f172a);
+      color: var(--color-text, #e2e8f0);
+      margin: 0;
+      padding: 2rem;
+    }
+
+    main.debug-dashboard {
+      max-width: 960px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+    }
+
+    header.debug-header {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 1.5rem;
+    }
+
+    .metric-card {
+      background: rgba(15, 23, 42, 0.8);
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      border-radius: 12px;
+      padding: 1.25rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .metric-title {
+      font-size: 1.1rem;
+      font-weight: 600;
+    }
+
+    .metric-values {
+      margin: 0;
+      font-size: 0.95rem;
+      color: var(--color-muted, #94a3b8);
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 999px;
+      padding: 0.25rem 0.75rem;
+      font-weight: 600;
+      font-size: 0.95rem;
+    }
+
+    .status-ok {
+      background: rgba(34, 197, 94, 0.15);
+      color: #22c55e;
+    }
+
+    .status-warn {
+      background: rgba(234, 179, 8, 0.15);
+      color: #facc15;
+    }
+
+    .status-error {
+      background: rgba(248, 113, 113, 0.15);
+      color: #f87171;
+    }
+
+    .status-unknown {
+      background: rgba(148, 163, 184, 0.15);
+      color: #cbd5f5;
+    }
+
+    .diag-status {
+      padding: 0.75rem 1rem;
+      border-radius: 12px;
+      font-weight: 600;
+      background: rgba(148, 163, 184, 0.12);
+      border: 1px solid rgba(148, 163, 184, 0.2);
+    }
+
+    section.info-grid {
+      background: rgba(15, 23, 42, 0.8);
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      border-radius: 12px;
+      padding: 1.25rem;
+    }
+
+    section.info-grid dl {
+      margin: 0;
+      display: grid;
+      grid-template-columns: minmax(0, 220px) 1fr;
+      gap: 0.75rem 1rem;
+    }
+
+    section.info-grid dt {
+      font-weight: 600;
+      color: var(--color-muted, #94a3b8);
+    }
+
+    section.info-grid dd {
+      margin: 0;
+    }
+
+    @media (max-width: 600px) {
+      body {
+        padding: 1.5rem;
+      }
+
+      section.info-grid dl {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="debug-dashboard">
+    <header class="debug-header">
+      <div>
+        <h1>Diagnostics Tokenlysis</h1>
+        <p>Suivez les données clés exposées par l'endpoint <code>/api/diag</code>.</p>
+      </div>
+      <div id="diag-status" class="diag-status status-warn">Initialisation…</div>
+    </header>
+
+    <section class="metric-grid" aria-label="Ratios critiques">
+      <article class="metric-card" aria-labelledby="etl-title">
+        <h2 id="etl-title" class="metric-title">Couverture ETL</h2>
+        <p class="metric-values"><strong id="etl-count">—</strong> éléments traités sur <strong id="etl-target">—</strong> attendus</p>
+        <p>Ratio : <span id="etl-ratio" class="status-pill status-unknown">—</span></p>
+      </article>
+      <article class="metric-card" aria-labelledby="budget-title">
+        <h2 id="budget-title" class="metric-title">Budget API</h2>
+        <p class="metric-values">Appels mensuels : <strong id="budget-count">—</strong> / quota <strong id="budget-quota">—</strong></p>
+        <p>Ratio : <span id="budget-ratio" class="status-pill status-unknown">—</span></p>
+      </article>
+    </section>
+
+    <section class="info-grid" aria-label="Métadonnées de la plateforme">
+      <dl>
+        <dt>Source des données</dt>
+        <dd id="diag-source">—</dd>
+        <dt>Plan CoinGecko</dt>
+        <dd id="diag-plan">—</dd>
+        <dt>Base API</dt>
+        <dd id="diag-base-url">—</dd>
+        <dt>Granularité ETL</dt>
+        <dd id="diag-granularity">—</dd>
+        <dt>Dernier rafraîchissement</dt>
+        <dd id="diag-last-refresh">—</dd>
+      </dl>
+    </section>
+  </main>
+  <script type="module" src="./debug.js"></script>
+</body>
+</html>
