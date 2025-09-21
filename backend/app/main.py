@@ -6,6 +6,7 @@ import asyncio
 import datetime as dt
 import logging
 import os
+import threading
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Query
@@ -318,11 +319,39 @@ def refresh_interval_seconds(value: str | None = None) -> int:
 
 
 async def run_etl_async(*, budget: CallBudget | None) -> int:
-    """Execute the ETL in a worker thread and refresh budget counters."""
+    """Execute the ETL in a daemonised worker thread and refresh budget counters."""
 
     if budget is not None:
         budget.reset_if_needed()
-    result = await asyncio.to_thread(run_etl, budget=budget)
+
+    loop = asyncio.get_running_loop()
+    future: asyncio.Future[int] = loop.create_future()
+
+    def _set_result(value: int) -> None:
+        if not future.done():
+            future.set_result(value)
+
+    def _set_exception(exc: BaseException) -> None:
+        if not future.done():
+            future.set_exception(exc)
+
+    def _worker() -> None:
+        try:
+            result = run_etl(budget=budget)
+        except BaseException as exc:  # pragma: no cover - defensive
+            loop.call_soon_threadsafe(_set_exception, exc)
+        else:
+            loop.call_soon_threadsafe(_set_result, result)
+
+    threading.Thread(target=_worker, name="etl-worker", daemon=True).start()
+
+    try:
+        result = await future
+    except asyncio.CancelledError:
+        if not future.done():
+            future.cancel()
+        raise
+
     if budget is not None:
         budget.reset_if_needed()
     return result
