@@ -1,5 +1,6 @@
 import json
 import logging
+import threading
 import time
 from typing import List
 from urllib.parse import urlparse
@@ -31,7 +32,7 @@ class CoinGeckoClient:
         retry = Retry(
             total=3,
             backoff_factor=1,
-            status_forcelist=[429, 500, 502, 503, 504],
+            status_forcelist=[500, 502, 503, 504],
             allowed_methods=["GET"],
         )
         adapter = HTTPAdapter(max_retries=retry)
@@ -53,12 +54,39 @@ class CoinGeckoClient:
             )
             throttle = 2100
         self.throttle_ms = throttle
+        self.throttle_seconds = self.throttle_ms / 1000.0
+        self._lock = threading.Lock()
+        self._next_allowed_at = time.monotonic() + self.throttle_seconds
 
     def _request(self, path: str, params: dict | None = None) -> requests.Response:
+        return self._request_with_backoff(path, params)
+
+    def _sleep(self, seconds: float) -> None:
+        if seconds <= 0:
+            return
+        time.sleep(seconds)
+
+    def _respect_throttle(self) -> None:
+        with self._lock:
+            target = self._next_allowed_at
+        now = time.monotonic()
+        wait = max(self.throttle_seconds, target - now)
+        if wait > 0:
+            self._sleep(wait)
+
+    def _schedule_next(self, delay: float | None = None) -> None:
+        seconds = self.throttle_seconds if delay is None else max(delay, 0.0)
+        with self._lock:
+            self._next_allowed_at = time.monotonic() + seconds
+
+    def _request_with_backoff(
+        self, path: str, params: dict | None = None
+    ) -> requests.Response:
         url = f"{self.base_url}{path}"
-        time.sleep(self.throttle_ms / 1000.0)
         params_local = params.copy() if params else None
-        for attempt in range(2):
+        max_attempts = 3
+        for attempt in range(max_attempts):
+            self._respect_throttle()
             t0 = time.perf_counter()
             resp = self.session.get(url, params=params_local, timeout=(3.1, 20))
             latency = int((time.perf_counter() - t0) * 1000)
@@ -79,6 +107,12 @@ class CoinGeckoClient:
                 )
             )
             if (
+                resp.status_code == 429
+                and attempt < max_attempts - 1
+            ):
+                self._schedule_next(self.throttle_seconds * (attempt + 1))
+                continue
+            if (
                 resp.status_code == 401
                 and params_local
                 and params_local.get("interval") == "daily"
@@ -91,8 +125,14 @@ class CoinGeckoClient:
                     params_local = {
                         k: v for k, v in params_local.items() if k != "interval"
                     }
+                    self._schedule_next()
                     continue
-            resp.raise_for_status()
+            try:
+                resp.raise_for_status()
+            except requests.HTTPError:
+                self._schedule_next()
+                raise
+            self._schedule_next()
             return resp
         resp.raise_for_status()
         return resp
@@ -129,7 +169,7 @@ class CoinGeckoClient:
         interval: str | None = None,
     ) -> dict:
         if self.plan == "demo":
-            time.sleep(2.1)
+            self._sleep(2.1)
         params = {"vs_currency": vs, "days": days}
         if interval and interval != "daily":
             params["interval"] = interval
@@ -146,7 +186,7 @@ class CoinGeckoClient:
         interval: str | None = None,
     ) -> dict:
         if self.plan == "demo":
-            time.sleep(2.1)
+            self._sleep(2.1)
         params = {"vs_currency": vs, "from": ts_from, "to": ts_to}
         if interval and interval != "daily":
             params["interval"] = interval

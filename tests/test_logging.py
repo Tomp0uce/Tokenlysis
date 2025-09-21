@@ -4,6 +4,7 @@ import time
 from importlib import reload
 
 import pytest
+import requests
 from fastapi.testclient import TestClient
 
 
@@ -57,7 +58,7 @@ def test_coingecko_client_logs_json(monkeypatch, caplog):
     monkeypatch.setattr(time, "perf_counter", fake_perf_counter)
     monkeypatch.setattr(time, "sleep", lambda s: None)
 
-    client = CoinGeckoClient(api_key=None, session=DummySession())
+    client = CoinGeckoClient(api_key=None, plan="pro", session=DummySession())
     with caplog.at_level("INFO"):
         client.get_markets()
     record = next(r for r in caplog.records if r.message.startswith("{"))
@@ -117,3 +118,60 @@ def test_coingecko_client_throttles_and_logs_demo(monkeypatch, caplog):
     assert data["status"] == 200
     assert data["plan"] == "demo"
     assert data["sent_demo_header"] is True
+
+
+def test_coingecko_client_linear_backoff_on_429(monkeypatch):
+    from backend.app.core import settings as settings_module
+    from backend.app.services.coingecko import CoinGeckoClient
+
+    monkeypatch.setattr(settings_module.settings, "CG_THROTTLE_MS", 150)
+
+    class DummyResp:
+        def __init__(self, status_code: int, payload: list):
+            self.status_code = status_code
+            self._payload = payload
+            self.headers = {"X-Request-Id": "rid"}
+            self.url = "https://api.coingecko.com/api/v3/coins/markets"
+            self.request = type("Req", (), {"headers": {}})()
+
+        def json(self):
+            return self._payload
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise requests.HTTPError(response=self)
+
+    class DummySession:
+        def __init__(self) -> None:
+            self.headers: dict = {}
+            self.calls = 0
+
+        def mount(self, prefix, adapter):
+            pass
+
+        def get(self, url, params=None, timeout=None):
+            self.calls += 1
+            if self.calls == 1:
+                return DummyResp(429, [])
+            return DummyResp(200, ["ok"])
+
+    sleep_calls: list[float] = []
+    current_time = {"v": 0.0}
+
+    def fake_sleep(seconds: float) -> None:
+        sleep_calls.append(seconds)
+        current_time["v"] += seconds
+
+    def fake_monotonic() -> float:
+        return current_time["v"]
+
+    monkeypatch.setattr(time, "sleep", fake_sleep)
+    monkeypatch.setattr(time, "monotonic", fake_monotonic)
+
+    client = CoinGeckoClient(api_key=None, plan="pro", session=DummySession())
+    result = client.get_markets()
+
+    assert result == ["ok"]
+    assert len(sleep_calls) == 2
+    assert sleep_calls[-1] == pytest.approx(0.15, rel=1e-6)
+    assert client.session.calls == 2

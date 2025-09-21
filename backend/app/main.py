@@ -26,6 +26,8 @@ from .schemas.version import VersionResponse
 from .services.budget import CallBudget
 from .services.dao import PricesRepo, MetaRepo, CoinsRepo, FearGreedRepo
 from .services.fear_greed import sync_fear_greed_index
+from .services.markets_cache import MarketsCache
+from .services.serialization import serialize_price
 
 logger = logging.getLogger(__name__)
 logger.setLevel(settings.log_level or "INFO")
@@ -33,6 +35,9 @@ logger.setLevel(settings.log_level or "INFO")
 app = FastAPI(title="Tokenlysis", version=os.getenv("APP_VERSION", "dev"))
 
 ETL_SHUTDOWN_TIMEOUT = 10.0
+MARKETS_CACHE_TTL_SECONDS = 90
+
+app.state.markets_cache = MarketsCache(ttl_seconds=MARKETS_CACHE_TTL_SECONDS)
 
 
 def _repo_root() -> Path:
@@ -84,63 +89,6 @@ FEAR_GREED_RANGE_TO_DELTA: dict[str, dt.timedelta] = {
     "1y": dt.timedelta(days=365),
 }
 
-
-def _normalize_link(value: object) -> str | None:
-    if not isinstance(value, str):
-        return None
-    candidate = value.strip()
-    if not candidate:
-        return None
-    parsed = urlparse(candidate)
-    if parsed.scheme not in {"http", "https"}:
-        return None
-    if not parsed.netloc:
-        return None
-    return candidate
-
-
-def _serialize_price(p, details: dict[str, object]) -> dict:
-    """Convert ORM rows and metadata into an API payload."""
-    names_raw = details.get("category_names") if details else []
-    ids_raw = details.get("category_ids") if details else []
-    names = list(names_raw) if isinstance(names_raw, (list, tuple)) else []
-    ids = list(ids_raw) if isinstance(ids_raw, (list, tuple)) else []
-    raw_name = details.get("name") if details else ""
-    name = raw_name.strip() if isinstance(raw_name, str) else ""
-    raw_symbol = details.get("symbol") if details else ""
-    symbol = raw_symbol.strip() if isinstance(raw_symbol, str) else ""
-    raw_logo = details.get("logo_url") if details else None
-    logo_url = (
-        raw_logo.strip() if isinstance(raw_logo, str) and raw_logo.strip() else None
-    )
-    raw_links = details.get("social_links") if details else {}
-    social_links: dict[str, str] = {}
-    if isinstance(raw_links, dict):
-        for key in ("website", "twitter", "reddit", "github", "discord", "telegram"):
-            normalized = _normalize_link(raw_links.get(key))
-            if normalized:
-                social_links[key] = normalized
-    return {
-        "coin_id": p.coin_id,
-        "vs_currency": p.vs_currency,
-        "price": p.price,
-        "market_cap": p.market_cap,
-        "fully_diluted_market_cap": p.fully_diluted_market_cap,
-        "volume_24h": p.volume_24h,
-        "rank": p.rank,
-        "pct_change_24h": p.pct_change_24h,
-        "pct_change_7d": p.pct_change_7d,
-        "pct_change_30d": p.pct_change_30d,
-        "snapshot_at": p.snapshot_at,
-        "category_names": names,
-        "category_ids": ids,
-        "name": name,
-        "symbol": symbol,
-        "logo_url": logo_url,
-        "social_links": social_links,
-    }
-
-
 @app.get("/api/markets/top")
 def markets_top(
     limit: int = 20,
@@ -154,6 +102,11 @@ def markets_top(
     limit_effective = min(max(limit, 1), settings.CG_TOP_N)
     logger.info("markets_top", extra={"limit_effective": limit_effective, "vs": vs})
     prices_repo = PricesRepo(session)
+    cache: MarketsCache | None = getattr(app.state, "markets_cache", None)
+    if cache is not None:
+        prices_repo.get_top(vs, limit_effective)
+        return cache.get_top(session, vs, limit_effective)
+
     meta_repo = MetaRepo(session)
     coins_repo = CoinsRepo(session)
     rows = prices_repo.get_top(vs, limit_effective)
@@ -168,7 +121,7 @@ def markets_top(
         except Exception:  # pragma: no cover - defensive
             pass
     return {
-        "items": [_serialize_price(r, details_map.get(r.coin_id, {})) for r in rows],
+        "items": [serialize_price(r, details_map.get(r.coin_id, {})) for r in rows],
         "last_refresh_at": last_refresh_at,
         "data_source": data_source,
         "stale": stale,
@@ -182,13 +135,20 @@ def price_detail(
     session: Session = Depends(get_session),
 ):
     """Return the latest snapshot for a single asset or raise 404 when missing."""
+    cache: MarketsCache | None = getattr(app.state, "markets_cache", None)
+    if cache is not None:
+        cached = cache.get_price(session, vs, coin_id)
+        if cached is None:
+            raise HTTPException(status_code=404)
+        return cached
+
     prices_repo = PricesRepo(session)
     coins_repo = CoinsRepo(session)
     row = prices_repo.get_price(coin_id, vs)
     if row is None:
         raise HTTPException(status_code=404)
     details = coins_repo.get_details(coin_id)
-    return _serialize_price(row, details)
+    return serialize_price(row, details)
 
 
 @app.get("/api/price/{coin_id}/history")
@@ -449,7 +409,8 @@ async def run_etl_async(*, budget: CallBudget | None) -> int:
 
     def _worker() -> None:
         try:
-            result = run_etl(budget=budget)
+            markets_cache = getattr(app.state, "markets_cache", None)
+            result = run_etl(budget=budget, markets_cache=markets_cache)
         except BaseException as exc:  # pragma: no cover - defensive
             loop.call_soon_threadsafe(_set_exception, exc)
         else:
