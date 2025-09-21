@@ -164,7 +164,7 @@ a:hover {
 
 .summary-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 18px;
 }
 
@@ -175,7 +175,7 @@ a:hover {
 
 @media (min-width: 960px) {
   .hero-insights {
-    grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+    grid-template-columns: minmax(280px, 320px) minmax(0, 1fr);
     align-items: stretch;
   }
 }
@@ -230,7 +230,7 @@ a:hover {
 }
 
 .sentiment-gauge {
-  min-height: 220px;
+  min-height: 260px;
   width: 100%;
 }
 
