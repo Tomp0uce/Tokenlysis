@@ -193,6 +193,9 @@ Set `APP_VERSION` when launching locally so the interface displays the expected 
 APP_VERSION=1.2.3 uvicorn backend.app.main:app --reload
 ```
 
+When `APP_VERSION` is not set (or equals `dev`), the backend falls back to reading a `VERSION` file located next to the backend
+sources. You can point to a custom location by exporting `VERSION_FILE` before starting the API.
+
 ### Configuration
 
 Copy `.env.example` to `.env` and adjust the values as needed. The file contains sensitive settings such as API keys and database credentials; keep it outside version control and restrict access on your NAS (for example with `chmod 600 .env`).
@@ -217,6 +220,7 @@ Runtime behaviour can be tweaked with environment variables:
 - `DATABASE_URL` – SQLAlchemy database URL (defaults to `sqlite:///./tokenlysis.db`).
 - `USE_SEED_ON_FAILURE` – fall back to the bundled seed data when live ETL fails (default: `true`).
 - `SEED_FILE` – path to the seed data used when `USE_SEED_ON_FAILURE` is enabled (default: `./backend/app/seed/top20.json`).
+- `VERSION_FILE` – path to the file containing the build version when `APP_VERSION` is unset or equals `dev` (default: `./backend/VERSION`).
 - `LOG_LEVEL` – base logging level for application and Uvicorn loggers (default: `INFO`). Accepts an integer or one of `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`, `FATAL`, `NOTSET`. Unknown values fall back to `INFO` with a warning. Use `UVICORN_LOG_LEVEL` or `--log-level` to override the server log level separately.
 
 #### Persistence (NAS)
