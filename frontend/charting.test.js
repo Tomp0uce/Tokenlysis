@@ -2,6 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 
+test('formatCompactUsd remplace les suffixes USD par le symbole dollar', async () => {
+  const { formatCompactUsd } = await import('./charting.js');
+  assert.equal(formatCompactUsd(1_250_000_000), '1.25 B$');
+  assert.equal(formatCompactUsd(12_000_000), '12 M$');
+  assert.equal(formatCompactUsd(15_000), '15 k$');
+  assert.equal(formatCompactUsd(950), '950 $');
+  assert.equal(formatCompactUsd(-1_500), '-1.5 k$');
+});
+
 class ApexChartsStub {
   constructor(el, options) {
     this.el = el;
@@ -111,6 +120,7 @@ test('createRadialGauge chooses palette band and updates value', async () => {
 
   assert.ok(chart instanceof ApexChartsStub);
   assert.equal(chart.options.chart.type, 'radialBar');
+  assert.equal(chart.options.chart.background, 'transparent');
   assert.deepEqual(chart.options.series, [12]);
   assert.deepEqual(chart.options.labels, ['Extreme Fear']);
   assert.equal(chart.options.colors[0], '#dc2626');

@@ -175,7 +175,7 @@ a:hover {
 
 @media (min-width: 960px) {
   .hero-insights {
-    grid-template-columns: minmax(0, 1fr) minmax(240px, 320px);
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
     align-items: stretch;
   }
 }
@@ -223,21 +223,15 @@ a:hover {
   font-weight: 700;
 }
 
-.sentiment-gauge {
-  min-height: 220px;
-  width: 100%;
-}
-
 .sentiment-classification {
   font-size: 1rem;
   font-weight: 600;
   color: var(--text-secondary);
 }
 
-.sentiment-updated {
-  font-size: 0.85rem;
-  color: var(--text-muted);
-  margin-top: auto;
+.sentiment-gauge {
+  min-height: 220px;
+  width: 100%;
 }
 
 .summary-card {
@@ -255,7 +249,14 @@ a:hover {
   background: rgba(15, 23, 42, 0.6);
 }
 
-.summary-card span {
+.summary-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.summary-card-header span {
   font-size: 0.85rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -265,6 +266,42 @@ a:hover {
 .summary-card strong {
   font-size: 1.8rem;
   font-weight: 700;
+}
+
+.summary-card-metrics {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.summary-metric {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 0.95rem;
+}
+
+.summary-metric-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.summary-change-value {
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.summary-change-value.change-positive {
+  color: var(--fg-greed);
+}
+
+.summary-change-value.change-negative {
+  color: var(--fg-extreme-fear);
 }
 
 .panel {
@@ -299,6 +336,91 @@ a:hover {
     grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
     align-items: stretch;
   }
+}
+
+.sentiment-visual {
+  display: grid;
+  gap: 18px;
+}
+
+@media (min-width: 720px) {
+  .sentiment-visual {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+}
+
+.sentiment-legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sentiment-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 16px;
+  border: 1px solid var(--border-subtle);
+  background: rgba(148, 163, 184, 0.08);
+}
+
+[data-theme='dark'] .sentiment-legend-item {
+  background: rgba(15, 23, 42, 0.4);
+}
+
+.legend-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.4);
+}
+
+[data-theme='dark'] .legend-swatch {
+  box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.6);
+}
+
+.legend-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.legend-range {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.legend-label {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.sentiment-legend-item[data-band='extreme-fear'] .legend-swatch {
+  background: var(--fg-extreme-fear);
+}
+
+.sentiment-legend-item[data-band='fear'] .legend-swatch {
+  background: var(--fg-fear);
+}
+
+.sentiment-legend-item[data-band='neutral'] .legend-swatch {
+  background: var(--fg-neutral);
+}
+
+.sentiment-legend-item[data-band='greed'] .legend-swatch {
+  background: var(--fg-greed);
+}
+
+.sentiment-legend-item[data-band='extreme-greed'] .legend-swatch {
+  background: var(--fg-extreme-greed);
 }
 
 .panel-header {

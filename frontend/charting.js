@@ -1,8 +1,8 @@
 const USD_SUFFIXES = [
-  { value: 1_000_000_000_000, suffix: 'TUSD' },
-  { value: 1_000_000_000, suffix: 'BUSD' },
-  { value: 1_000_000, suffix: 'MUSD' },
-  { value: 1_000, suffix: 'kUSD' },
+  { value: 1_000_000_000_000, suffix: 'T$' },
+  { value: 1_000_000_000, suffix: 'B$' },
+  { value: 1_000_000, suffix: 'M$' },
+  { value: 1_000, suffix: 'k$' },
 ];
 
 const FEAR_GREED_BANDS = [
@@ -77,7 +77,7 @@ export function formatCompactUsd(value) {
     }
   }
   const digits = abs >= 1 ? 2 : 4;
-  return `${new Intl.NumberFormat('en-US', { maximumFractionDigits: digits }).format(numeric)} USD`;
+  return `${new Intl.NumberFormat('en-US', { maximumFractionDigits: digits }).format(numeric)} $`;
 }
 
 function buildGradient(primary) {
@@ -194,6 +194,7 @@ function gaugeOptions(value, classification) {
     chart: {
       type: 'radialBar',
       height: 260,
+      background: 'transparent',
       animations: { easing: 'easeinout', speed: 500 },
       fontFamily: 'Inter, "Segoe UI", sans-serif',
     },
@@ -302,6 +303,7 @@ export async function refreshChartsTheme(theme) {
       updates.push(
         chart.updateOptions(
           {
+            chart: { background: 'transparent' },
             labels: [metadata.classification || ''],
             colors: [palette.color],
             fill: buildGradient(palette.color),

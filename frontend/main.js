@@ -83,6 +83,24 @@ function renderChangeCell(value) {
   return `<td class="${changeClass(value)}">${formatPct(value)}</td>`;
 }
 
+function applyChangeValue(element, value) {
+  if (!element) {
+    return;
+  }
+  element.classList.remove('change-positive', 'change-negative');
+  const numeric = normalizeNumericValue(value);
+  if (numeric === null) {
+    element.textContent = '—';
+    return;
+  }
+  element.textContent = formatPct(numeric);
+  if (numeric > 0) {
+    element.classList.add('change-positive');
+  } else if (numeric < 0) {
+    element.classList.add('change-negative');
+  }
+}
+
 function normalizeNumericValue(value) {
   if (value === null || value === undefined) return null;
   const num = Number(value);
@@ -98,6 +116,27 @@ function compareNumericValues(a, b, direction) {
   if (bVal === null) return -1;
   if (direction === 'asc') return aVal - bVal;
   return bVal - aVal;
+}
+
+function weightedAverage(items, weightSelector, valueSelector) {
+  if (!Array.isArray(items) || typeof weightSelector !== 'function' || typeof valueSelector !== 'function') {
+    return null;
+  }
+  let weightedSum = 0;
+  let weightTotal = 0;
+  items.forEach((item) => {
+    const weight = normalizeNumericValue(weightSelector(item));
+    const value = normalizeNumericValue(valueSelector(item));
+    if (weight === null || value === null) {
+      return;
+    }
+    weightedSum += weight * value;
+    weightTotal += weight;
+  });
+  if (weightTotal === 0) {
+    return null;
+  }
+  return weightedSum / weightTotal;
 }
 
 export function computeTopMarketCapSeries(items, limit = 5) {
@@ -328,13 +367,13 @@ async function getAggregatedHistory(range) {
 function updateSummary(items) {
   const totalMarketCap = items.reduce((acc, item) => acc + (normalizeNumericValue(item.market_cap) || 0), 0);
   const totalVolume = items.reduce((acc, item) => acc + (normalizeNumericValue(item.volume_24h) || 0), 0);
-  const avgChange24h = items.length
-    ? items.reduce((acc, item) => acc + (normalizeNumericValue(item.pct_change_24h) || 0), 0) / items.length
-    : 0;
+  const marketCapChange24h = weightedAverage(items, (item) => item.market_cap, (item) => item.pct_change_24h);
+  const marketCapChange7d = weightedAverage(items, (item) => item.market_cap, (item) => item.pct_change_7d);
+  const volumeChange24h = weightedAverage(items, (item) => item.volume_24h, (item) => item.pct_change_24h);
+  const volumeChange7d = weightedAverage(items, (item) => item.volume_24h, (item) => item.pct_change_7d);
   const summaryMap = new Map([
-    ['summary-market-cap', formatCompactUsd(totalMarketCap)],
-    ['summary-volume', formatCompactUsd(totalVolume)],
-    ['summary-change', `${avgChange24h.toFixed(2)}%`],
+    ['summary-market-cap', formatCompactUsd(totalMarketCap) || '—'],
+    ['summary-volume', formatCompactUsd(totalVolume) || '—'],
   ]);
   summaryMap.forEach((value, id) => {
     const el = document.getElementById(id);
@@ -342,6 +381,10 @@ function updateSummary(items) {
       el.textContent = value;
     }
   });
+  applyChangeValue(document.getElementById('summary-market-cap-change-24h'), marketCapChange24h);
+  applyChangeValue(document.getElementById('summary-market-cap-change-7d'), marketCapChange7d);
+  applyChangeValue(document.getElementById('summary-volume-change-24h'), volumeChange24h);
+  applyChangeValue(document.getElementById('summary-volume-change-7d'), volumeChange7d);
 }
 
 async function renderMarketOverview(items) {
@@ -381,8 +424,7 @@ export async function loadFearGreedWidget({ fetchImpl } = {}) {
   const gaugeContainer = document.getElementById('fear-greed-gauge');
   const valueEl = document.getElementById('fear-greed-value');
   const classificationEl = document.getElementById('fear-greed-classification');
-  const updatedEl = document.getElementById('fear-greed-updated');
-  if (!card || !gaugeContainer || !valueEl || !classificationEl || !updatedEl) {
+  if (!card || !gaugeContainer || !valueEl || !classificationEl) {
     return null;
   }
   const fetcher = typeof fetchImpl === 'function' ? fetchImpl : typeof fetch === 'function' ? fetch : null;
@@ -398,10 +440,8 @@ export async function loadFearGreedWidget({ fetchImpl } = {}) {
     const rawValue = Number(payload?.value ?? 0);
     const value = Number.isFinite(rawValue) ? Math.round(rawValue) : 0;
     const classification = String(payload?.classification || '').trim() || 'Indéterminé';
-    const timestamp = typeof payload?.timestamp === 'string' ? payload.timestamp : null;
     valueEl.textContent = String(value);
     classificationEl.textContent = classification;
-    updatedEl.textContent = timestamp ? `Mis à jour : ${timestamp}` : 'Mis à jour : inconnue';
     const gaugeData = { value, classification };
     if (!fearGreedChart) {
       fearGreedChart = await createRadialGauge(gaugeContainer, gaugeData);
@@ -417,7 +457,6 @@ export async function loadFearGreedWidget({ fetchImpl } = {}) {
     console.error(error);
     valueEl.textContent = '0';
     classificationEl.textContent = 'Indisponible';
-    updatedEl.textContent = 'Données indisponibles';
     if (fearGreedChart) {
       await updateRadialGauge(fearGreedChart, { value: 0, classification: 'Indisponible' });
     }
@@ -624,18 +663,24 @@ export async function loadVersion() {
   el.textContent = `Version: ${appVersion}`;
 }
 
-export function init() {
+export async function init() {
   initThemeToggle('[data-theme-toggle]');
   onThemeChange((theme) => {
     refreshChartsTheme(theme);
   });
   loadVersion();
-  loadCryptos();
-  loadFearGreedWidget().catch((error) => console.error(error));
+  await loadCryptos();
+  try {
+    await loadFearGreedWidget();
+  } catch (error) {
+    console.error(error);
+  }
 }
 
 if (typeof window !== 'undefined') {
-  window.addEventListener('DOMContentLoaded', init);
+  window.addEventListener('DOMContentLoaded', () => {
+    init().catch((error) => console.error(error));
+  });
 }
 
 export const __test__ = {

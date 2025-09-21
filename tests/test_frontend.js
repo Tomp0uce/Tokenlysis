@@ -35,6 +35,28 @@ function setupDom() {
   const dom = new JSDOM(`<!DOCTYPE html><meta name="api-url" content="">
     <div id="demo-banner" style="display:none"></div>
     <div id="status"></div>
+    <div class="summary-grid">
+      <article class="summary-card">
+        <div class="summary-card-header">
+          <span>Capitalisation totale</span>
+          <strong id="summary-market-cap">—</strong>
+        </div>
+        <ul class="summary-card-metrics">
+          <li class="summary-metric"><span class="summary-metric-label">Var. 24h</span><span id="summary-market-cap-change-24h" class="summary-change-value">—</span></li>
+          <li class="summary-metric"><span class="summary-metric-label">Var. 7j</span><span id="summary-market-cap-change-7d" class="summary-change-value">—</span></li>
+        </ul>
+      </article>
+      <article class="summary-card">
+        <div class="summary-card-header">
+          <span>Volume total</span>
+          <strong id="summary-volume">—</strong>
+        </div>
+        <ul class="summary-card-metrics">
+          <li class="summary-metric"><span class="summary-metric-label">Var. 24h</span><span id="summary-volume-change-24h" class="summary-change-value">—</span></li>
+          <li class="summary-metric"><span class="summary-metric-label">Var. 7j</span><span id="summary-volume-change-7d" class="summary-change-value">—</span></li>
+        </ul>
+      </article>
+    </div>
     <table id="cryptos" style="display:none"><thead><tr><th>Coin</th><th>Catégories</th><th>Rank</th><th>Price</th><th>Market Cap</th><th>Fully Diluted Market Cap</th><th>Volume 24h</th><th>Change 24h</th><th>Change 7j</th><th>Change 30j</th><th>Détails</th></tr></thead><tbody></tbody></table>
     <div id="last-update"></div>
     <div id="version"></div>`);
@@ -185,6 +207,28 @@ test('loadCryptos renders table and last update with categories', async () => {
   assert.match(
     document.getElementById('last-update').textContent,
     /Dernière mise à jour : 2025-09-07T20:51:26Z \(source: api\)/
+  );
+  assert.equal(document.getElementById('summary-market-cap').textContent, '5 $');
+  assert.equal(document.getElementById('summary-market-cap-change-24h').textContent, '1.20%');
+  assert.equal(
+    document.getElementById('summary-market-cap-change-24h').classList.contains('change-positive'),
+    true,
+  );
+  assert.equal(document.getElementById('summary-market-cap-change-7d').textContent, '2.25%');
+  assert.equal(
+    document.getElementById('summary-market-cap-change-7d').classList.contains('change-positive'),
+    true,
+  );
+  assert.equal(document.getElementById('summary-volume').textContent, '4 $');
+  assert.equal(document.getElementById('summary-volume-change-24h').textContent, '2.50%');
+  assert.equal(
+    document.getElementById('summary-volume-change-24h').classList.contains('change-positive'),
+    true,
+  );
+  assert.equal(document.getElementById('summary-volume-change-7d').textContent, '2.94%');
+  assert.equal(
+    document.getElementById('summary-volume-change-7d').classList.contains('change-positive'),
+    true,
   );
   const rankHeader = document.querySelectorAll('#cryptos thead th')[2];
   assert.equal(rankHeader.classList.contains('sort-asc'), true);

@@ -56,7 +56,7 @@ function formatUsd(value) {
   if (value === null || value === undefined) {
     return '—';
   }
-  return `${Number(value).toLocaleString('en-US')} USD`;
+  return `${Number(value).toLocaleString('en-US')} $`;
 }
 
 function formatDateTime(iso) {
@@ -243,7 +243,7 @@ async function renderHistory(points) {
     renderOrUpdateChart({
       key: 'price',
       elementId: 'price-chart',
-      name: 'Prix (USD)',
+      name: 'Prix ($)',
       data: dataset.price,
       categories: dataset.categories,
       colorVar: CHART_COLORS.price,
@@ -251,7 +251,7 @@ async function renderHistory(points) {
     renderOrUpdateChart({
       key: 'market',
       elementId: 'market-cap-chart',
-      name: 'Capitalisation (USD)',
+      name: 'Capitalisation ($)',
       data: dataset.marketCap,
       categories: dataset.categories,
       colorVar: CHART_COLORS.marketCap,
@@ -259,7 +259,7 @@ async function renderHistory(points) {
     renderOrUpdateChart({
       key: 'volume',
       elementId: 'volume-chart',
-      name: 'Volume 24h (USD)',
+      name: 'Volume 24h ($)',
       data: dataset.volume,
       categories: dataset.categories,
       colorVar: CHART_COLORS.volume,
