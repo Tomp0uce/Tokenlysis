@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { evaluateRatios, evaluateFreshness, summarizeCategoryIssues } from '../frontend/debug.js';
+import {
+  evaluateRatios,
+  evaluateFreshness,
+  summarizeCategoryIssues,
+  normalizeBudgetCategories,
+} from '../frontend/debug.js';
 
 function closeTo(value, expected, epsilon = 1e-6) {
   assert.ok(Math.abs(value - expected) <= epsilon, `${value} not within ${epsilon} of ${expected}`);
@@ -113,4 +118,40 @@ test('summarizeCategoryIssues tallies missing and stale diagnostics', () => {
   assert.equal(summary.missing, 2);
   assert.equal(summary.stale, 2);
   assert.equal(summary.both, 1);
+});
+
+test('normalizeBudgetCategories sorts items and computes ratios', () => {
+  const diag = {
+    monthly_call_count: 10,
+    monthly_call_categories: {
+      markets: 6,
+      coin_profile: 3,
+      misc: 1,
+    },
+  };
+
+  const breakdown = normalizeBudgetCategories(diag);
+
+  assert.equal(breakdown.total, 10);
+  assert.deepEqual(breakdown.categories, [
+    { name: 'markets', count: 6, ratio: 0.6 },
+    { name: 'coin_profile', count: 3, ratio: 0.3 },
+    { name: 'misc', count: 1, ratio: 0.1 },
+  ]);
+});
+
+test('normalizeBudgetCategories filters invalid inputs gracefully', () => {
+  const breakdown = normalizeBudgetCategories({
+    monthly_call_count: '12',
+    monthly_call_categories: {
+      markets: 5,
+      stale: -2,
+      weird: 'oops',
+    },
+  });
+
+  assert.equal(breakdown.total, 12);
+  assert.deepEqual(breakdown.categories, [
+    { name: 'markets', count: 5, ratio: 5 / 12 },
+  ]);
 });

@@ -392,6 +392,7 @@ def diag(session: Session = Depends(get_session)) -> dict:
         last_etl_items = 0
     budget: CallBudget | None = getattr(app.state, "budget", None)
     monthly_call_count = budget.monthly_call_count if budget else 0
+    monthly_call_categories = budget.category_counts if budget else {}
     fear_greed_count = fear_greed_repo.count()
 
     return {
@@ -401,6 +402,7 @@ def diag(session: Session = Depends(get_session)) -> dict:
         "last_refresh_at": last_refresh_at,
         "last_etl_items": last_etl_items,
         "monthly_call_count": monthly_call_count,
+        "monthly_call_categories": monthly_call_categories,
         "quota": settings.CG_MONTHLY_QUOTA,
         "data_source": data_source,
         "top_n": settings.CG_TOP_N,
