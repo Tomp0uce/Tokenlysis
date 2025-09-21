@@ -114,28 +114,45 @@ export function formatCompactUsd(value) {
   return `${new Intl.NumberFormat('en-US', { maximumFractionDigits: digits }).format(numeric)} $`;
 }
 
-function buildGradient(primary) {
+function buildSolidColorStops(color) {
+  return [
+    { offset: 0, color, opacity: 1 },
+    { offset: 100, color, opacity: 1 },
+  ];
+}
+
+function buildGradient(primary, overrides = {}) {
+  const {
+    opacityFrom = 0.45,
+    opacityTo = 0.05,
+    stops = [0, 90, 100],
+    colorStops,
+  } = overrides;
+  const resolvedStops = Array.isArray(colorStops)
+    ? colorStops
+    : [
+        { offset: 0, color: primary, opacity: opacityFrom },
+        { offset: 100, color: primary, opacity: opacityTo },
+      ];
   return {
     type: 'gradient',
     gradient: {
       shadeIntensity: 1,
-      opacityFrom: 0.45,
-      opacityTo: 0.05,
-      stops: [0, 90, 100],
-      colorStops: [
-        {
-          offset: 0,
-          color: primary,
-          opacity: 0.45,
-        },
-        {
-          offset: 100,
-          color: primary,
-          opacity: 0.05,
-        },
-      ],
+      opacityFrom,
+      opacityTo,
+      stops,
+      colorStops: resolvedStops,
     },
   };
+}
+
+function buildGaugeFill(color) {
+  return buildGradient(color, {
+    opacityFrom: 1,
+    opacityTo: 1,
+    stops: [0, 100],
+    colorStops: buildSolidColorStops(color),
+  });
 }
 
 function basePalette(colorVar) {
@@ -277,7 +294,7 @@ function gaugeOptions(value, classification) {
     series: [clampPercent(value)],
     labels: [classification],
     colors: [palette.color],
-    fill: buildGradient(palette.color),
+    fill: buildGaugeFill(palette.color),
     stroke: { lineCap: 'round' },
     plotOptions: {
       radialBar: {
@@ -339,7 +356,7 @@ export async function updateRadialGauge(chart, { value = 0, classification = '' 
     {
       labels: [label],
       colors: [palette.color],
-      fill: buildGradient(palette.color),
+      fill: buildGaugeFill(palette.color),
       series: [clampPercent(value)],
     },
     false,
@@ -392,7 +409,7 @@ export async function refreshChartsTheme(theme) {
             chart: { background: 'transparent' },
             labels: [metadata.classification || ''],
             colors: [palette.color],
-            fill: buildGradient(palette.color),
+            fill: buildGaugeFill(palette.color),
           },
           false,
           true,

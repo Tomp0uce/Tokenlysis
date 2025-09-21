@@ -217,6 +217,16 @@ test('createRadialGauge chooses palette band and updates value', async () => {
   assert.deepEqual(chart.options.series, [12]);
   assert.deepEqual(chart.options.labels, ['Extreme Fear']);
   assert.equal(chart.options.colors[0], '#dc2626');
+  const gradient = chart.options.fill?.gradient;
+  assert.equal(gradient?.opacityFrom, 1);
+  assert.equal(gradient?.opacityTo, 1);
+  assert.deepEqual(
+    gradient?.colorStops?.map((stop) => ({ color: stop.color, opacity: stop.opacity })),
+    [
+      { color: '#dc2626', opacity: 1 },
+      { color: '#dc2626', opacity: 1 },
+    ],
+  );
 
   await module.updateRadialGauge(chart, { value: 65, classification: 'Greed' });
   assert.equal(chart.updateCalls.at(-1).series[0], 65);
