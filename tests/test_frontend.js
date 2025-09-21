@@ -149,6 +149,16 @@ test('loadCryptos renders table and last update with categories', async () => {
     '6.00%',
     'Détails',
   ]);
+
+  const priceCell = rows[0].querySelector('td[data-label="Prix ($)"]');
+  assert.ok(priceCell);
+  assert.equal(priceCell.textContent.trim(), '1 $');
+  const fdvCell = rows[0].querySelector('td[data-label="Fully Diluted Market Cap"]');
+  assert.ok(fdvCell);
+  assert.equal(fdvCell.textContent.trim(), '3 $');
+  const change24hCell = rows[0].querySelector('td[data-label="Change 24h"]');
+  assert.ok(change24hCell);
+  assert.equal(change24hCell.textContent.trim(), '4.00%');
   const firstLogo = rows[0].querySelector('td img');
   assert.ok(firstLogo);
   assert.equal(firstLogo.getAttribute('src'), 'https://img.test/bitcoin.png');
@@ -179,7 +189,7 @@ test('loadCryptos renders table and last update with categories', async () => {
     '3',
     '2 $',
     '2 $',
-    '',
+    '—',
     '0 $',
     '0.00%',
     '',

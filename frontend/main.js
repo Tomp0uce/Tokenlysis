@@ -67,8 +67,48 @@ function changeClass(value) {
   return 'change-cell';
 }
 
-function renderChangeCell(value) {
-  return `<td class="${changeClass(value)}">${formatPct(value)}</td>`;
+function renderChangeCell(value, label) {
+  const labelAttr = typeof label === 'string' && label.trim() ? ` data-label="${label}"` : '';
+  return `<td class="${changeClass(value)}"${labelAttr}>${formatPct(value)}</td>`;
+}
+
+function formatDisplayName(item) {
+  const rawName = typeof item?.name === 'string' ? item.name.trim() : '';
+  if (rawName) {
+    const first = rawName.charAt(0);
+    if (first && first === first.toUpperCase()) {
+      return rawName;
+    }
+    return `${first.toUpperCase()}${rawName.slice(1)}`;
+  }
+  const fallbackSlug = typeof item?.coin_id === 'string' ? item.coin_id.trim() : '';
+  if (!fallbackSlug) {
+    return '—';
+  }
+  const fallback = fallbackSlug.replace(/[-_]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
+  if (!fallback) {
+    return '—';
+  }
+  const first = fallback.charAt(0);
+  return `${first.toUpperCase()}${fallback.slice(1)}`;
+}
+
+function applyChangeValue(element, value) {
+  if (!element) {
+    return;
+  }
+  element.classList.remove('change-positive', 'change-negative');
+  const numeric = normalizeNumericValue(value);
+  if (numeric === null) {
+    element.textContent = '—';
+    return;
+  }
+  element.textContent = formatPct(numeric);
+  if (numeric > 0) {
+    element.classList.add('change-positive');
+  } else if (numeric < 0) {
+    element.classList.add('change-negative');
+  }
 }
 
 function formatDisplayName(item) {
@@ -528,6 +568,14 @@ async function loadMarketOverviewRange(range) {
   } catch (error) {
     console.error(error);
   }
+}
+
+function formatCurrencyCell(value) {
+  const formatted = formatCompactUsd(value);
+  if (typeof formatted === 'string' && formatted.trim()) {
+    return formatted;
+  }
+  return '—';
 }
 
 function renderRows(items) {
