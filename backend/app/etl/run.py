@@ -181,6 +181,7 @@ def run_etl(
                 "id": c["id"],
                 "symbol": c.get("symbol", ""),
                 "name": c.get("name", ""),
+                "logo_url": c.get("image"),
                 "category_names": json.dumps(names),
                 "category_ids": json.dumps(ids),
                 "updated_at": now,

@@ -24,9 +24,47 @@
           <span>Sentiment actuel</span>
           <strong id="fear-greed-value">—</strong>
         </div>
+        <div class="sentiment-visual">
+          <div id="fear-greed-gauge" class="sentiment-gauge" aria-hidden="true"></div>
+          <ul class="sentiment-legend">
+            <li class="sentiment-legend-item" data-band="extreme-fear">
+              <span class="legend-swatch" aria-hidden="true"></span>
+              <div class="legend-text">
+                <span class="legend-range">0 – 25</span>
+                <span class="legend-label">Extreme Fear</span>
+              </div>
+            </li>
+            <li class="sentiment-legend-item" data-band="fear">
+              <span class="legend-swatch" aria-hidden="true"></span>
+              <div class="legend-text">
+                <span class="legend-range">26 – 44</span>
+                <span class="legend-label">Fear</span>
+              </div>
+            </li>
+            <li class="sentiment-legend-item" data-band="neutral">
+              <span class="legend-swatch" aria-hidden="true"></span>
+              <div class="legend-text">
+                <span class="legend-range">45 – 54</span>
+                <span class="legend-label">Neutral</span>
+              </div>
+            </li>
+            <li class="sentiment-legend-item" data-band="greed">
+              <span class="legend-swatch" aria-hidden="true"></span>
+              <div class="legend-text">
+                <span class="legend-range">55 – 74</span>
+                <span class="legend-label">Greed</span>
+              </div>
+            </li>
+            <li class="sentiment-legend-item" data-band="extreme-greed">
+              <span class="legend-swatch" aria-hidden="true"></span>
+              <div class="legend-text">
+                <span class="legend-range">75 – 100</span>
+                <span class="legend-label">Extreme Greed</span>
+              </div>
+            </li>
+          </ul>
+        </div>
         <p id="fear-greed-classification" class="sentiment-classification">—</p>
-        <div id="fear-greed-gauge" class="sentiment-gauge" aria-hidden="true"></div>
-        <p id="fear-greed-updated" class="sentiment-updated">Dernière mise à jour : —</p>
       </article>
       <article class="panel">
         <div class="panel-header">

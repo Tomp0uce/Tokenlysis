@@ -1,16 +1,16 @@
 const USD_SUFFIXES = [
-  { value: 1_000_000_000_000, suffix: 'TUSD' },
-  { value: 1_000_000_000, suffix: 'BUSD' },
-  { value: 1_000_000, suffix: 'MUSD' },
-  { value: 1_000, suffix: 'kUSD' },
+  { value: 1_000_000_000_000, suffix: 'T$' },
+  { value: 1_000_000_000, suffix: 'B$' },
+  { value: 1_000_000, suffix: 'M$' },
+  { value: 1_000, suffix: 'k$' },
 ];
 
 const FEAR_GREED_BANDS = [
-  { max: 24, cssVar: '--fg-extreme-fear', fallback: '#dc2626' },
-  { max: 44, cssVar: '--fg-fear', fallback: '#f97316' },
-  { max: 54, cssVar: '--fg-neutral', fallback: '#facc15' },
-  { max: 74, cssVar: '--fg-greed', fallback: '#22c55e' },
-  { max: 100, cssVar: '--fg-extreme-greed', fallback: '#0ea5e9' },
+  { min: 0, max: 25, cssVar: '--fg-extreme-fear', fallback: '#dc2626' },
+  { min: 26, max: 44, cssVar: '--fg-fear', fallback: '#f97316' },
+  { min: 45, max: 54, cssVar: '--fg-neutral', fallback: '#facc15' },
+  { min: 55, max: 74, cssVar: '--fg-greed', fallback: '#22c55e' },
+  { min: 75, max: 100, cssVar: '--fg-extreme-greed', fallback: '#0ea5e9' },
 ];
 
 const trackedCharts = new Map();
@@ -42,6 +42,40 @@ function gaugePalette(value) {
   const band = FEAR_GREED_BANDS.find((entry) => percent <= entry.max) || FEAR_GREED_BANDS[FEAR_GREED_BANDS.length - 1];
   const color = readCssVariable(band.cssVar) || band.fallback;
   return { color, cssVar: band.cssVar, value: percent };
+}
+
+function clampBandValue(value, fallback) {
+  if (value === null || value === undefined) {
+    return fallback;
+  }
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return fallback;
+  }
+  const clamped = Math.min(100, Math.max(0, numeric));
+  if (!Number.isFinite(clamped)) {
+    return fallback;
+  }
+  return clamped;
+}
+
+function buildFearGreedAnnotations() {
+  let previousMax = 0;
+  return FEAR_GREED_BANDS.map((band, index) => {
+    const rawMin = band.min ?? (index === 0 ? 0 : previousMax);
+    const min = clampBandValue(rawMin, index === 0 ? 0 : previousMax);
+    const rawMax = band.max ?? previousMax;
+    const max = Math.max(min, clampBandValue(rawMax, min));
+    previousMax = max;
+    const color = readCssVariable(band.cssVar) || band.fallback;
+    return {
+      y: min,
+      y2: max,
+      fillColor: color,
+      opacity: 0.18,
+      borderColor: 'transparent',
+    };
+  });
 }
 
 function trackChart(chart, metadata) {
@@ -77,7 +111,7 @@ export function formatCompactUsd(value) {
     }
   }
   const digits = abs >= 1 ? 2 : 4;
-  return `${new Intl.NumberFormat('en-US', { maximumFractionDigits: digits }).format(numeric)} USD`;
+  return `${new Intl.NumberFormat('en-US', { maximumFractionDigits: digits }).format(numeric)} $`;
 }
 
 function buildGradient(primary) {
@@ -112,14 +146,44 @@ function basePalette(colorVar) {
   };
 }
 
-function baseAreaOptions({ name, categories, data, colorVar, xAxisType = 'datetime' }) {
+function baseAreaOptions({
+  name,
+  categories,
+  data,
+  colorVar,
+  xAxisType = 'datetime',
+  yFormatter,
+  tooltipFormatter,
+  banding,
+} = {}) {
   const palette = basePalette(colorVar);
   const theme = document?.documentElement?.dataset?.theme || 'light';
-  return {
+  const defaultFormatter = (value) => {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) {
+      return formatCompactUsd(0);
+    }
+    return formatCompactUsd(numeric);
+  };
+  const wrapFormatter = (formatter, fallback) => {
+    if (typeof formatter === 'function') {
+      return (value) => {
+        const numeric = Number(value);
+        const safeValue = Number.isFinite(numeric) ? numeric : 0;
+        return formatter(safeValue);
+      };
+    }
+    return fallback;
+  };
+  const resolvedYFormatter = wrapFormatter(yFormatter, defaultFormatter);
+  const resolvedTooltipFormatter = wrapFormatter(tooltipFormatter, resolvedYFormatter);
+  const options = {
     chart: {
       type: 'area',
       height: 280,
       toolbar: { show: false },
+      zoom: { enabled: false },
+      selection: { enabled: false },
       animations: { easing: 'easeinout', speed: 600 },
       fontFamily: 'Inter, "Segoe UI", sans-serif',
       foreColor: palette.muted,
@@ -154,7 +218,7 @@ function baseAreaOptions({ name, categories, data, colorVar, xAxisType = 'dateti
     },
     yaxis: {
       labels: {
-        formatter: formatCompactUsd,
+        formatter: resolvedYFormatter,
         style: { colors: palette.muted },
       },
     },
@@ -164,25 +228,37 @@ function baseAreaOptions({ name, categories, data, colorVar, xAxisType = 'dateti
       intersect: false,
       x: { format: 'dd MMM yy' },
       y: {
-        formatter: formatCompactUsd,
+        formatter: resolvedTooltipFormatter,
       },
     },
     noData: {
       text: 'Aucune donnée',
     },
   };
+  if (banding === 'fear-greed') {
+    options.yaxis = {
+      ...options.yaxis,
+      min: 0,
+      max: 100,
+      tickAmount: 5,
+    };
+    options.annotations = { yaxis: buildFearGreedAnnotations() };
+  }
+  return options;
 }
 
-export async function createAreaChart(element, { name, categories, data, colorVar, xAxisType }) {
+export async function createAreaChart(element, config = {}) {
   if (!element) {
     throw new Error('Chart container is required');
   }
   if (typeof window === 'undefined' || !window.ApexCharts) {
     throw new Error('ApexCharts is unavailable');
   }
-  const options = baseAreaOptions({ name, categories, data, colorVar, xAxisType });
+  const options = baseAreaOptions(config);
+  const colorToken = config?.colorVar || '--chart-primary';
+  const banding = config?.banding;
   const chart = new window.ApexCharts(element, options);
-  trackChart(chart, { type: 'area', colorVar: colorVar || '--chart-primary' });
+  trackChart(chart, { type: 'area', colorVar: colorToken, banding });
   await chart.render();
   return chart;
 }
@@ -194,6 +270,7 @@ function gaugeOptions(value, classification) {
     chart: {
       type: 'radialBar',
       height: 260,
+      background: 'transparent',
       animations: { easing: 'easeinout', speed: 500 },
       fontFamily: 'Inter, "Segoe UI", sans-serif',
     },
@@ -276,23 +353,33 @@ export async function refreshChartsTheme(theme) {
   trackedCharts.forEach((metadata, chart) => {
     if (metadata?.type === 'area') {
       const palette = basePalette(metadata.colorVar);
+      const yaxisUpdate = {
+        labels: { style: { colors: palette.muted } },
+      };
+      if (metadata.banding === 'fear-greed') {
+        yaxisUpdate.min = 0;
+        yaxisUpdate.max = 100;
+        yaxisUpdate.tickAmount = 5;
+      }
+      const options = {
+        theme: { mode: normalized },
+        colors: [palette.primary],
+        fill: buildGradient(palette.primary),
+        xaxis: {
+          labels: { style: { colors: palette.muted } },
+          axisBorder: { color: palette.border },
+          axisTicks: { color: palette.border },
+        },
+        yaxis: yaxisUpdate,
+        grid: { borderColor: palette.border },
+        tooltip: { theme: normalized },
+      };
+      if (metadata.banding === 'fear-greed') {
+        options.annotations = { yaxis: buildFearGreedAnnotations() };
+      }
       updates.push(
         chart.updateOptions(
-          {
-            theme: { mode: normalized },
-            colors: [palette.primary],
-            fill: buildGradient(palette.primary),
-            xaxis: {
-              labels: { style: { colors: palette.muted } },
-              axisBorder: { color: palette.border },
-              axisTicks: { color: palette.border },
-            },
-            yaxis: {
-              labels: { style: { colors: palette.muted } },
-            },
-            grid: { borderColor: palette.border },
-            tooltip: { theme: normalized },
-          },
+          options,
           false,
           true,
         ),
@@ -302,6 +389,7 @@ export async function refreshChartsTheme(theme) {
       updates.push(
         chart.updateOptions(
           {
+            chart: { background: 'transparent' },
             labels: [metadata.classification || ''],
             colors: [palette.color],
             fill: buildGradient(palette.color),

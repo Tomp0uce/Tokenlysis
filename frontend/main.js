@@ -52,18 +52,6 @@ let marketRangeListenersBound = false;
 let fearGreedChart = null;
 
 // ===== formatting helpers =====
-function formatPrice(p) {
-  if (p === null || p === undefined) return '';
-  if (p >= 1) return p.toFixed(2);
-  if (p >= 0.01) return p.toFixed(4);
-  return p.toFixed(6);
-}
-
-function formatNumber(n) {
-  if (n === null || n === undefined) return '';
-  return Number(n).toLocaleString('en-US');
-}
-
 function formatPct(p) {
   if (p === null || p === undefined) return '';
   if (typeof p !== 'number' || Number.isNaN(p) || !Number.isFinite(p)) return '';
@@ -83,6 +71,45 @@ function renderChangeCell(value) {
   return `<td class="${changeClass(value)}">${formatPct(value)}</td>`;
 }
 
+function formatDisplayName(item) {
+  const rawName = typeof item?.name === 'string' ? item.name.trim() : '';
+  if (rawName) {
+    const first = rawName.charAt(0);
+    if (first && first === first.toUpperCase()) {
+      return rawName;
+    }
+    return `${first.toUpperCase()}${rawName.slice(1)}`;
+  }
+  const fallbackSlug = typeof item?.coin_id === 'string' ? item.coin_id.trim() : '';
+  if (!fallbackSlug) {
+    return '—';
+  }
+  const fallback = fallbackSlug.replace(/[-_]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
+  if (!fallback) {
+    return '—';
+  }
+  const first = fallback.charAt(0);
+  return `${first.toUpperCase()}${fallback.slice(1)}`;
+}
+
+function applyChangeValue(element, value) {
+  if (!element) {
+    return;
+  }
+  element.classList.remove('change-positive', 'change-negative');
+  const numeric = normalizeNumericValue(value);
+  if (numeric === null) {
+    element.textContent = '—';
+    return;
+  }
+  element.textContent = formatPct(numeric);
+  if (numeric > 0) {
+    element.classList.add('change-positive');
+  } else if (numeric < 0) {
+    element.classList.add('change-negative');
+  }
+}
+
 function normalizeNumericValue(value) {
   if (value === null || value === undefined) return null;
   const num = Number(value);
@@ -98,6 +125,27 @@ function compareNumericValues(a, b, direction) {
   if (bVal === null) return -1;
   if (direction === 'asc') return aVal - bVal;
   return bVal - aVal;
+}
+
+function weightedAverage(items, weightSelector, valueSelector) {
+  if (!Array.isArray(items) || typeof weightSelector !== 'function' || typeof valueSelector !== 'function') {
+    return null;
+  }
+  let weightedSum = 0;
+  let weightTotal = 0;
+  items.forEach((item) => {
+    const weight = normalizeNumericValue(weightSelector(item));
+    const value = normalizeNumericValue(valueSelector(item));
+    if (weight === null || value === null) {
+      return;
+    }
+    weightedSum += weight * value;
+    weightTotal += weight;
+  });
+  if (weightTotal === 0) {
+    return null;
+  }
+  return weightedSum / weightTotal;
 }
 
 export function computeTopMarketCapSeries(items, limit = 5) {
@@ -328,13 +376,13 @@ async function getAggregatedHistory(range) {
 function updateSummary(items) {
   const totalMarketCap = items.reduce((acc, item) => acc + (normalizeNumericValue(item.market_cap) || 0), 0);
   const totalVolume = items.reduce((acc, item) => acc + (normalizeNumericValue(item.volume_24h) || 0), 0);
-  const avgChange24h = items.length
-    ? items.reduce((acc, item) => acc + (normalizeNumericValue(item.pct_change_24h) || 0), 0) / items.length
-    : 0;
+  const marketCapChange24h = weightedAverage(items, (item) => item.market_cap, (item) => item.pct_change_24h);
+  const marketCapChange7d = weightedAverage(items, (item) => item.market_cap, (item) => item.pct_change_7d);
+  const volumeChange24h = weightedAverage(items, (item) => item.volume_24h, (item) => item.pct_change_24h);
+  const volumeChange7d = weightedAverage(items, (item) => item.volume_24h, (item) => item.pct_change_7d);
   const summaryMap = new Map([
-    ['summary-market-cap', formatCompactUsd(totalMarketCap)],
-    ['summary-volume', formatCompactUsd(totalVolume)],
-    ['summary-change', `${avgChange24h.toFixed(2)}%`],
+    ['summary-market-cap', formatCompactUsd(totalMarketCap) || '—'],
+    ['summary-volume', formatCompactUsd(totalVolume) || '—'],
   ]);
   summaryMap.forEach((value, id) => {
     const el = document.getElementById(id);
@@ -342,6 +390,10 @@ function updateSummary(items) {
       el.textContent = value;
     }
   });
+  applyChangeValue(document.getElementById('summary-market-cap-change-24h'), marketCapChange24h);
+  applyChangeValue(document.getElementById('summary-market-cap-change-7d'), marketCapChange7d);
+  applyChangeValue(document.getElementById('summary-volume-change-24h'), volumeChange24h);
+  applyChangeValue(document.getElementById('summary-volume-change-7d'), volumeChange7d);
 }
 
 async function renderMarketOverview(items) {
@@ -381,8 +433,7 @@ export async function loadFearGreedWidget({ fetchImpl } = {}) {
   const gaugeContainer = document.getElementById('fear-greed-gauge');
   const valueEl = document.getElementById('fear-greed-value');
   const classificationEl = document.getElementById('fear-greed-classification');
-  const updatedEl = document.getElementById('fear-greed-updated');
-  if (!card || !gaugeContainer || !valueEl || !classificationEl || !updatedEl) {
+  if (!card || !gaugeContainer || !valueEl || !classificationEl) {
     return null;
   }
   const fetcher = typeof fetchImpl === 'function' ? fetchImpl : typeof fetch === 'function' ? fetch : null;
@@ -398,10 +449,8 @@ export async function loadFearGreedWidget({ fetchImpl } = {}) {
     const rawValue = Number(payload?.value ?? 0);
     const value = Number.isFinite(rawValue) ? Math.round(rawValue) : 0;
     const classification = String(payload?.classification || '').trim() || 'Indéterminé';
-    const timestamp = typeof payload?.timestamp === 'string' ? payload.timestamp : null;
     valueEl.textContent = String(value);
     classificationEl.textContent = classification;
-    updatedEl.textContent = timestamp ? `Mis à jour : ${timestamp}` : 'Mis à jour : inconnue';
     const gaugeData = { value, classification };
     if (!fearGreedChart) {
       fearGreedChart = await createRadialGauge(gaugeContainer, gaugeData);
@@ -417,7 +466,6 @@ export async function loadFearGreedWidget({ fetchImpl } = {}) {
     console.error(error);
     valueEl.textContent = '0';
     classificationEl.textContent = 'Indisponible';
-    updatedEl.textContent = 'Données indisponibles';
     if (fearGreedChart) {
       await updateRadialGauge(fearGreedChart, { value: 0, classification: 'Indisponible' });
     }
@@ -498,7 +546,33 @@ function renderRows(items) {
       badges += `<span class="badge" title="${extra}">+${cats.length - 3}</span>`;
     }
     const coinId = item.coin_id ?? '';
-    tr.innerHTML = `<td data-label="Actif">${coinId}</td><td data-label="Catégories">${badges.trim()}</td><td data-label="Rank">${item.rank ?? ''}</td><td data-label="Prix">${formatPrice(item.price)}</td><td data-label="Market Cap">${formatNumber(item.market_cap)}</td><td data-label="FDV">${formatNumber(item.fully_diluted_market_cap)}</td><td data-label="Volume 24h">${formatNumber(item.volume_24h)}</td>${renderChangeCell(item.pct_change_24h)}${renderChangeCell(item.pct_change_7d)}${renderChangeCell(item.pct_change_30d)}`;
+    const displayName = formatDisplayName(item);
+    const priceDisplay = formatCompactUsd(item.price) || '';
+    const marketCapDisplay = formatCompactUsd(item.market_cap) || '';
+    const fdvDisplay = formatCompactUsd(item.fully_diluted_market_cap) || '';
+    const volumeDisplay = formatCompactUsd(item.volume_24h) || '';
+    tr.innerHTML = `<td data-label="Actif"></td><td data-label="Catégories">${badges.trim()}</td><td data-label="Rank">${item.rank ?? ''}</td><td data-label="Prix">${priceDisplay}</td><td data-label="Market Cap">${marketCapDisplay}</td><td data-label="FDV">${fdvDisplay}</td><td data-label="Volume 24h">${volumeDisplay}</td>${renderChangeCell(item.pct_change_24h)}${renderChangeCell(item.pct_change_7d)}${renderChangeCell(item.pct_change_30d)}`;
+    const coinCell = tr.querySelector('td');
+    if (coinCell) {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'coin-cell';
+      const logoUrl = typeof item.logo_url === 'string' ? item.logo_url.trim() : '';
+      if (logoUrl) {
+        const img = document.createElement('img');
+        img.className = 'coin-logo';
+        img.src = logoUrl;
+        img.alt = displayName !== '—' ? displayName : coinId || 'Crypto';
+        img.loading = 'lazy';
+        img.width = 24;
+        img.height = 24;
+        wrapper.appendChild(img);
+      }
+      const nameSpan = document.createElement('span');
+      nameSpan.className = 'coin-name';
+      nameSpan.textContent = displayName !== '—' ? displayName : coinId || '—';
+      wrapper.appendChild(nameSpan);
+      coinCell.appendChild(wrapper);
+    }
     const actionCell = document.createElement('td');
     actionCell.setAttribute('data-label', 'Détails');
     if (coinId) {
@@ -506,7 +580,8 @@ function renderRows(items) {
       link.className = 'details-link';
       link.textContent = 'Détails';
       link.href = `./coin.html?coin_id=${encodeURIComponent(coinId)}`;
-      link.setAttribute('aria-label', `Voir les détails pour ${coinId}`);
+      const labelName = displayName !== '—' ? displayName : coinId || 'cet actif';
+      link.setAttribute('aria-label', `Voir les détails pour ${labelName}`);
       actionCell.appendChild(link);
     } else {
       actionCell.textContent = '—';
@@ -624,18 +699,24 @@ export async function loadVersion() {
   el.textContent = `Version: ${appVersion}`;
 }
 
-export function init() {
+export async function init() {
   initThemeToggle('[data-theme-toggle]');
   onThemeChange((theme) => {
     refreshChartsTheme(theme);
   });
   loadVersion();
-  loadCryptos();
-  loadFearGreedWidget().catch((error) => console.error(error));
+  await loadCryptos();
+  try {
+    await loadFearGreedWidget();
+  } catch (error) {
+    console.error(error);
+  }
 }
 
 if (typeof window !== 'undefined') {
-  window.addEventListener('DOMContentLoaded', init);
+  window.addEventListener('DOMContentLoaded', () => {
+    init().catch((error) => console.error(error));
+  });
 }
 
 export const __test__ = {

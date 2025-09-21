@@ -8,11 +8,11 @@ from typing import Iterable
 
 import requests
 
-from ..core.settings import settings
 from ..db import SessionLocal
-from ..seed.fear_greed import DEFAULT_CLASSIFICATION, parse_seed_file
 from .coinmarketcap import CoinMarketCapClient, build_default_client
 from .dao import FearGreedRepo, MetaRepo
+
+DEFAULT_CLASSIFICATION = "Indéterminé"
 
 logger = logging.getLogger(__name__)
 
@@ -71,29 +71,6 @@ def _normalize_entry(entry: dict, ingested_at: dt.datetime) -> dict | None:
         "classification": classification,
         "ingested_at": ingested_at,
     }
-
-
-def _seed_if_needed(repo: FearGreedRepo, now: dt.datetime) -> int:
-    if repo.count() > 0:
-        return 0
-    path = settings.FEAR_GREED_SEED_FILE
-    rows = parse_seed_file(path)
-    if not rows:
-        logger.warning("fear & greed seed file empty or missing at %s", path)
-        return 0
-    payload = [
-        {
-            "timestamp": row["timestamp"],
-            "value": int(row["value"]),
-            "classification": str(row["classification"]).strip() or DEFAULT_CLASSIFICATION,
-            "ingested_at": now,
-        }
-        for row in rows
-    ]
-    repo.upsert_many(payload)
-    return len(payload)
-
-
 def _ingest_history(
     repo: FearGreedRepo,
     entries: Iterable[dict],
@@ -130,7 +107,6 @@ def sync_fear_greed_index(
     timestamp_now = now or dt.datetime.now(dt.timezone.utc)
     processed = 0
     try:
-        processed += _seed_if_needed(repo, timestamp_now)
         try:
             history = client.get_fear_greed_history()
             processed += _ingest_history(repo, history, timestamp_now)
@@ -152,6 +128,5 @@ def sync_fear_greed_index(
         if managed_session:
             session.close()
     return processed
-
 
 __all__ = ["sync_fear_greed_index", "DEFAULT_CLASSIFICATION"]
