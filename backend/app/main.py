@@ -28,9 +28,10 @@ from .core.version import get_version
 from .db import Base, engine, get_session
 from .etl.run import DataUnavailable, load_seed, run_etl
 from .schemas.version import VersionResponse
+from .models import FearGreed
 from .services.budget import CallBudget
 from .services.dao import PricesRepo, MetaRepo, CoinsRepo, FearGreedRepo
-from .services.fear_greed import sync_fear_greed_index
+from .services.fear_greed import DEFAULT_CLASSIFICATION, sync_fear_greed_index
 from .services.markets_cache import MarketsCache
 from .services.serialization import serialize_price
 
@@ -110,6 +111,25 @@ def _parse_fng_timestamp(raw: object) -> dt.datetime:
                     dt.timezone.utc
                 )
     return dt.datetime.min.replace(tzinfo=dt.timezone.utc)
+
+
+def _serialize_fng_row(row: FearGreed | None) -> dict[str, object] | None:
+    if row is None or row.timestamp is None:
+        return None
+    timestamp = row.timestamp
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.replace(tzinfo=dt.timezone.utc)
+    else:
+        timestamp = timestamp.astimezone(dt.timezone.utc)
+    value = row.value if row.value is not None else 0
+    classification = (
+        str(row.classification).strip() if row.classification is not None else ""
+    ) or DEFAULT_CLASSIFICATION
+    return {
+        "timestamp": timestamp.isoformat(),
+        "score": int(value),
+        "label": classification,
+    }
 
 @app.get("/api/markets/top")
 def markets_top(
@@ -224,30 +244,54 @@ def coin_categories(coin_id: str, session: Session = Depends(get_session)) -> di
 
 
 @app.get("/api/fng/latest")
-def fng_latest(client: CoinMarketCapFearGreedClient = Depends(get_fng_client)) -> dict:
-    """Return the latest Fear & Greed datapoint from CoinMarketCap."""
+def fng_latest(
+    client: CoinMarketCapFearGreedClient = Depends(get_fng_client),
+    session: Session = Depends(get_session),
+) -> dict:
+    """Return the latest Fear & Greed datapoint with graceful degradation."""
 
+    latest_error: requests.RequestException | None = None
     try:
         latest = client.get_latest()
     except requests.RequestException as exc:
         logger.warning("fear & greed latest fetch failed: %s", exc)
+        latest_error = exc
         latest = None
     if latest:
         return latest
+
+    history_error: requests.RequestException | None = None
+    fallback_point: dict[str, object] | None = None
     try:
         history = client.get_historical(limit=1)
     except requests.RequestException as exc:
         logger.error("fear & greed fallback fetch failed: %s", exc)
-        raise HTTPException(status_code=502, detail="fear & greed data unavailable") from exc
-    if not history:
-        raise HTTPException(status_code=502, detail="fear & greed data unavailable")
-    return history[-1]
+        history_error = exc
+    else:
+        if history:
+            fallback_point = history[-1]
+    if fallback_point:
+        return fallback_point
+
+    repo = FearGreedRepo(session)
+    cached = _serialize_fng_row(repo.get_latest())
+    if cached is not None:
+        logger.info("fear & greed latest served from database cache")
+        return cached
+
+    detail = "fear & greed data unavailable"
+    if history_error is not None:
+        raise HTTPException(status_code=502, detail=detail) from history_error
+    if latest_error is not None:
+        raise HTTPException(status_code=502, detail=detail) from latest_error
+    raise HTTPException(status_code=502, detail=detail)
 
 
 @app.get("/api/fng/history")
 def fng_history(
     days: int | None = Query(None),
     client: CoinMarketCapFearGreedClient = Depends(get_fng_client),
+    session: Session = Depends(get_session),
 ) -> dict:
     """Return historical Fear & Greed datapoints sorted chronologically."""
 
@@ -259,13 +303,31 @@ def fng_history(
             raise HTTPException(status_code=400, detail="invalid days parameter") from None
         if limit <= 0:
             raise HTTPException(status_code=400, detail="days must be positive")
+
+    fetch_error: requests.RequestException | None = None
+    ordered: list[dict[str, object]] = []
     try:
         points = client.get_historical(limit=limit)
     except requests.RequestException as exc:
         logger.error("fear & greed history fetch failed: %s", exc)
-        raise HTTPException(status_code=502, detail="fear & greed history unavailable") from exc
+        fetch_error = exc
+        points = []
     filtered = [point for point in points if isinstance(point, dict)]
-    ordered = sorted(filtered, key=lambda item: _parse_fng_timestamp(item.get("timestamp")))
+    if filtered:
+        ordered = sorted(
+            filtered, key=lambda item: _parse_fng_timestamp(item.get("timestamp"))
+        )
+    if not ordered:
+        repo = FearGreedRepo(session)
+        rows = repo.get_history()
+        if limit is not None and limit > 0:
+            rows = rows[-limit:]
+        cached_points = [_serialize_fng_row(row) for row in rows]
+        ordered = [point for point in cached_points if point is not None]
+        if ordered:
+            logger.info("fear & greed history served from database cache", extra={"count": len(ordered)})
+    if not ordered and fetch_error is not None:
+        raise HTTPException(status_code=502, detail="fear & greed history unavailable") from fetch_error
     return {"days": limit, "points": ordered}
 
 
