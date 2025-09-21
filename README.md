@@ -218,6 +218,7 @@ Runtime behaviour can be tweaked with environment variables:
 - `USE_SEED_ON_FAILURE` – fall back to the bundled seed data when live ETL fails (default: `true`).
 - `SEED_FILE` – path to the seed data used when `USE_SEED_ON_FAILURE` is enabled (default: `./backend/app/seed/top20.json`).
 - `LOG_LEVEL` – base logging level for application and Uvicorn loggers (default: `INFO`). Accepts an integer or one of `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`, `FATAL`, `NOTSET`. Unknown values fall back to `INFO` with a warning. Use `UVICORN_LOG_LEVEL` or `--log-level` to override the server log level separately.
+- `STATIC_ROOT` – absolute or repository-relative path to the directory containing the static frontend assets. By default FastAPI resolves `backend/app/main.py` two levels up to serve `frontend/`, which means you can start Uvicorn from any working directory. Override this when a deployment copies the assets elsewhere (for example to `/opt/tokenlysis/assets-statiques`).
 
 #### Persistence (NAS)
 
