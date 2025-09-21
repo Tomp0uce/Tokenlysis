@@ -79,6 +79,10 @@ class Settings(BaseSettings):
     BUDGET_FILE: str | None = None
     DATABASE_URL: str | None = None
     SEED_FILE: str = "./backend/app/seed/top20.json"
+    CMC_API_KEY: str | None = None
+    CMC_BASE_URL: str | None = None
+    CMC_THROTTLE_MS: int = 1000
+    FEAR_GREED_SEED_FILE: str = "./crypto_fear_greed_index_data.txt"
     use_seed_on_failure: bool = Field(
         default=True, description="Use seed data when ETL fails"
     )
@@ -109,6 +113,7 @@ class Settings(BaseSettings):
         "CG_THROTTLE_MS",
         "CG_MONTHLY_QUOTA",
         "CG_PER_PAGE_MAX",
+        "CMC_THROTTLE_MS",
         mode="before",
     )
     @classmethod
@@ -129,7 +134,7 @@ class Settings(BaseSettings):
             return int(s)
         return s.upper()
 
-    @field_validator("COINGECKO_API_KEY", "coingecko_api_key", mode="before")
+    @field_validator("COINGECKO_API_KEY", "coingecko_api_key", "CMC_API_KEY", mode="before")
     @classmethod
     def _empty_api_key(cls, v: Any) -> Any:
         if isinstance(v, str):

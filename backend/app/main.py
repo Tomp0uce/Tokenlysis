@@ -21,7 +21,8 @@ from .db import Base, engine, get_session
 from .etl.run import DataUnavailable, load_seed, run_etl
 from .schemas.version import VersionResponse
 from .services.budget import CallBudget
-from .services.dao import PricesRepo, MetaRepo, CoinsRepo
+from .services.dao import PricesRepo, MetaRepo, CoinsRepo, FearGreedRepo
+from .services.fear_greed import sync_fear_greed_index
 
 logger = logging.getLogger(__name__)
 logger.setLevel(settings.log_level or "INFO")
@@ -56,6 +57,12 @@ RANGE_TO_DELTA: dict[str, dt.timedelta] = {
     "1y": dt.timedelta(days=365),
     "2y": dt.timedelta(days=730),
     "5y": dt.timedelta(days=1825),
+}
+
+FEAR_GREED_RANGE_TO_DELTA: dict[str, dt.timedelta] = {
+    "30d": dt.timedelta(days=30),
+    "90d": dt.timedelta(days=90),
+    "1y": dt.timedelta(days=365),
 }
 
 
@@ -179,6 +186,59 @@ def coin_categories(coin_id: str, session: Session = Depends(get_session)) -> di
     coins_repo = CoinsRepo(session)
     names, ids = coins_repo.get_categories(coin_id)
     return {"category_names": names, "category_ids": ids}
+
+
+@app.get("/api/fear-greed/latest")
+def fear_greed_latest(session: Session = Depends(get_session)) -> dict:
+    """Return the most recent Crypto Fear & Greed datapoint."""
+
+    repo = FearGreedRepo(session)
+    row = repo.get_latest()
+    if row is None:
+        raise HTTPException(status_code=404)
+    timestamp = row.timestamp
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.replace(tzinfo=dt.timezone.utc)
+    else:
+        timestamp = timestamp.astimezone(dt.timezone.utc)
+    return {
+        "timestamp": timestamp.isoformat(),
+        "value": row.value,
+        "classification": row.classification,
+    }
+
+
+@app.get("/api/fear-greed/history")
+def fear_greed_history(
+    range_: str = Query("90d", alias="range"),
+    session: Session = Depends(get_session),
+) -> dict:
+    """Return historical values for the Crypto Fear & Greed index."""
+
+    range_key = (range_ or "max").lower()
+    if range_key != "max" and range_key not in FEAR_GREED_RANGE_TO_DELTA:
+        raise HTTPException(status_code=400, detail="unsupported range")
+    since: dt.datetime | None = None
+    if range_key != "max":
+        delta = FEAR_GREED_RANGE_TO_DELTA[range_key]
+        since = dt.datetime.now(dt.timezone.utc) - delta
+    repo = FearGreedRepo(session)
+    rows = repo.get_history(since)
+    points: list[dict] = []
+    for row in rows:
+        timestamp = row.timestamp
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=dt.timezone.utc)
+        else:
+            timestamp = timestamp.astimezone(dt.timezone.utc)
+        points.append(
+            {
+                "timestamp": timestamp.isoformat(),
+                "value": row.value,
+                "classification": row.classification,
+            }
+        )
+    return {"range": range_key, "points": points}
 
 
 @app.get("/api/diag")
@@ -341,6 +401,11 @@ async def startup() -> None:
         session.commit()
     finally:
         session.close()
+
+    try:
+        sync_fear_greed_index()
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("startup fear & greed sync skipped: %s", exc)
 
     if logger.isEnabledFor(logging.INFO):
         logger.info("startup path: %s", path_taken)

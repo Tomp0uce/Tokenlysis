@@ -17,6 +17,12 @@
   --chart-price: #2563eb;
   --chart-market: #22c55e;
   --chart-volume: #f97316;
+  --chart-sentiment: #6366f1;
+  --fg-extreme-fear: #ef4444;
+  --fg-fear: #f97316;
+  --fg-neutral: #facc15;
+  --fg-greed: #22c55e;
+  --fg-extreme-greed: #0ea5e9;
 }
 
 :root[data-theme='dark'] {
@@ -37,6 +43,12 @@
   --chart-price: #60a5fa;
   --chart-market: #4ade80;
   --chart-volume: #fb923c;
+  --chart-sentiment: #818cf8;
+  --fg-extreme-fear: #f87171;
+  --fg-fear: #fb923c;
+  --fg-neutral: #fde68a;
+  --fg-greed: #86efac;
+  --fg-extreme-greed: #38bdf8;
 }
 
 body {
@@ -156,6 +168,78 @@ a:hover {
   gap: 18px;
 }
 
+.hero-insights {
+  display: grid;
+  gap: 24px;
+}
+
+@media (min-width: 960px) {
+  .hero-insights {
+    grid-template-columns: minmax(0, 1fr) minmax(240px, 320px);
+    align-items: stretch;
+  }
+}
+
+.sentiment-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 22px;
+  border-radius: 24px;
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-card);
+  box-shadow: var(--shadow-soft);
+  text-decoration: none;
+  color: inherit;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.sentiment-card:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-strong);
+}
+
+.sentiment-card:focus-visible {
+  outline: 3px solid rgba(37, 99, 235, 0.35);
+  outline-offset: 4px;
+}
+
+.sentiment-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.sentiment-card-header span {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.sentiment-card-header strong {
+  font-size: 2.2rem;
+  font-weight: 700;
+}
+
+.sentiment-gauge {
+  min-height: 220px;
+  width: 100%;
+}
+
+.sentiment-classification {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.sentiment-updated {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-top: auto;
+}
+
 .summary-card {
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid var(--border-subtle);
@@ -192,6 +276,29 @@ a:hover {
   display: flex;
   flex-direction: column;
   gap: 18px;
+}
+
+.sentiment-panel {
+  background: var(--surface-card);
+  border-radius: 24px;
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-soft);
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.sentiment-layout {
+  display: grid;
+  gap: 24px;
+}
+
+@media (min-width: 1024px) {
+  .sentiment-layout {
+    grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+    align-items: stretch;
+  }
 }
 
 .panel-header {

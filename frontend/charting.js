@@ -5,6 +5,14 @@ const USD_SUFFIXES = [
   { value: 1_000, suffix: 'kUSD' },
 ];
 
+const FEAR_GREED_BANDS = [
+  { max: 24, cssVar: '--fg-extreme-fear', fallback: '#dc2626' },
+  { max: 44, cssVar: '--fg-fear', fallback: '#f97316' },
+  { max: 54, cssVar: '--fg-neutral', fallback: '#facc15' },
+  { max: 74, cssVar: '--fg-greed', fallback: '#22c55e' },
+  { max: 100, cssVar: '--fg-extreme-greed', fallback: '#0ea5e9' },
+];
+
 const trackedCharts = new Map();
 
 function readCssVariable(name) {
@@ -16,6 +24,36 @@ function readCssVariable(name) {
   }
   const value = window.getComputedStyle(document.documentElement).getPropertyValue(name);
   return value ? value.trim() : '';
+}
+
+function clampPercent(value) {
+  if (value === null || value === undefined) {
+    return 0;
+  }
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return 0;
+  }
+  return Math.min(100, Math.max(0, numeric));
+}
+
+function gaugePalette(value) {
+  const percent = clampPercent(value);
+  const band = FEAR_GREED_BANDS.find((entry) => percent <= entry.max) || FEAR_GREED_BANDS[FEAR_GREED_BANDS.length - 1];
+  const color = readCssVariable(band.cssVar) || band.fallback;
+  return { color, cssVar: band.cssVar, value: percent };
+}
+
+function trackChart(chart, metadata) {
+  trackedCharts.set(chart, metadata);
+}
+
+function updateTrackedChart(chart, updates) {
+  if (!trackedCharts.has(chart)) {
+    return;
+  }
+  const current = trackedCharts.get(chart) || {};
+  trackedCharts.set(chart, { ...current, ...updates });
 }
 
 export function formatCompactUsd(value) {
@@ -144,37 +182,135 @@ export async function createAreaChart(element, { name, categories, data, colorVa
   }
   const options = baseAreaOptions({ name, categories, data, colorVar, xAxisType });
   const chart = new window.ApexCharts(element, options);
-  trackedCharts.set(chart, colorVar || '--chart-primary');
+  trackChart(chart, { type: 'area', colorVar: colorVar || '--chart-primary' });
   await chart.render();
   return chart;
+}
+
+function gaugeOptions(value, classification) {
+  const palette = gaugePalette(value);
+  const theme = document?.documentElement?.dataset?.theme || 'light';
+  return {
+    chart: {
+      type: 'radialBar',
+      height: 260,
+      animations: { easing: 'easeinout', speed: 500 },
+      fontFamily: 'Inter, "Segoe UI", sans-serif',
+    },
+    series: [clampPercent(value)],
+    labels: [classification],
+    colors: [palette.color],
+    fill: buildGradient(palette.color),
+    stroke: { lineCap: 'round' },
+    plotOptions: {
+      radialBar: {
+        startAngle: -120,
+        endAngle: 120,
+        hollow: {
+          size: '58%',
+          background: 'transparent',
+        },
+        track: {
+          background: 'rgba(148, 163, 184, 0.15)',
+          strokeWidth: '80%',
+        },
+        dataLabels: {
+          name: {
+            fontSize: '0.9rem',
+            offsetY: 70,
+            color: readCssVariable('--text-muted') || '#64748b',
+          },
+          value: {
+            formatter: (val) => `${Math.round(val)}`,
+            fontSize: '2.4rem',
+            fontWeight: 700,
+            offsetY: -10,
+            color: readCssVariable('--text-primary') || '#0f172a',
+          },
+        },
+      },
+    },
+    tooltip: {
+      enabled: false,
+    },
+    theme: { mode: theme === 'dark' ? 'dark' : 'light' },
+  };
+}
+
+export async function createRadialGauge(element, { value = 0, classification = '' } = {}) {
+  if (!element) {
+    throw new Error('Chart container is required');
+  }
+  if (typeof window === 'undefined' || !window.ApexCharts) {
+    throw new Error('ApexCharts is unavailable');
+  }
+  const label = String(classification || '').trim() || 'Indéterminé';
+  const chart = new window.ApexCharts(element, gaugeOptions(value, label));
+  trackChart(chart, { type: 'gauge', value: clampPercent(value), classification: label });
+  await chart.render();
+  return chart;
+}
+
+export async function updateRadialGauge(chart, { value = 0, classification = '' } = {}) {
+  if (!chart) {
+    return;
+  }
+  const label = String(classification || '').trim() || 'Indéterminé';
+  const palette = gaugePalette(value);
+  updateTrackedChart(chart, { type: 'gauge', value: clampPercent(value), classification: label });
+  await chart.updateOptions(
+    {
+      labels: [label],
+      colors: [palette.color],
+      fill: buildGradient(palette.color),
+      series: [clampPercent(value)],
+    },
+    false,
+    true,
+  );
 }
 
 export async function refreshChartsTheme(theme) {
   const normalized = theme === 'dark' ? 'dark' : 'light';
   const updates = [];
-  trackedCharts.forEach((colorVar, chart) => {
-    const palette = basePalette(colorVar);
-    updates.push(
-      chart.updateOptions(
-        {
-          theme: { mode: normalized },
-          colors: [palette.primary],
-          fill: buildGradient(palette.primary),
-          xaxis: {
-            labels: { style: { colors: palette.muted } },
-            axisBorder: { color: palette.border },
-            axisTicks: { color: palette.border },
+  trackedCharts.forEach((metadata, chart) => {
+    if (metadata?.type === 'area') {
+      const palette = basePalette(metadata.colorVar);
+      updates.push(
+        chart.updateOptions(
+          {
+            theme: { mode: normalized },
+            colors: [palette.primary],
+            fill: buildGradient(palette.primary),
+            xaxis: {
+              labels: { style: { colors: palette.muted } },
+              axisBorder: { color: palette.border },
+              axisTicks: { color: palette.border },
+            },
+            yaxis: {
+              labels: { style: { colors: palette.muted } },
+            },
+            grid: { borderColor: palette.border },
+            tooltip: { theme: normalized },
           },
-          yaxis: {
-            labels: { style: { colors: palette.muted } },
+          false,
+          true,
+        ),
+      );
+    } else if (metadata?.type === 'gauge') {
+      const palette = gaugePalette(metadata.value ?? 0);
+      updates.push(
+        chart.updateOptions(
+          {
+            labels: [metadata.classification || ''],
+            colors: [palette.color],
+            fill: buildGradient(palette.color),
           },
-          grid: { borderColor: palette.border },
-          tooltip: { theme: normalized },
-        },
-        false,
-        true,
-      ),
-    );
+          false,
+          true,
+        ),
+      );
+    }
   });
   await Promise.allSettled(updates);
 }
@@ -191,7 +327,8 @@ export function destroyTrackedCharts() {
 }
 
 export const __test__ = {
-  getTrackedCharts: () => Array.from(trackedCharts.entries()).map(([chart, colorVar]) => ({ chart, colorVar })),
+  getTrackedCharts: () =>
+    Array.from(trackedCharts.entries()).map(([chart, metadata]) => ({ chart, metadata })),
   baseAreaOptions,
   basePalette,
 };

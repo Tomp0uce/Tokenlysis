@@ -6,12 +6,12 @@ import datetime as dt
 from typing import Iterable
 import logging
 
-from sqlalchemy import select, insert
+from sqlalchemy import select, insert, func
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.dialects.sqlite import insert as sqlite_upsert
 from sqlalchemy.orm import Session
 
-from ..models import Coin, LatestPrice, Meta, Price
+from ..models import Coin, LatestPrice, Meta, Price, FearGreed
 
 logger = logging.getLogger(__name__)
 
@@ -191,4 +191,51 @@ class MetaRepo:
         self.session.execute(stmt)
 
 
-__all__ = ["PricesRepo", "MetaRepo", "CoinsRepo"]
+class FearGreedRepo:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    @staticmethod
+    def _ensure_utc(row: FearGreed | None) -> FearGreed | None:
+        if row is not None and row.timestamp is not None and row.timestamp.tzinfo is None:
+            row.timestamp = row.timestamp.replace(tzinfo=dt.timezone.utc)
+        return row
+
+    def count(self) -> int:
+        stmt = select(func.count()).select_from(FearGreed)
+        return int(self.session.scalar(stmt) or 0)
+
+    def get_latest(self) -> FearGreed | None:
+        stmt = select(FearGreed).order_by(FearGreed.timestamp.desc()).limit(1)
+        row = self.session.scalar(stmt)
+        return self._ensure_utc(row)
+
+    def get_history(
+        self, since: dt.datetime | None = None
+    ) -> list[FearGreed]:
+        stmt = select(FearGreed)
+        if since is not None:
+            stmt = stmt.where(FearGreed.timestamp >= since)
+        stmt = stmt.order_by(FearGreed.timestamp)
+        rows = list(self.session.scalars(stmt))
+        for row in rows:
+            self._ensure_utc(row)
+        return rows
+
+    def upsert_many(self, rows: Iterable[dict]) -> None:
+        buffered = list(rows)
+        if not buffered:
+            return
+        stmt = sqlite_upsert(FearGreed).values(buffered)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=[FearGreed.timestamp],
+            set_={
+                "value": stmt.excluded.value,
+                "classification": stmt.excluded.classification,
+                "ingested_at": stmt.excluded.ingested_at,
+            },
+        )
+        self.session.execute(stmt)
+
+
+__all__ = ["PricesRepo", "MetaRepo", "CoinsRepo", "FearGreedRepo"]

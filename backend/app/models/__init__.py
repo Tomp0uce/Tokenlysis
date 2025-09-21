@@ -69,4 +69,17 @@ class Meta(Base):
     value: Mapped[str] = mapped_column(String, nullable=False)
 
 
-__all__ = ["Coin", "LatestPrice", "Price", "Meta"]
+class FearGreed(Base):
+    __tablename__ = "fear_greed_index"
+
+    timestamp: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), primary_key=True
+    )
+    value: Mapped[int] = mapped_column(Integer, nullable=False)
+    classification: Mapped[str] = mapped_column(String(64), nullable=False)
+    ingested_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (Index("ix_fear_greed_timestamp", "timestamp"),)
+
+
+__all__ = ["Coin", "LatestPrice", "Price", "Meta", "FearGreed"]

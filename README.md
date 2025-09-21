@@ -17,6 +17,7 @@ The long-term roadmap is to analyse more than 1,000 assets with additional thema
 - **Refresh cadence** – background ETL runs every 12 hours (configurable with `REFRESH_GRANULARITY`).
 - **Persistence** – SQLite keeps the latest market snapshot (`latest_prices`), historical snapshots (`prices`) and service metadata (`meta`).
 - **Categories** – CoinGecko categories are cached per asset and refreshed every 24 hours.
+- **Sentiment** – Crypto Fear & Greed index seeded from bundled history and refreshed via the CoinMarketCap API.
 - **Seed fallback** – when live data is unavailable the startup sequence loads a bundled seed fallback (`backend/app/seed/top20.json`) if `USE_SEED_ON_FAILURE` is enabled.
 - **CoinGecko budget** – optional persisted call counter throttles requests according to `CG_MONTHLY_QUOTA`.
 
@@ -27,6 +28,8 @@ The long-term roadmap is to analyse more than 1,000 assets with additional thema
 | `GET /api/markets/top` | Latest market snapshots limited to ``limit`` (clamped to ``[1, CG_TOP_N]``) for the `usd` quote. |
 | `GET /api/price/{coin_id}` | Latest market snapshot for a single asset or `404` when unknown. |
 | `GET /api/coins/{coin_id}/categories` | Cached CoinGecko category names and identifiers for an asset. |
+| `GET /api/fear-greed/latest` | Most recent Crypto Fear & Greed datapoint with classification, or `404` when unavailable. |
+| `GET /api/fear-greed/history` | Historical values filtered by `range` (`30d`, `90d`, `1y`, `max`). |
 | `GET /api/diag` | Operational diagnostics: CoinGecko plan, effective base URL, refresh interval, last ETL metadata, coin quota usage and data source. |
 | `GET /api/last-refresh` | Shortcut exposing the most recent ETL timestamp. |
 | `GET /healthz` / `GET /readyz` | Liveness and readiness endpoints used by container health checks. |
@@ -38,8 +41,10 @@ The long-term roadmap is to analyse more than 1,000 assets with additional thema
 - Static HTML + vanilla JavaScript served from ``/`` by FastAPI.
 - Fetches `/api/markets/top?limit=20&vs=usd` on load and renders a sortable table.
 - Displays CoinGecko categories as badges with overflow counters beyond three categories.
+- Shows the daily Crypto Fear & Greed gauge linking to a dedicated sentiment page.
 - Queries `/api/diag` to display a banner whenever the service runs on the CoinGecko demo plan.
 - Includes a retry affordance on fetch errors and shows the last refresh timestamp and data source.
+- A dedicated `fear-greed.html` view renders the gauge and historical chart with range selection (`30d`, `90d`, `1y`, `max`).
 
 ## Asset Intelligence Reference
 
@@ -192,6 +197,10 @@ Runtime behaviour can be tweaked with environment variables:
 - `COINGECKO_BASE_URL` – override for the CoinGecko API endpoint (defaults to the public or pro URL based on `COINGECKO_PLAN`).
 - `COINGECKO_API_KEY` / `coingecko_api_key` – optional API key for CoinGecko.
 - `COINGECKO_PLAN` – `demo` (default) or `pro` to select the API header name.
+- `CMC_API_KEY` – CoinMarketCap API key used to refresh the Crypto Fear & Greed index (optional).
+- `CMC_BASE_URL` – override for the CoinMarketCap API endpoint (default: `https://pro-api.coinmarketcap.com`).
+- `CMC_THROTTLE_MS` – minimum delay in milliseconds between CoinMarketCap requests (default: `1000`).
+- `FEAR_GREED_SEED_FILE` – path to the historical seed file for the Crypto Fear & Greed index (default: `./crypto_fear_greed_index_data.txt`).
 - `BUDGET_FILE` – path to the persisted CoinGecko call budget JSON file.
 - `DATABASE_URL` – SQLAlchemy database URL (defaults to `sqlite:///./tokenlysis.db`).
 - `USE_SEED_ON_FAILURE` – fall back to the bundled seed data when live ETL fails (default: `true`).
