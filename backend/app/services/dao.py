@@ -3,18 +3,49 @@
 from __future__ import annotations
 
 import datetime as dt
-from typing import Iterable
+from typing import Iterable, Sequence
 import logging
 import json
 
 from sqlalchemy import select, insert, func
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.dialects.sqlite import insert as sqlite_upsert
+from sqlalchemy.dialects.postgresql import insert as postgres_upsert
 from sqlalchemy.orm import Session
+from sqlalchemy.sql import Insert
 
 from ..models import Coin, LatestPrice, Meta, Price, FearGreed
 
 logger = logging.getLogger(__name__)
+
+
+def _detect_dialect(session: Session) -> str:
+    """Return the current session dialect name in lowercase."""
+
+    bind = getattr(session, "bind", None)
+    if bind is None:
+        try:
+            bind = session.get_bind()
+        except Exception as exc:  # pragma: no cover - defensive
+            raise RuntimeError("session is not bound to an engine") from exc
+    dialect = getattr(bind, "dialect", None)
+    if dialect is None or not getattr(dialect, "name", None):
+        raise RuntimeError("session bind has no dialect information")
+    return str(dialect.name).lower()
+
+
+def _upsert(session: Session, model, rows: Sequence[dict]) -> Insert:  # type: ignore[type-arg]
+    """Build an insert statement suited for the session dialect."""
+
+    dialect_name = _detect_dialect(session)
+    if dialect_name == "sqlite":
+        return sqlite_upsert(model).values(list(rows))
+    if dialect_name in {"postgresql", "postgres"}:
+        return postgres_upsert(model).values(list(rows))
+    raise NotImplementedError(
+        f"Unsupported database dialect '{dialect_name}'. "
+        "Upsert statements are implemented only for SQLite and PostgreSQL."
+    )
 
 
 class PricesRepo:
@@ -46,9 +77,10 @@ class PricesRepo:
         return list(self.session.scalars(stmt))
 
     def upsert_latest(self, rows: Iterable[dict]) -> None:
-        if not rows:
+        buffered = list(rows)
+        if not buffered:
             return
-        stmt = sqlite_upsert(LatestPrice).values(list(rows))
+        stmt = _upsert(self.session, LatestPrice, buffered)
         stmt = stmt.on_conflict_do_update(
             index_elements=[LatestPrice.coin_id, LatestPrice.vs_currency],
             set_={
@@ -100,9 +132,10 @@ class CoinsRepo:
         return details
 
     def upsert(self, rows: Iterable[dict]) -> None:
-        if not rows:
+        buffered = list(rows)
+        if not buffered:
             return
-        stmt = sqlite_upsert(Coin).values(list(rows))
+        stmt = _upsert(self.session, Coin, buffered)
         stmt = stmt.on_conflict_do_update(
             index_elements=[Coin.id],
             set_={
@@ -214,7 +247,7 @@ class MetaRepo:
         return self.session.scalar(stmt)
 
     def set(self, key: str, value: str) -> None:
-        stmt = sqlite_upsert(Meta).values({"key": key, "value": value})
+        stmt = _upsert(self.session, Meta, [{"key": key, "value": value}])
         stmt = stmt.on_conflict_do_update(
             index_elements=[Meta.key], set_={"value": value}
         )
@@ -256,7 +289,7 @@ class FearGreedRepo:
         buffered = list(rows)
         if not buffered:
             return
-        stmt = sqlite_upsert(FearGreed).values(buffered)
+        stmt = _upsert(self.session, FearGreed, buffered)
         stmt = stmt.on_conflict_do_update(
             index_elements=[FearGreed.timestamp],
             set_={
