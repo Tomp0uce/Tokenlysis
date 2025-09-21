@@ -4,6 +4,11 @@ const API_URL = hasDocument
   : '';
 const API_BASE = API_URL.endsWith('/') ? API_URL.slice(0, -1) : API_URL;
 const STATUS_CLASSES = ['status-ok', 'status-warn', 'status-error', 'status-unknown'];
+const STATUS_PRIORITY = { unknown: 0, ok: 1, warn: 2, error: 3 };
+const CATEGORY_REASON_LABELS = {
+  missing_categories: 'Catégories manquantes',
+  stale_timestamp: 'Horodatage obsolète',
+};
 
 function toFiniteNumber(value) {
   if (value === null || value === undefined) {
@@ -59,6 +64,15 @@ function classifyBudgetRatio(ratio) {
   return 'error';
 }
 
+function mergeStatus(current, candidate) {
+  const currentPriority = STATUS_PRIORITY[current] ?? 0;
+  const candidatePriority = STATUS_PRIORITY[candidate] ?? 0;
+  if (candidatePriority > currentPriority) {
+    return candidate;
+  }
+  return current || 'unknown';
+}
+
 export function evaluateRatios(diag) {
   const etlRatio = computeRatio(diag?.last_etl_items, diag?.top_n);
   const budgetRatio = computeRatio(diag?.monthly_call_count, diag?.quota);
@@ -71,6 +85,33 @@ export function evaluateRatios(diag) {
       ratio: budgetRatio,
       status: classifyBudgetRatio(budgetRatio),
     },
+  };
+}
+
+export function summarizeCategoryIssues(items) {
+  const entries = Array.isArray(items) ? items : [];
+  let missing = 0;
+  let stale = 0;
+  let both = 0;
+  for (const entry of entries) {
+    const reasons = Array.isArray(entry?.reasons) ? entry.reasons : [];
+    const hasMissing = reasons.includes('missing_categories');
+    const hasStale = reasons.includes('stale_timestamp');
+    if (hasMissing) {
+      missing += 1;
+    }
+    if (hasStale) {
+      stale += 1;
+    }
+    if (hasMissing && hasStale) {
+      both += 1;
+    }
+  }
+  return {
+    total: entries.length,
+    missing,
+    stale,
+    both,
   };
 }
 
@@ -338,6 +379,52 @@ function renderMarketMeta(market, diag, nowMs = Date.now()) {
   return freshness;
 }
 
+function updateCategoryIssuesList(items) {
+  if (!hasDocument) {
+    return;
+  }
+  const list = document.getElementById('category-issues-list');
+  if (!list) {
+    return;
+  }
+  list.innerHTML = '';
+  if (!Array.isArray(items) || items.length === 0) {
+    const li = document.createElement('li');
+    li.textContent = 'Aucun écart détecté';
+    list.appendChild(li);
+    return;
+  }
+  for (const item of items) {
+    const li = document.createElement('li');
+    const coinId = item?.coin_id ?? 'inconnu';
+    const names = Array.isArray(item?.category_names) ? item.category_names : [];
+    const reasons = Array.isArray(item?.reasons) ? item.reasons : [];
+    const labels = reasons.map((reason) => CATEGORY_REASON_LABELS[reason] || reason);
+    const updatedAt = typeof item?.updated_at === 'string' && item.updated_at.trim()
+      ? item.updated_at
+      : 'inconnue';
+    const categoriesText = names.length > 0 ? `catégories : ${names.join(', ')}` : 'aucune catégorie';
+    const reasonsText = labels.length > 0 ? labels.join(', ') : 'raisons inconnues';
+    li.textContent = `${coinId} — ${reasonsText} — ${categoriesText} — mise à jour : ${updatedAt}`;
+    list.appendChild(li);
+  }
+}
+
+function renderCategoryDiagnostics(payload) {
+  const items = Array.isArray(payload?.items) ? payload.items : [];
+  const summary = summarizeCategoryIssues(items);
+  updateTextElement('category-generated-at', payload?.generated_at);
+  const thresholdHours = toFiniteNumber(payload?.stale_after_hours);
+  const thresholdText = thresholdHours === null ? '—' : formatHours(thresholdHours);
+  updateTextElement('category-threshold', thresholdText);
+  updateNumberElement('category-issue-count', summary.total);
+  updateNumberElement('category-missing-count', summary.missing);
+  updateNumberElement('category-stale-count', summary.stale);
+  updateNumberElement('category-both-count', summary.both);
+  updateCategoryIssuesList(items);
+  return summary;
+}
+
 async function fetchDiag() {
   const prefix = API_BASE || '';
   const response = await fetch(`${prefix}/diag`, {
@@ -352,6 +439,17 @@ async function fetchDiag() {
 async function fetchMarketMeta() {
   const prefix = API_BASE || '';
   const response = await fetch(`${prefix}/markets/top?limit=1`, {
+    headers: { 'Accept': 'application/json' },
+  });
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+  return response.json();
+}
+
+async function fetchCategoryDiagnostics() {
+  const prefix = API_BASE || '';
+  const response = await fetch(`${prefix}/debug/categories`, {
     headers: { 'Accept': 'application/json' },
   });
   if (!response.ok) {
@@ -377,21 +475,43 @@ export async function loadDiagnostics() {
       console.error('fetchMarketMeta failed', error);
     }
     const freshness = renderMarketMeta(market, diag, Date.now());
-    let status = 'ok';
-    let message = 'Diagnostics chargés';
-    if (marketError) {
-      status = 'warn';
-      message = 'Diagnostics chargés (métadonnées marchés indisponibles)';
-    } else if (freshness.status === 'error') {
-      status = 'error';
-      message = 'Diagnostics chargés (rafraîchissement en retard)';
-    } else if (freshness.status === 'warn') {
-      status = 'warn';
-      message = 'Diagnostics chargés (rafraîchissement à surveiller)';
-    } else if (freshness.status === 'unknown') {
-      status = 'warn';
-      message = 'Diagnostics chargés (rafraîchissement indéterminé)';
+    let categoryPayload = null;
+    let categoryError = null;
+    try {
+      categoryPayload = await fetchCategoryDiagnostics();
+    } catch (error) {
+      categoryError = error;
+      console.error('fetchCategoryDiagnostics failed', error);
     }
+    const categorySummary = renderCategoryDiagnostics(categoryPayload);
+
+    let status = 'ok';
+    const notes = [];
+    if (marketError) {
+      status = mergeStatus(status, 'warn');
+      notes.push('métadonnées marchés indisponibles');
+    } else if (freshness.status === 'error') {
+      status = mergeStatus(status, 'error');
+      notes.push('rafraîchissement en retard');
+    } else if (freshness.status === 'warn') {
+      status = mergeStatus(status, 'warn');
+      notes.push('rafraîchissement à surveiller');
+    } else if (freshness.status === 'unknown') {
+      status = mergeStatus(status, 'warn');
+      notes.push('rafraîchissement indéterminé');
+    }
+
+    if (categoryError) {
+      status = mergeStatus(status, 'warn');
+      notes.push('diagnostic catégories indisponible');
+    } else if (categorySummary.total > 0) {
+      status = mergeStatus(status, 'warn');
+      notes.push('catégories à mettre à jour');
+    }
+
+    const message = notes.length > 0
+      ? `Diagnostics chargés (${notes.join(' ; ')})`
+      : 'Diagnostics chargés';
     setStatusMessage(message, status);
   } catch (error) {
     console.error('loadDiagnostics failed', error);

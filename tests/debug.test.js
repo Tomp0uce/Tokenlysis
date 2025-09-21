@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { evaluateRatios, evaluateFreshness } from '../frontend/debug.js';
+import { evaluateRatios, evaluateFreshness, summarizeCategoryIssues } from '../frontend/debug.js';
 
 function closeTo(value, expected, epsilon = 1e-6) {
   assert.ok(Math.abs(value - expected) <= epsilon, `${value} not within ${epsilon} of ${expected}`);
@@ -99,4 +99,18 @@ test('evaluateFreshness handles invalid timestamps gracefully', () => {
   assert.equal(metrics.differenceHours, null);
   assert.equal(metrics.ratio, null);
   assert.equal(metrics.status, 'unknown');
+});
+
+test('summarizeCategoryIssues tallies missing and stale diagnostics', () => {
+  const summary = summarizeCategoryIssues([
+    { coin_id: 'a', reasons: ['missing_categories'] },
+    { coin_id: 'b', reasons: ['stale_timestamp'] },
+    { coin_id: 'c', reasons: ['missing_categories', 'stale_timestamp'] },
+    { coin_id: 'd', reasons: [] },
+  ]);
+
+  assert.equal(summary.total, 4);
+  assert.equal(summary.missing, 2);
+  assert.equal(summary.stale, 2);
+  assert.equal(summary.both, 1);
 });

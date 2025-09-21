@@ -237,6 +237,65 @@ class CoinsRepo:
             ts = ts.replace(tzinfo=dt.timezone.utc)
         return names, ids, ts
 
+    def list_category_issues(
+        self,
+        *,
+        now: dt.datetime | None = None,
+        stale_after: dt.timedelta = dt.timedelta(hours=24),
+    ) -> list[dict[str, object]]:
+        """Return coins with empty categories or outdated timestamps."""
+
+        try:
+            rows = self.session.execute(
+                select(Coin.id, Coin.category_names, Coin.updated_at)
+            ).all()
+        except OperationalError as exc:
+            logger.warning("schema out-of-date: %s", exc)
+            return []
+
+        reference = now or dt.datetime.now(dt.timezone.utc)
+        if reference.tzinfo is None:
+            reference = reference.replace(tzinfo=dt.timezone.utc)
+
+        safe_delta = stale_after if stale_after.total_seconds() > 0 else dt.timedelta(0)
+        threshold = reference - safe_delta
+
+        issues: list[dict[str, object]] = []
+        for coin_id, names_raw, updated_at in rows:
+            names: list[str]
+            if names_raw:
+                try:
+                    parsed = json.loads(names_raw)
+                    names = list(parsed) if isinstance(parsed, list) else []
+                except Exception:  # pragma: no cover - defensive
+                    names = []
+            else:
+                names = []
+
+            reasons: list[str] = []
+            if not names:
+                reasons.append("missing_categories")
+
+            timestamp = updated_at
+            if timestamp is not None and timestamp.tzinfo is None:
+                timestamp = timestamp.replace(tzinfo=dt.timezone.utc)
+
+            if timestamp is None or timestamp < threshold:
+                reasons.append("stale_timestamp")
+
+            if reasons:
+                issues.append(
+                    {
+                        "coin_id": coin_id,
+                        "category_names": names,
+                        "updated_at": timestamp,
+                        "reasons": reasons,
+                    }
+                )
+
+        issues.sort(key=lambda item: item["coin_id"])
+        return issues
+
 
 class MetaRepo:
     def __init__(self, session: Session) -> None:
