@@ -312,6 +312,43 @@ def history_gaps(session: Session = Depends(get_session)) -> dict:
     }
 
 
+@app.get("/api/debug/categories")
+def debug_categories(session: Session = Depends(get_session)) -> dict:
+    """Report coins with missing category data for diagnostic purposes."""
+
+    coins_repo = CoinsRepo(session)
+    now = dt.datetime.now(dt.timezone.utc)
+    stale_after = dt.timedelta(hours=24)
+    issues = coins_repo.list_category_issues(now=now, stale_after=stale_after)
+
+    def _format_timestamp(value: dt.datetime | None) -> str | None:
+        if value is None:
+            return None
+        return value.astimezone(dt.timezone.utc).isoformat()
+
+    items: list[dict[str, object]] = []
+    for issue in issues:
+        items.append(
+            {
+                "coin_id": issue["coin_id"],
+                "category_names": list(issue.get("category_names", [])),
+                "updated_at": _format_timestamp(issue.get("updated_at")),
+                "reasons": list(issue.get("reasons", [])),
+            }
+        )
+
+    hours = stale_after.total_seconds() / (60 * 60)
+    stale_after_hours = hours if hours.is_integer() else round(hours, 2)
+
+    return {
+        "generated_at": now.isoformat(),
+        "stale_after_hours": int(stale_after_hours)
+        if isinstance(stale_after_hours, float) and stale_after_hours.is_integer()
+        else stale_after_hours,
+        "items": items,
+    }
+
+
 @app.get("/api/diag")
 def diag(session: Session = Depends(get_session)) -> dict:
     """Expose runtime diagnostics including call budget and ETL metadata."""
