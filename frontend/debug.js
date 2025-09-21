@@ -245,6 +245,52 @@ function formatHours(value) {
   }
 }
 
+function formatTimestamp(value) {
+  if (value instanceof Date) {
+    const dateValue = value;
+    if (!Number.isFinite(dateValue.getTime())) {
+      return '—';
+    }
+    try {
+      const formatter = new Intl.DateTimeFormat('fr-FR', {
+        dateStyle: 'medium',
+        timeStyle: 'medium',
+        timeZone: 'UTC',
+      });
+      return `${formatter.format(dateValue)} UTC`;
+    } catch (err) {
+      console.error('formatTimestamp failed', err);
+      return dateValue.toISOString();
+    }
+  }
+
+  if (typeof value !== 'string') {
+    return '—';
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return '—';
+  }
+
+  const parsed = Date.parse(trimmed);
+  if (Number.isNaN(parsed)) {
+    return trimmed;
+  }
+
+  try {
+    const formatter = new Intl.DateTimeFormat('fr-FR', {
+      dateStyle: 'medium',
+      timeStyle: 'medium',
+      timeZone: 'UTC',
+    });
+    return `${formatter.format(new Date(parsed))} UTC`;
+  } catch (err) {
+    console.error('formatTimestamp failed', err);
+    return trimmed;
+  }
+}
+
 function applyStatusClass(element, status) {
   if (!element) {
     return;
@@ -286,6 +332,17 @@ function updateTextElement(elementId, value) {
   }
   const text = typeof value === 'string' && value.trim() ? value.trim() : '—';
   element.textContent = text;
+}
+
+function updateTimestampElement(elementId, value) {
+  if (!hasDocument) {
+    return;
+  }
+  const element = document.getElementById(elementId);
+  if (!element) {
+    return;
+  }
+  element.textContent = formatTimestamp(value);
 }
 
 function updateStaleElement(elementId, stale) {
@@ -361,13 +418,15 @@ function renderDiag(diag) {
   updateTextElement('diag-plan', diag?.plan);
   updateTextElement('diag-base-url', diag?.base_url);
   updateTextElement('diag-granularity', diag?.granularity);
-  updateTextElement('diag-last-refresh', diag?.last_refresh_at);
+  updateTimestampElement('diag-last-refresh', diag?.last_refresh_at);
+  updateTimestampElement('fear-greed-last-refresh', diag?.fear_greed_last_refresh);
+  updateNumberElement('fear-greed-count', diag?.fear_greed_count);
 }
 
 function renderMarketMeta(market, diag, nowMs = Date.now()) {
   const lastRefresh = market?.last_refresh_at ?? diag?.last_refresh_at ?? null;
   updateTextElement('market-source', market?.data_source ?? diag?.data_source);
-  updateTextElement('market-last-refresh', lastRefresh);
+  updateTimestampElement('market-last-refresh', lastRefresh);
   updateStaleElement('market-stale', market?.stale);
   const freshness = evaluateFreshness({
     lastRefreshAt: lastRefresh,
