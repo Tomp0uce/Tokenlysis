@@ -1,5 +1,10 @@
-const hasDocument = typeof document !== 'undefined';
-const API_URL = hasDocument
+import { applyTheme, getInitialTheme, initThemeToggle } from './theme.js';
+
+function hasDocument() {
+  return typeof document !== 'undefined';
+}
+
+const API_URL = hasDocument()
   ? document.querySelector('meta[name="api-url"]')?.content || ''
   : '';
 const API_BASE = API_URL.endsWith('/') ? API_URL.slice(0, -1) : API_URL;
@@ -355,7 +360,7 @@ function applyStatusClass(element, status) {
 }
 
 function updateRatioElement(elementId, metric) {
-  if (!hasDocument) {
+  if (!hasDocument()) {
     return;
   }
   const element = document.getElementById(elementId);
@@ -367,7 +372,7 @@ function updateRatioElement(elementId, metric) {
 }
 
 function updateNumberElement(elementId, value) {
-  if (!hasDocument) {
+  if (!hasDocument()) {
     return;
   }
   const element = document.getElementById(elementId);
@@ -378,7 +383,7 @@ function updateNumberElement(elementId, value) {
 }
 
 function updateBudgetBreakdown(diag) {
-  if (!hasDocument) {
+  if (!hasDocument()) {
     return;
   }
   const list = document.getElementById('budget-breakdown-list');
@@ -411,7 +416,7 @@ function updateBudgetBreakdown(diag) {
 }
 
 function updateTextElement(elementId, value) {
-  if (!hasDocument) {
+  if (!hasDocument()) {
     return;
   }
   const element = document.getElementById(elementId);
@@ -423,7 +428,7 @@ function updateTextElement(elementId, value) {
 }
 
 function updateTimestampElement(elementId, value) {
-  if (!hasDocument) {
+  if (!hasDocument()) {
     return;
   }
   const element = document.getElementById(elementId);
@@ -434,7 +439,7 @@ function updateTimestampElement(elementId, value) {
 }
 
 function updateStaleElement(elementId, stale) {
-  if (!hasDocument) {
+  if (!hasDocument()) {
     return;
   }
   const element = document.getElementById(elementId);
@@ -455,7 +460,7 @@ function updateStaleElement(elementId, stale) {
 }
 
 function updateFreshnessElement(elementId, metrics) {
-  if (!hasDocument) {
+  if (!hasDocument()) {
     return;
   }
   const element = document.getElementById(elementId);
@@ -478,7 +483,7 @@ function updateFreshnessElement(elementId, metrics) {
 }
 
 function setStatusMessage(message, status) {
-  if (!hasDocument) {
+  if (!hasDocument()) {
     return;
   }
   const element = document.getElementById('diag-status');
@@ -528,7 +533,7 @@ function renderMarketMeta(market, diag, nowMs = Date.now()) {
 }
 
 function updateCategoryIssuesList(items) {
-  if (!hasDocument) {
+  if (!hasDocument()) {
     return;
   }
   const list = document.getElementById('category-issues-list');
@@ -607,7 +612,7 @@ async function fetchCategoryDiagnostics() {
 }
 
 export async function loadDiagnostics() {
-  if (!hasDocument) {
+  if (!hasDocument()) {
     return;
   }
   try {
@@ -667,9 +672,29 @@ export async function loadDiagnostics() {
   }
 }
 
-if (hasDocument) {
+let themeInitialized = false;
+
+function ensureThemeInitialized() {
+  if (themeInitialized || !hasDocument()) {
+    return;
+  }
+  const initialTheme = getInitialTheme();
+  applyTheme(initialTheme);
+  initThemeToggle('[data-theme-toggle]');
+  themeInitialized = true;
+}
+
+export function initializeDebugPage() {
+  if (!hasDocument()) {
+    return Promise.resolve();
+  }
+  ensureThemeInitialized();
+  return loadDiagnostics();
+}
+
+if (hasDocument()) {
   const init = () => {
-    loadDiagnostics();
+    initializeDebugPage();
   };
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init, { once: true });
