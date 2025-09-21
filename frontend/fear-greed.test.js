@@ -80,6 +80,24 @@ function setupDom() {
               </li>
             </ul>
           </div>
+          <dl class="sentiment-snapshots" id="fear-greed-snapshots">
+            <div class="sentiment-snapshot" data-period="today">
+              <dt class="sentiment-snapshot-label">Aujourd'hui</dt>
+              <dd class="sentiment-snapshot-value" data-role="value">—</dd>
+            </div>
+            <div class="sentiment-snapshot" data-period="yesterday">
+              <dt class="sentiment-snapshot-label">Hier</dt>
+              <dd class="sentiment-snapshot-value" data-role="value">—</dd>
+            </div>
+            <div class="sentiment-snapshot" data-period="week">
+              <dt class="sentiment-snapshot-label">Semaine dernière</dt>
+              <dd class="sentiment-snapshot-value" data-role="value">—</dd>
+            </div>
+            <div class="sentiment-snapshot" data-period="month">
+              <dt class="sentiment-snapshot-label">Mois dernier</dt>
+              <dd class="sentiment-snapshot-value" data-role="value">—</dd>
+            </div>
+          </dl>
           <p id="fear-greed-classification" class="sentiment-classification">—</p>
         </section>
         <section class="panel">
@@ -194,6 +212,58 @@ test('fear-greed init renders gauge, legend and history chart with neutral scale
 });
 
 
+test('fear-greed snapshots reflect recent periods with color coding', async (t) => {
+  const dom = setupDom();
+  const latest = { value: 68, classification: 'Greed', timestamp: '2024-03-12T12:00:00Z' };
+  const history = {
+    range: '90d',
+    points: [
+      { timestamp: '2024-02-10T12:00:00Z', value: 20, classification: 'Extreme Fear' },
+      { timestamp: '2024-03-05T12:00:00Z', value: 48, classification: 'Neutral' },
+      { timestamp: '2024-03-11T12:00:00Z', value: 60, classification: 'Greed' },
+    ],
+  };
+  mockFetchSequence([
+    createResponse(latest),
+    createResponse(history),
+  ]);
+
+  const module = await importFresh('./fear-greed.js');
+  t.after(() => {
+    dom.window.close();
+    delete global.window;
+    delete global.document;
+    delete global.localStorage;
+    delete global.fetch;
+  });
+
+  await module.init();
+
+  const getValue = (period) =>
+    document.querySelector(`[data-period="${period}"] [data-role="value"]`);
+
+  const today = getValue('today');
+  assert.equal(today.textContent, '68');
+  assert.equal(today.dataset.band, 'greed');
+  assert.equal(today.getAttribute('title'), 'Greed');
+
+  const yesterday = getValue('yesterday');
+  assert.equal(yesterday.textContent, '60');
+  assert.equal(yesterday.dataset.band, 'greed');
+  assert.equal(yesterday.getAttribute('title'), 'Greed');
+
+  const week = getValue('week');
+  assert.equal(week.textContent, '48');
+  assert.equal(week.dataset.band, 'neutral');
+  assert.equal(week.getAttribute('title'), 'Neutral');
+
+  const month = getValue('month');
+  assert.equal(month.textContent, '20');
+  assert.equal(month.dataset.band, 'extreme-fear');
+  assert.equal(month.getAttribute('title'), 'Extreme Fear');
+});
+
+
 test('fear-greed init shows fallback when history fails', async (t) => {
   const dom = setupDom();
   const latest = { value: 42, classification: 'Neutral', timestamp: '2024-03-10T00:00:00Z' };
@@ -215,4 +285,17 @@ test('fear-greed init shows fallback when history fails', async (t) => {
   const errorEl = document.getElementById('history-error');
   assert.equal(errorEl.hidden, false);
   assert.match(errorEl.textContent, /Aucune donnée|Historique indisponible/);
+
+  const today = document.querySelector('[data-period="today"] [data-role="value"]');
+  assert.equal(today.textContent, '42');
+  assert.equal(today.dataset.band, 'fear');
+  assert.equal(today.getAttribute('title'), 'Neutral');
+
+  const others = ['yesterday', 'week', 'month'];
+  others.forEach((period) => {
+    const valueEl = document.querySelector(`[data-period="${period}"] [data-role="value"]`);
+    assert.equal(valueEl.textContent, '—');
+    assert.equal(valueEl.dataset.band, undefined);
+    assert.equal(valueEl.getAttribute('title'), null);
+  });
 });

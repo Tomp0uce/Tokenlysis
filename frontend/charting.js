@@ -6,11 +6,11 @@ const USD_SUFFIXES = [
 ];
 
 const FEAR_GREED_BANDS = [
-  { min: 0, max: 25, cssVar: '--fg-extreme-fear', fallback: '#dc2626' },
-  { min: 26, max: 44, cssVar: '--fg-fear', fallback: '#f97316' },
-  { min: 45, max: 54, cssVar: '--fg-neutral', fallback: '#facc15' },
-  { min: 55, max: 74, cssVar: '--fg-greed', fallback: '#22c55e' },
-  { min: 75, max: 100, cssVar: '--fg-extreme-greed', fallback: '#0ea5e9' },
+  { slug: 'extreme-fear', min: 0, max: 25, cssVar: '--fg-extreme-fear', fallback: '#dc2626' },
+  { slug: 'fear', min: 26, max: 44, cssVar: '--fg-fear', fallback: '#f97316' },
+  { slug: 'neutral', min: 45, max: 54, cssVar: '--fg-neutral', fallback: '#facc15' },
+  { slug: 'greed', min: 55, max: 74, cssVar: '--fg-greed', fallback: '#22c55e' },
+  { slug: 'extreme-greed', min: 75, max: 100, cssVar: '--fg-extreme-greed', fallback: '#0ea5e9' },
 ];
 
 const trackedCharts = new Map();
@@ -37,11 +37,24 @@ function clampPercent(value) {
   return Math.min(100, Math.max(0, numeric));
 }
 
-function gaugePalette(value) {
+export function resolveFearGreedBand(value) {
   const percent = clampPercent(value);
-  const band = FEAR_GREED_BANDS.find((entry) => percent <= entry.max) || FEAR_GREED_BANDS[FEAR_GREED_BANDS.length - 1];
+  const band =
+    FEAR_GREED_BANDS.find((entry) => percent <= entry.max) || FEAR_GREED_BANDS[FEAR_GREED_BANDS.length - 1];
+  return {
+    slug: band.slug,
+    cssVar: band.cssVar,
+    fallback: band.fallback,
+    min: band.min,
+    max: band.max,
+    value: percent,
+  };
+}
+
+function gaugePalette(value) {
+  const band = resolveFearGreedBand(value);
   const color = readCssVariable(band.cssVar) || band.fallback;
-  return { color, cssVar: band.cssVar, value: percent };
+  return { color, cssVar: band.cssVar, value: band.value, slug: band.slug };
 }
 
 function clampBandValue(value, fallback) {

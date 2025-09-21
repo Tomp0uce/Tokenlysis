@@ -9,6 +9,11 @@ import {
 } from './charting.js';
 import { initThemeToggle, onThemeChange } from './theme.js';
 import { calculateAvailableRanges, pickInitialRange, syncRangeSelector } from './range.js';
+import {
+  computeSentimentSnapshots,
+  collectSnapshotElements,
+  renderSentimentSnapshots,
+} from './sentiment.js';
 
 const API_URL = document.querySelector('meta[name="api-url"]')?.content || '';
 const API_BASE = API_URL.endsWith('/') ? API_URL.slice(0, -1) : API_URL;
@@ -64,6 +69,9 @@ const marketHistoryCache = new Map();
 let marketRangeAvailability = new Set();
 let marketRangeListenersBound = false;
 let fearGreedChart = null;
+let widgetSnapshotElements = null;
+let widgetLatestDatapoint = null;
+let widgetHistoryPoints = [];
 
 // ===== formatting helpers =====
 function formatPct(p) {
@@ -443,6 +451,17 @@ async function renderMarketOverview(items) {
   }
 }
 
+function updateWidgetSnapshots() {
+  if (!widgetSnapshotElements) {
+    widgetSnapshotElements = collectSnapshotElements();
+  }
+  if (!widgetSnapshotElements || widgetSnapshotElements.size === 0) {
+    return;
+  }
+  const snapshots = computeSentimentSnapshots(widgetLatestDatapoint, widgetHistoryPoints);
+  renderSentimentSnapshots(widgetSnapshotElements, snapshots);
+}
+
 export async function loadFearGreedWidget({ fetchImpl } = {}) {
   const card = document.getElementById('fear-greed-card');
   const gaugeContainer = document.getElementById('fear-greed-gauge');
@@ -455,6 +474,7 @@ export async function loadFearGreedWidget({ fetchImpl } = {}) {
   if (!fetcher) {
     return null;
   }
+  updateWidgetSnapshots();
   try {
     const response = await fetcher(`${API_URL}/fear-greed/latest`);
     if (!response?.ok) {
@@ -464,8 +484,11 @@ export async function loadFearGreedWidget({ fetchImpl } = {}) {
     const rawValue = Number(payload?.value ?? 0);
     const value = Number.isFinite(rawValue) ? Math.round(rawValue) : 0;
     const classification = String(payload?.classification || '').trim() || 'Indéterminé';
+    const timestamp = typeof payload?.timestamp === 'string' ? payload.timestamp : new Date().toISOString();
     valueEl.textContent = String(value);
     classificationEl.textContent = classification;
+    widgetLatestDatapoint = { timestamp, value, classification };
+    updateWidgetSnapshots();
     const gaugeData = { value, classification };
     if (!fearGreedChart) {
       fearGreedChart = await createRadialGauge(gaugeContainer, gaugeData);
@@ -476,11 +499,28 @@ export async function loadFearGreedWidget({ fetchImpl } = {}) {
     if (!card.getAttribute('href')) {
       card.setAttribute('href', './fear-greed.html');
     }
+    try {
+      const historyResponse = await fetcher(`${API_URL}/fear-greed/history?range=90d`);
+      if (!historyResponse?.ok) {
+        throw new Error(`HTTP ${historyResponse?.status ?? 'error'}`);
+      }
+      const historyPayload = await historyResponse.json();
+      const points = Array.isArray(historyPayload?.points) ? historyPayload.points : [];
+      widgetHistoryPoints = points;
+      updateWidgetSnapshots();
+    } catch (historyError) {
+      console.error(historyError);
+      widgetHistoryPoints = [];
+      updateWidgetSnapshots();
+    }
     return fearGreedChart;
   } catch (error) {
     console.error(error);
     valueEl.textContent = '0';
     classificationEl.textContent = 'Indisponible';
+    widgetLatestDatapoint = null;
+    widgetHistoryPoints = [];
+    updateWidgetSnapshots();
     if (fearGreedChart) {
       await updateRadialGauge(fearGreedChart, { value: 0, classification: 'Indisponible' });
     }
