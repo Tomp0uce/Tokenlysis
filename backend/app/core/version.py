@@ -3,29 +3,51 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-REPO_ROOT = Path("/app")
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+_VERSION_CACHE: str | None = None
 
 
-def get_version() -> str:
+def _cache(value: str) -> str:
+    global _VERSION_CACHE
+    _VERSION_CACHE = value
+    return value
+
+
+def _resolve_version_file() -> Path:
+    version_file_env = os.getenv("VERSION_FILE")
+    if version_file_env:
+        return Path(version_file_env)
+    return REPO_ROOT / "VERSION"
+
+
+def get_version(*, force_refresh: bool = False) -> str:
     """Return the application version.
 
     Resolution order:
       1) ``APP_VERSION`` environment variable when set and not ``"dev"``
-      2) contents of ``/app/VERSION`` written at build time
+      2) contents of ``VERSION`` file located next to the backend package
+         (override with ``VERSION_FILE`` environment variable)
       3) fallback to ``"dev"``
     """
 
+    if _VERSION_CACHE is not None and not force_refresh:
+        return _VERSION_CACHE
+
     env_version = os.getenv("APP_VERSION")
     if env_version and env_version != "dev":
-        return env_version
+        return _cache(env_version)
 
-    version_file = REPO_ROOT / "VERSION"
-    if version_file.exists():
-        content = version_file.read_text().strip()
-        if content:
-            return content
+    version_file = _resolve_version_file()
+    try:
+        content = version_file.read_text(encoding="utf-8").strip()
+    except OSError:
+        content = ""
 
-    return "dev"
+    if content:
+        return _cache(content)
+
+    return _cache("dev")
 
 
 __all__ = ["get_version"]
