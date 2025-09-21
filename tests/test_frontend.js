@@ -72,6 +72,8 @@ test('loadCryptos renders table and last update with categories', async () => {
     items: [
       {
         coin_id: 'bitcoin',
+        name: 'Bitcoin',
+        logo_url: 'https://img.test/bitcoin.png',
         rank: 1,
         price: 1,
         market_cap: 2,
@@ -85,6 +87,8 @@ test('loadCryptos renders table and last update with categories', async () => {
       },
       {
         coin_id: 'nocat',
+        name: '',
+        logo_url: null,
         rank: 2,
         price: 0.5,
         market_cap: 1,
@@ -98,6 +102,8 @@ test('loadCryptos renders table and last update with categories', async () => {
       },
       {
         coin_id: 'flat',
+        name: 'Flat Coin',
+        logo_url: 'https://img.test/flat.png',
         rank: 3,
         price: 2,
         market_cap: 2,
@@ -131,45 +137,50 @@ test('loadCryptos renders table and last update with categories', async () => {
   assert.equal(rows.length, 3);
   const cells1 = [...rows[0].querySelectorAll('td')].map((c) => c.textContent.trim().replace(/\s+/g, ' '));
   assert.deepEqual(cells1, [
-    'bitcoin',
+    'Bitcoin',
     'Layer 1 DeFi NFT +1',
     '1',
-    '1.00',
-    '2',
-    '3',
-    '3',
+    '1 $',
+    '2 $',
+    '3 $',
+    '3 $',
     '4.00%',
     '5.00%',
     '6.00%',
     'Détails',
   ]);
+  const firstLogo = rows[0].querySelector('td img');
+  assert.ok(firstLogo);
+  assert.equal(firstLogo.getAttribute('src'), 'https://img.test/bitcoin.png');
+  assert.equal(firstLogo.getAttribute('alt'), 'Bitcoin');
   const badges = rows[0].querySelectorAll('td')[1].querySelectorAll('.badge');
   assert.equal(badges[0].getAttribute('title'), 'Layer 1');
   assert.equal(badges[3].getAttribute('title'), 'Payments');
   const cells2 = [...rows[1].querySelectorAll('td')].map((c) => c.textContent.trim());
   assert.deepEqual(cells2, [
-    'nocat',
+    'Nocat',
     '',
     '2',
-    '0.5000',
-    '1',
-    '1.5',
-    '1',
+    '0.5 $',
+    '1 $',
+    '1.5 $',
+    '1 $',
     '-2.00%',
     '-3.25%',
     '-10.00%',
     'Détails',
   ]);
+  assert.equal(rows[1].querySelector('td img'), null);
   assert.equal(rows[1].querySelectorAll('td')[1].children.length, 0);
   const cells3 = [...rows[2].querySelectorAll('td')].map((c) => c.textContent.trim());
   assert.deepEqual(cells3, [
-    'flat',
+    'Flat Coin',
     'Utility',
     '3',
-    '2.00',
-    '2',
+    '2 $',
+    '2 $',
     '',
-    '0',
+    '0 $',
     '0.00%',
     '',
     '0.00%',
@@ -201,7 +212,7 @@ test('loadCryptos renders table and last update with categories', async () => {
   assert.equal(firstLink.getAttribute('href'), './coin.html?coin_id=bitcoin');
   assert.equal(
     firstLink.getAttribute('aria-label'),
-    'Voir les détails pour bitcoin'
+    'Voir les détails pour Bitcoin'
   );
   assert.equal(document.getElementById('demo-banner').style.display, 'block');
   assert.match(
@@ -269,6 +280,7 @@ test('clicking rank header toggles ascending then descending order', async () =>
     items: [
       {
         coin_id: 'beta',
+        name: 'Beta',
         rank: 2,
         price: 10,
         market_cap: 3,
@@ -282,6 +294,7 @@ test('clicking rank header toggles ascending then descending order', async () =>
       },
       {
         coin_id: 'delta',
+        name: 'Delta',
         rank: 4,
         price: 20,
         market_cap: 2,
@@ -295,6 +308,7 @@ test('clicking rank header toggles ascending then descending order', async () =>
       },
       {
         coin_id: 'alpha',
+        name: 'Alpha',
         rank: 1,
         price: 30,
         market_cap: 1,
@@ -345,6 +359,7 @@ test('sorting numeric columns keeps null values at the end', async () => {
     items: [
       {
         coin_id: 'null-price',
+        name: 'Null price',
         rank: 1,
         price: null,
         market_cap: 3,
@@ -358,6 +373,7 @@ test('sorting numeric columns keeps null values at the end', async () => {
       },
       {
         coin_id: 'negative',
+        name: '',
         rank: 2,
         price: -3,
         market_cap: 2,
@@ -371,6 +387,7 @@ test('sorting numeric columns keeps null values at the end', async () => {
       },
       {
         coin_id: 'positive',
+        name: 'Positive',
         rank: 3,
         price: 15,
         market_cap: 1,
@@ -402,13 +419,13 @@ test('sorting numeric columns keeps null values at the end', async () => {
   let order = [...document.querySelectorAll('#cryptos tbody tr')].map((row) =>
     row.querySelectorAll('td')[0].textContent.trim()
   );
-  assert.deepEqual(order, ['negative', 'positive', 'null-price']);
+  assert.deepEqual(order, ['Negative', 'Positive', 'Null price']);
 
   priceHeader.dispatchEvent(new window.Event('click', { bubbles: true }));
   order = [...document.querySelectorAll('#cryptos tbody tr')].map((row) =>
     row.querySelectorAll('td')[0].textContent.trim()
   );
-  assert.deepEqual(order, ['positive', 'negative', 'null-price']);
+  assert.deepEqual(order, ['Positive', 'Negative', 'Null price']);
 });
 
 test('selectedCategories defaults to empty array', async () => {

@@ -31,9 +31,16 @@ function sentimentElements() {
   return {
     valueEl: document.getElementById('fear-greed-value'),
     classificationEl: document.getElementById('fear-greed-classification'),
-    updatedEl: document.getElementById('fear-greed-updated'),
     gaugeContainer: document.getElementById('fear-greed-gauge'),
   };
+}
+
+function formatSentiment(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return '0';
+  }
+  return String(Math.round(numeric));
 }
 
 function setActiveRange(range) {
@@ -50,8 +57,8 @@ function setActiveRange(range) {
 }
 
 async function loadLatest(fetchImpl) {
-  const { valueEl, classificationEl, updatedEl, gaugeContainer } = sentimentElements();
-  if (!valueEl || !classificationEl || !updatedEl || !gaugeContainer) {
+  const { valueEl, classificationEl, gaugeContainer } = sentimentElements();
+  if (!valueEl || !classificationEl || !gaugeContainer) {
     return null;
   }
   const fetcher = getFetch(fetchImpl);
@@ -67,13 +74,9 @@ async function loadLatest(fetchImpl) {
     const rawValue = Number(payload?.value ?? 0);
     const value = Number.isFinite(rawValue) ? Math.round(rawValue) : 0;
     const classification = String(payload?.classification || '').trim() || DEFAULT_CLASSIFICATION;
-    const timestamp = typeof payload?.timestamp === 'string' ? payload.timestamp : null;
 
-    valueEl.textContent = String(value);
+    valueEl.textContent = formatSentiment(value);
     classificationEl.textContent = classification;
-    updatedEl.textContent = timestamp
-      ? `Dernière mise à jour : ${timestamp}`
-      : 'Dernière mise à jour : inconnue';
 
     if (!gaugeChart) {
       gaugeChart = await createRadialGauge(gaugeContainer, { value, classification });
@@ -85,7 +88,6 @@ async function loadLatest(fetchImpl) {
     console.error(error);
     valueEl.textContent = '0';
     classificationEl.textContent = 'Indisponible';
-    updatedEl.textContent = 'Données indisponibles';
     if (gaugeChart) {
       await updateRadialGauge(gaugeChart, { value: 0, classification: 'Indisponible' });
     }
@@ -142,6 +144,9 @@ async function loadHistory(range = activeRange, fetchImpl) {
         data,
         colorVar: '--chart-sentiment',
         xAxisType: 'datetime',
+        yFormatter: formatSentiment,
+        tooltipFormatter: formatSentiment,
+        banding: 'fear-greed',
       });
     } else {
       await historyChart.updateOptions(

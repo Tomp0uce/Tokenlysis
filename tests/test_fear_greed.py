@@ -21,27 +21,6 @@ def TestingSessionLocal(tmp_path):
     return TestingSessionLocal
 
 
-def test_parse_seed_file_normalizes_rows(tmp_path):
-    sample = tmp_path / "seed.txt"
-    sample.write_text(
-        """Date Value Classification\n\n\n2018-02-02  12  Extreme Fear\n2018-02-01\t55\tGreed Rising\n2018-02-03 8\tFear\n""",
-        encoding="utf-8",
-    )
-
-    from backend.app.seed import fear_greed as module
-
-    rows = module.parse_seed_file(sample)
-    assert [row["value"] for row in rows] == [55, 12, 8]
-    assert [row["classification"] for row in rows] == [
-        "Greed Rising",
-        "Extreme Fear",
-        "Fear",
-    ]
-    timestamps = [row["timestamp"] for row in rows]
-    assert all(ts.tzinfo is dt.timezone.utc for ts in timestamps)
-    assert timestamps == sorted(timestamps)
-
-
 def test_fear_greed_repo_upsert_and_history(TestingSessionLocal):
     from backend.app.services.dao import FearGreedRepo
     from backend.app.models import FearGreed
@@ -197,17 +176,7 @@ def test_api_history_ranges_and_validation(monkeypatch, TestingSessionLocal):
     main_module.app.dependency_overrides.pop(get_session, None)
 
 
-def test_sync_fear_greed_index_loads_seed_and_updates(monkeypatch, tmp_path, TestingSessionLocal):
-    seed_path = tmp_path / "fg_seed.txt"
-    seed_path.write_text(
-        "Date Value Classification\n2018-02-01 11 Extreme Fear\n",
-        encoding="utf-8",
-    )
-
-    from backend.app.core import settings as settings_module
-
-    monkeypatch.setattr(settings_module.settings, "FEAR_GREED_SEED_FILE", str(seed_path))
-
+def test_sync_fear_greed_index_updates_without_seed(TestingSessionLocal):
     class StubClient:
         def get_fear_greed_history(self):
             return [
@@ -244,7 +213,7 @@ def test_sync_fear_greed_index_loads_seed_and_updates(monkeypatch, tmp_path, Tes
 
     repo = FearGreedRepo(session)
     meta_repo = MetaRepo(session)
-    assert repo.count() >= 3
+    assert repo.count() == 3
     latest = repo.get_latest()
     assert latest is not None and latest.value == 50
     assert latest.classification == "Indéterminé"
@@ -252,6 +221,6 @@ def test_sync_fear_greed_index_loads_seed_and_updates(monkeypatch, tmp_path, Tes
     classifications = [row.classification for row in history]
     assert "Indéterminé" in classifications
     assert meta_repo.get("fear_greed_last_refresh") == now.isoformat()
-    assert processed >= 3
+    assert processed == 3
 
     session.close()

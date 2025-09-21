@@ -1,11 +1,12 @@
 import datetime as dt
+import json
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from backend.app.db import Base, get_session
-from backend.app.services.dao import PricesRepo, MetaRepo
+from backend.app.services.dao import CoinsRepo, PricesRepo, MetaRepo
 
 
 def test_markets_top_reads_db_and_stale_flag(monkeypatch, tmp_path):
@@ -20,6 +21,7 @@ def test_markets_top_reads_db_and_stale_flag(monkeypatch, tmp_path):
     session = TestingSessionLocal()
     prices_repo = PricesRepo(session)
     meta_repo = MetaRepo(session)
+    coins_repo = CoinsRepo(session)
     now = dt.datetime.now(dt.timezone.utc)
     prices_repo.upsert_latest(
         [
@@ -35,6 +37,19 @@ def test_markets_top_reads_db_and_stale_flag(monkeypatch, tmp_path):
                 "pct_change_7d": 0.5,
                 "pct_change_30d": -1.0,
                 "snapshot_at": now,
+            }
+        ]
+    )
+    coins_repo.upsert(
+        [
+            {
+                "id": "bitcoin",
+                "symbol": "btc",
+                "name": "Bitcoin",
+                "logo_url": "https://img.test/bitcoin.png",
+                "category_names": json.dumps(["Payments"]),
+                "category_ids": json.dumps(["payments"]),
+                "updated_at": now,
             }
         ]
     )
@@ -58,6 +73,8 @@ def test_markets_top_reads_db_and_stale_flag(monkeypatch, tmp_path):
     resp = client.get("/api/markets/top?limit=1&vs=usd")
     data = resp.json()
     assert data["items"][0]["coin_id"] == "bitcoin"
+    assert data["items"][0]["name"] == "Bitcoin"
+    assert data["items"][0]["logo_url"] == "https://img.test/bitcoin.png"
     assert data["items"][0]["fully_diluted_market_cap"] == 2.0
     assert data["items"][0]["pct_change_7d"] == 0.5
     assert data["items"][0]["pct_change_30d"] == -1.0

@@ -66,9 +66,18 @@ FEAR_GREED_RANGE_TO_DELTA: dict[str, dt.timedelta] = {
 }
 
 
-def _serialize_price(p, categories: tuple[list[str], list[str]]) -> dict:
-    """Convert ORM rows and category metadata into an API payload."""
-    names, ids = categories
+def _serialize_price(p, details: dict[str, object]) -> dict:
+    """Convert ORM rows and metadata into an API payload."""
+    names_raw = details.get("category_names") if details else []
+    ids_raw = details.get("category_ids") if details else []
+    names = list(names_raw) if isinstance(names_raw, (list, tuple)) else []
+    ids = list(ids_raw) if isinstance(ids_raw, (list, tuple)) else []
+    raw_name = details.get("name") if details else ""
+    name = raw_name.strip() if isinstance(raw_name, str) else ""
+    raw_symbol = details.get("symbol") if details else ""
+    symbol = raw_symbol.strip() if isinstance(raw_symbol, str) else ""
+    raw_logo = details.get("logo_url") if details else None
+    logo_url = raw_logo.strip() if isinstance(raw_logo, str) and raw_logo.strip() else None
     return {
         "coin_id": p.coin_id,
         "vs_currency": p.vs_currency,
@@ -83,6 +92,9 @@ def _serialize_price(p, categories: tuple[list[str], list[str]]) -> dict:
         "snapshot_at": p.snapshot_at,
         "category_names": names,
         "category_ids": ids,
+        "name": name,
+        "symbol": symbol,
+        "logo_url": logo_url,
     }
 
 
@@ -102,7 +114,7 @@ def markets_top(
     meta_repo = MetaRepo(session)
     coins_repo = CoinsRepo(session)
     rows = prices_repo.get_top(vs, limit_effective)
-    categories_map = coins_repo.get_categories_bulk([r.coin_id for r in rows])
+    details_map = coins_repo.get_details_bulk([r.coin_id for r in rows])
     last_refresh_at = meta_repo.get("last_refresh_at")
     data_source = meta_repo.get("data_source")
     stale = True
@@ -114,7 +126,7 @@ def markets_top(
             pass
     return {
         "items": [
-            _serialize_price(r, categories_map.get(r.coin_id, ([], []))) for r in rows
+            _serialize_price(r, details_map.get(r.coin_id, {})) for r in rows
         ],
         "last_refresh_at": last_refresh_at,
         "data_source": data_source,
@@ -134,8 +146,8 @@ def price_detail(
     row = prices_repo.get_price(coin_id, vs)
     if row is None:
         raise HTTPException(status_code=404)
-    cats = coins_repo.get_categories(coin_id)
-    return _serialize_price(row, cats)
+    details = coins_repo.get_details(coin_id)
+    return _serialize_price(row, details)
 
 
 @app.get("/api/price/{coin_id}/history")

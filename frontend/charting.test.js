@@ -57,6 +57,8 @@ test('createAreaChart builds smooth area config with shared categories', async (
 
   assert.ok(chart instanceof ApexChartsStub);
   assert.equal(chart.options.chart.type, 'area');
+  assert.equal(chart.options.chart.zoom?.enabled, false);
+  assert.equal(chart.options.chart.selection?.enabled, false);
   assert.equal(chart.options.stroke.curve, 'smooth');
   assert.equal(chart.options.xaxis.type, 'datetime');
   assert.deepEqual(chart.options.series, [{ name: 'Prix', data: [10, 12] }]);
@@ -64,6 +66,51 @@ test('createAreaChart builds smooth area config with shared categories', async (
     '2024-01-01T00:00:00Z',
     '2024-01-02T00:00:00Z',
   ]);
+  await module.destroyTrackedCharts();
+});
+
+test('createAreaChart supports fear-greed banding and custom formatters', async () => {
+  const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost' });
+  global.window = dom.window;
+  global.document = dom.window.document;
+  global.localStorage = dom.window.localStorage;
+  dom.window.ApexCharts = ApexChartsStub;
+  document.documentElement.style.setProperty('--chart-sentiment', '#1d4ed8');
+  document.documentElement.style.setProperty('--text-muted', '#4b5563');
+  document.documentElement.style.setProperty('--border-subtle', '#e2e8f0');
+  document.documentElement.style.setProperty('--fg-extreme-fear', '#ef4444');
+  document.documentElement.style.setProperty('--fg-fear', '#f97316');
+  document.documentElement.style.setProperty('--fg-neutral', '#facc15');
+  document.documentElement.style.setProperty('--fg-greed', '#22c55e');
+  document.documentElement.style.setProperty('--fg-extreme-greed', '#0ea5e9');
+
+  const module = await import('./charting.js');
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+
+  const yFormatter = (value) => `${Math.round(value)} pts`;
+  const tooltipFormatter = (value) => `${value.toFixed(1)} pts`;
+
+  const chart = await module.createAreaChart(container, {
+    name: 'Indice Fear & Greed',
+    categories: ['2024-01-01T00:00:00Z'],
+    data: [40],
+    colorVar: '--chart-sentiment',
+    yFormatter,
+    tooltipFormatter,
+    banding: 'fear-greed',
+  });
+
+  assert.equal(chart.options.yaxis.labels.formatter(42.7), '43 pts');
+  assert.equal(chart.options.tooltip.y.formatter(42), '42.0 pts');
+  assert.equal(chart.options.yaxis.min, 0);
+  assert.equal(chart.options.yaxis.max, 100);
+  const annotations = chart.options.annotations?.yaxis ?? [];
+  assert.equal(annotations.length, 5);
+  assert.deepEqual(
+    annotations.map((entry) => entry.fillColor),
+    ['#ef4444', '#f97316', '#facc15', '#22c55e', '#0ea5e9'],
+  );
   await module.destroyTrackedCharts();
 });
 
@@ -96,6 +143,52 @@ test('refreshChartsTheme updates theme mode and palette from CSS variables', asy
   const [{ chart }] = registered;
   assert.deepEqual(chart.updateCalls.at(-1).theme, { mode: 'dark' });
   assert.deepEqual(chart.updateCalls.at(-1).colors, ['#445566']);
+  await module.destroyTrackedCharts();
+});
+
+test('refreshChartsTheme recomputes fear-greed bands with updated CSS variables', async () => {
+  const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost' });
+  global.window = dom.window;
+  global.document = dom.window.document;
+  global.localStorage = dom.window.localStorage;
+  dom.window.ApexCharts = ApexChartsStub;
+  document.documentElement.style.setProperty('--chart-sentiment', '#1d4ed8');
+  document.documentElement.style.setProperty('--text-muted', '#4b5563');
+  document.documentElement.style.setProperty('--border-subtle', '#e2e8f0');
+  document.documentElement.style.setProperty('--fg-extreme-fear', '#ef4444');
+  document.documentElement.style.setProperty('--fg-fear', '#f97316');
+  document.documentElement.style.setProperty('--fg-neutral', '#facc15');
+  document.documentElement.style.setProperty('--fg-greed', '#22c55e');
+  document.documentElement.style.setProperty('--fg-extreme-greed', '#0ea5e9');
+
+  const module = await import('./charting.js');
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+
+  await module.createAreaChart(container, {
+    name: 'Indice Fear & Greed',
+    categories: ['2024-01-01T00:00:00Z'],
+    data: [40],
+    colorVar: '--chart-sentiment',
+    banding: 'fear-greed',
+    yFormatter: (value) => `${Math.round(value)}`,
+  });
+
+  document.documentElement.style.setProperty('--fg-extreme-fear', '#f87171');
+  document.documentElement.style.setProperty('--fg-fear', '#fb923c');
+  document.documentElement.style.setProperty('--fg-neutral', '#fde68a');
+  document.documentElement.style.setProperty('--fg-greed', '#86efac');
+  document.documentElement.style.setProperty('--fg-extreme-greed', '#38bdf8');
+
+  await module.refreshChartsTheme('light');
+
+  const [{ chart }] = module.__test__.getTrackedCharts();
+  const lastUpdate = chart.updateCalls.at(-1);
+  assert.ok(lastUpdate.annotations);
+  assert.deepEqual(
+    lastUpdate.annotations.yaxis.map((entry) => entry.fillColor),
+    ['#f87171', '#fb923c', '#fde68a', '#86efac', '#38bdf8'],
+  );
   await module.destroyTrackedCharts();
 });
 
