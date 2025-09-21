@@ -537,6 +537,74 @@ def test_run_etl_backfills_missing_links(monkeypatch, tmp_path):
     assert client.profile_calls == 1
 
 
+def test_run_etl_preserves_categories_when_profile_fetch_fails(
+    monkeypatch, tmp_path
+):
+    engine = create_engine(
+        f"sqlite:///{tmp_path/'test.db'}", connect_args={"check_same_thread": False}
+    )
+    TestingSessionLocal = sessionmaker(
+        bind=engine, autoflush=False, autocommit=False, expire_on_commit=False
+    )
+    Base.metadata.create_all(bind=engine)
+    session = TestingSessionLocal()
+    session.add(
+        Coin(
+            id="bitcoin",
+            symbol="btc",
+            name="Bitcoin",
+            category_names=json.dumps(["Layer 1"]),
+            category_ids=json.dumps(["layer-1"]),
+            social_links=json.dumps({}),
+            updated_at=dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=1),
+        )
+    )
+    session.commit()
+    session.close()
+
+    monkeypatch.setattr(run_module, "SessionLocal", TestingSessionLocal)
+    monkeypatch.setattr(run_module, "_categories_cache", {})
+    monkeypatch.setattr(run_module, "_categories_cache_ts", None)
+
+    class StubClient:
+        def __init__(self) -> None:
+            self.profile_calls = 0
+
+        def get_markets(self, *, vs, per_page, page):
+            return [
+                {
+                    "id": "bitcoin",
+                    "symbol": "btc",
+                    "name": "Bitcoin",
+                    "current_price": 1.0,
+                    "market_cap": 2.0,
+                    "total_volume": 3.0,
+                    "market_cap_rank": 1,
+                    "price_change_percentage_24h": 4.0,
+                }
+            ]
+
+        def get_categories_list(self):
+            return []
+
+        def get_coin_profile(self, coin_id: str):
+            self.profile_calls += 1
+            raise requests.HTTPError("boom")
+
+    client = StubClient()
+    run_module.run_etl(client=client, budget=None)
+    assert client.profile_calls == 1
+
+    session = TestingSessionLocal()
+    names, ids, links, _ = run_module.CoinsRepo(session).get_categories_with_timestamp(
+        "bitcoin"
+    )
+    session.close()
+    assert names == ["Layer 1"]
+    assert ids == ["layer-1"]
+    assert links == {}
+
+
 def test_run_etl_retries_on_429(monkeypatch, tmp_path):
     engine = create_engine(
         f"sqlite:///{tmp_path/'test.db'}", connect_args={"check_same_thread": False}
