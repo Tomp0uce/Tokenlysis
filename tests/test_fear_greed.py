@@ -1,8 +1,9 @@
 import datetime as dt
 
 import pytest
+import requests
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, delete
+from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 
@@ -70,133 +71,209 @@ def test_fear_greed_repo_upsert_and_history(TestingSessionLocal):
     session.close()
 
 
-def test_api_latest_and_not_found(monkeypatch, TestingSessionLocal):
+def test_api_fng_latest_success(monkeypatch):
     import backend.app.main as main_module
-    from backend.app.db import get_session
-    from backend.app.models import FearGreed
 
-    def override_session():
-        session = TestingSessionLocal()
-        try:
-            yield session
-        finally:
-            session.close()
+    class StubClient:
+        def __init__(self) -> None:
+            self.latest_calls = 0
+            self.history_calls: list[dict[str, object]] = []
 
-    main_module.app.dependency_overrides[get_session] = override_session
+        def get_latest(self) -> dict:
+            self.latest_calls += 1
+            return {
+                "timestamp": "2024-03-10T00:00:00+00:00",
+                "score": 58,
+                "label": "Greed",
+            }
 
-    session = TestingSessionLocal()
-    ts = dt.datetime(2024, 2, 1, tzinfo=dt.timezone.utc)
-    session.add(
-        FearGreed(
-            timestamp=ts,
-            value=60,
-            classification="Greed",
-            ingested_at=ts,
-        )
-    )
-    session.commit()
-    session.close()
+        def get_historical(
+            self, *, limit: int | None = None, time_start: str | None = None, time_end: str | None = None
+        ) -> list[dict]:
+            self.history_calls.append({
+                "limit": limit,
+                "time_start": time_start,
+                "time_end": time_end,
+            })
+            return []
+
+    stub = StubClient()
+    main_module.app.dependency_overrides[main_module.get_fng_client] = lambda: stub
 
     client = TestClient(main_module.app)
-
-    resp = client.get("/api/fear-greed/latest")
+    resp = client.get("/api/fng/latest")
     assert resp.status_code == 200
     payload = resp.json()
-    assert payload["value"] == 60
-    assert payload["classification"] == "Greed"
-    assert payload["timestamp"] == ts.isoformat()
+    assert payload == {
+        "timestamp": "2024-03-10T00:00:00+00:00",
+        "score": 58,
+        "label": "Greed",
+    }
+    assert stub.latest_calls == 1
+    assert stub.history_calls == []
 
-    session = TestingSessionLocal()
-    session.execute(delete(FearGreed))
-    session.commit()
-    session.close()
-
-    resp = client.get("/api/fear-greed/latest")
-    assert resp.status_code == 404
-
-    main_module.app.dependency_overrides.pop(get_session, None)
+    main_module.app.dependency_overrides.pop(main_module.get_fng_client, None)
 
 
-def test_api_history_ranges_and_validation(monkeypatch, TestingSessionLocal):
+def test_api_fng_latest_falls_back_to_history(monkeypatch):
     import backend.app.main as main_module
-    from backend.app.db import get_session
-    from backend.app.models import FearGreed
 
-    def override_session():
-        session = TestingSessionLocal()
-        try:
-            yield session
-        finally:
-            session.close()
+    class StubClient:
+        def __init__(self) -> None:
+            self.history_calls: list[dict[str, object]] = []
 
-    main_module.app.dependency_overrides[get_session] = override_session
+        def get_latest(self) -> dict:
+            raise requests.RequestException("boom")
 
-    session = TestingSessionLocal()
-    now = dt.datetime.now(dt.timezone.utc)
-    entries = [
-        FearGreed(
-            timestamp=now - dt.timedelta(days=120),
-            value=10,
-            classification="Extreme Fear",
-            ingested_at=now,
-        ),
-        FearGreed(
-            timestamp=now - dt.timedelta(days=40),
-            value=25,
-            classification="Fear",
-            ingested_at=now,
-        ),
-        FearGreed(
-            timestamp=now - dt.timedelta(days=5),
-            value=70,
-            classification="Greed",
-            ingested_at=now,
-        ),
-    ]
-    session.add_all(entries)
-    session.commit()
-    session.close()
+        def get_historical(
+            self, *, limit: int | None = None, time_start: str | None = None, time_end: str | None = None
+        ) -> list[dict]:
+            self.history_calls.append({
+                "limit": limit,
+                "time_start": time_start,
+                "time_end": time_end,
+            })
+            return [
+                {
+                    "timestamp": "2024-03-09T00:00:00+00:00",
+                    "score": 20,
+                    "label": "Fear",
+                },
+                {
+                    "timestamp": "2024-03-11T00:00:00+00:00",
+                    "score": 35,
+                    "label": "Neutral",
+                },
+            ]
+
+    stub = StubClient()
+    main_module.app.dependency_overrides[main_module.get_fng_client] = lambda: stub
 
     client = TestClient(main_module.app)
-
-    resp = client.get("/api/fear-greed/history?range=30d")
+    resp = client.get("/api/fng/latest")
     assert resp.status_code == 200
-    data = resp.json()
-    assert data["range"] == "30d"
-    assert len(data["points"]) == 1
+    payload = resp.json()
+    assert payload["score"] == 35
+    assert payload["label"] == "Neutral"
+    assert payload["timestamp"].startswith("2024-03-11")
+    assert stub.history_calls == [
+        {"limit": 1, "time_start": None, "time_end": None}
+    ]
 
-    resp = client.get("/api/fear-greed/history?range=max")
+    main_module.app.dependency_overrides.pop(main_module.get_fng_client, None)
+
+
+def test_api_fng_latest_propagates_errors(monkeypatch):
+    import backend.app.main as main_module
+
+    class StubClient:
+        def get_latest(self) -> dict:
+            raise requests.RequestException("fail latest")
+
+        def get_historical(self, **_: object) -> list[dict]:
+            raise requests.RequestException("fail history")
+
+    stub = StubClient()
+    main_module.app.dependency_overrides[main_module.get_fng_client] = lambda: stub
+
+    client = TestClient(main_module.app)
+    resp = client.get("/api/fng/latest")
+    assert resp.status_code == 502
+    payload = resp.json()
+    assert "fear & greed" in payload.get("detail", "").lower()
+
+    main_module.app.dependency_overrides.pop(main_module.get_fng_client, None)
+
+
+def test_api_fng_history_orders_points(monkeypatch):
+    import backend.app.main as main_module
+
+    class StubClient:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, object]] = []
+
+        def get_latest(self) -> dict:
+            raise AssertionError("should not fetch latest")
+
+        def get_historical(
+            self, *, limit: int | None = None, time_start: str | None = None, time_end: str | None = None
+        ) -> list[dict]:
+            self.calls.append({
+                "limit": limit,
+                "time_start": time_start,
+                "time_end": time_end,
+            })
+            return [
+                {
+                    "timestamp": "2024-03-15T00:00:00+00:00",
+                    "score": 55,
+                    "label": "Greed",
+                },
+                {
+                    "timestamp": "2024-03-12T00:00:00+00:00",
+                    "score": 25,
+                    "label": "Fear",
+                },
+            ]
+
+    stub = StubClient()
+    main_module.app.dependency_overrides[main_module.get_fng_client] = lambda: stub
+
+    client = TestClient(main_module.app)
+    resp = client.get("/api/fng/history?days=5")
     assert resp.status_code == 200
-    data = resp.json()
-    assert len(data["points"]) == 3
+    payload = resp.json()
+    assert payload["days"] == 5
+    assert [point["score"] for point in payload["points"]] == [25, 55]
+    assert stub.calls == [
+        {"limit": 5, "time_start": None, "time_end": None}
+    ]
 
-    resp = client.get("/api/fear-greed/history?range=oops")
+    main_module.app.dependency_overrides.pop(main_module.get_fng_client, None)
+
+
+def test_api_fng_history_rejects_invalid_days(monkeypatch):
+    import backend.app.main as main_module
+
+    class StubClient:
+        def get_latest(self) -> dict:
+            raise AssertionError("should not fetch latest")
+
+        def get_historical(self, **_: object) -> list[dict]:
+            raise AssertionError("should not fetch history")
+
+    main_module.app.dependency_overrides[main_module.get_fng_client] = lambda: StubClient()
+
+    client = TestClient(main_module.app)
+    resp = client.get("/api/fng/history?days=0")
+    assert resp.status_code == 400
+    resp = client.get("/api/fng/history?days=-5")
     assert resp.status_code == 400
 
-    main_module.app.dependency_overrides.pop(get_session, None)
+    main_module.app.dependency_overrides.pop(main_module.get_fng_client, None)
 
 
 def test_sync_fear_greed_index_updates_without_seed(TestingSessionLocal):
     class StubClient:
-        def get_fear_greed_history(self):
+        def get_historical(self, limit=None):
             return [
                 {
                     "timestamp": "2024-01-01T00:00:00Z",
-                    "value": "60",
-                    "value_classification": "Greed",
+                    "score": "60",
+                    "label": "Greed",
                 },
                 {
                     "timestamp": "2024-01-02T00:00:00Z",
-                    "value": 20,
-                    "value_classification": "",
+                    "score": 20,
+                    "label": "",
                 },
             ]
 
-        def get_fear_greed_latest(self):
+        def get_latest(self):
             return {
                 "timestamp": "2024-01-03T00:00:00Z",
-                "value": 50,
-                "value_classification": None,
+                "score": 50,
+                "label": None,
             }
 
     session = TestingSessionLocal()

@@ -476,14 +476,14 @@ export async function loadFearGreedWidget({ fetchImpl } = {}) {
   }
   updateWidgetSnapshots();
   try {
-    const response = await fetcher(`${API_URL}/fear-greed/latest`);
+    const response = await fetcher(`${API_URL}/fng/latest`);
     if (!response?.ok) {
       throw new Error(`HTTP ${response?.status ?? 'error'}`);
     }
     const payload = await response.json();
-    const rawValue = Number(payload?.value ?? 0);
-    const value = Number.isFinite(rawValue) ? Math.round(rawValue) : 0;
-    const classification = String(payload?.classification || '').trim() || 'Indéterminé';
+    const rawScore = Number(payload?.score ?? payload?.value ?? 0);
+    const value = Number.isFinite(rawScore) ? Math.round(rawScore) : 0;
+    const classification = String(payload?.label || payload?.classification || '').trim() || 'Indéterminé';
     const timestamp = typeof payload?.timestamp === 'string' ? payload.timestamp : new Date().toISOString();
     valueEl.textContent = String(value);
     classificationEl.textContent = classification;
@@ -500,13 +500,21 @@ export async function loadFearGreedWidget({ fetchImpl } = {}) {
       card.setAttribute('href', './fear-greed.html');
     }
     try {
-      const historyResponse = await fetcher(`${API_URL}/fear-greed/history?range=90d`);
+      const historyResponse = await fetcher(`${API_URL}/fng/history?days=90`);
       if (!historyResponse?.ok) {
         throw new Error(`HTTP ${historyResponse?.status ?? 'error'}`);
       }
       const historyPayload = await historyResponse.json();
-      const points = Array.isArray(historyPayload?.points) ? historyPayload.points : [];
-      widgetHistoryPoints = points;
+      const rawPoints = Array.isArray(historyPayload?.points) ? historyPayload.points : [];
+      widgetHistoryPoints = rawPoints
+        .map((point) => {
+          const timestamp = typeof point?.timestamp === 'string' ? point.timestamp : null;
+          const score = Number(point?.score ?? point?.value ?? 0);
+          const numeric = Number.isFinite(score) ? Math.round(score) : 0;
+          const label = String(point?.label || point?.classification || '').trim() || 'Indéterminé';
+          return timestamp ? { timestamp, value: numeric, classification: label } : null;
+        })
+        .filter((point) => point);
       updateWidgetSnapshots();
     } catch (historyError) {
       console.error(historyError);

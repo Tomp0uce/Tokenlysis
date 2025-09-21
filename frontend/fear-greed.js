@@ -16,6 +16,11 @@ const API_URL = document.querySelector('meta[name="api-url"]')?.content || '';
 const API_BASE = API_URL.endsWith('/') ? API_URL.slice(0, -1) : API_URL;
 const DEFAULT_RANGE = '90d';
 const DEFAULT_CLASSIFICATION = 'Indéterminé';
+const RANGE_TO_DAYS = {
+  '30d': 30,
+  '90d': 90,
+  '1y': 365,
+};
 
 let gaugeChart = null;
 let historyChart = null;
@@ -31,6 +36,28 @@ function getFetch(fetchImpl) {
   }
   if (typeof fetch === 'function') {
     return fetch;
+  }
+  return null;
+}
+
+function rangeToDays(range) {
+  if (typeof range !== 'string') {
+    return null;
+  }
+  const key = range.trim().toLowerCase();
+  if (!key || key === 'max') {
+    return null;
+  }
+  if (Object.prototype.hasOwnProperty.call(RANGE_TO_DAYS, key)) {
+    return RANGE_TO_DAYS[key];
+  }
+  if (key.endsWith('d')) {
+    const parsed = Number.parseInt(key.slice(0, -1), 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  }
+  if (key.endsWith('y')) {
+    const parsed = Number.parseInt(key.slice(0, -1), 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed * 365 : null;
   }
   return null;
 }
@@ -85,14 +112,14 @@ async function loadLatest(fetchImpl) {
     return null;
   }
   try {
-    const response = await fetcher(`${API_BASE}/fear-greed/latest`);
+    const response = await fetcher(`${API_BASE}/fng/latest`);
     if (!response?.ok) {
       throw new Error(`HTTP ${response?.status ?? 'error'}`);
     }
     const payload = await response.json();
-    const rawValue = Number(payload?.value ?? 0);
-    const value = Number.isFinite(rawValue) ? Math.round(rawValue) : 0;
-    const classification = String(payload?.classification || '').trim() || DEFAULT_CLASSIFICATION;
+    const rawScore = Number(payload?.score ?? payload?.value ?? 0);
+    const value = Number.isFinite(rawScore) ? Math.round(rawScore) : 0;
+    const classification = String(payload?.label || payload?.classification || '').trim() || DEFAULT_CLASSIFICATION;
     const timestamp = typeof payload?.timestamp === 'string' ? payload.timestamp : new Date().toISOString();
 
     valueEl.textContent = formatSentiment(value);
@@ -131,12 +158,26 @@ async function loadHistory(range = activeRange, fetchImpl) {
     return null;
   }
   try {
-    const response = await fetcher(`${API_BASE}/fear-greed/history?range=${encodeURIComponent(range)}`);
+    const days = rangeToDays(range);
+    const query = typeof days === 'number' && days > 0 ? `?days=${encodeURIComponent(days)}` : '';
+    const response = await fetcher(`${API_BASE}/fng/history${query}`);
     if (!response?.ok) {
       throw new Error(`HTTP ${response?.status ?? 'error'}`);
     }
     const payload = await response.json();
-    const points = Array.isArray(payload?.points) ? payload.points : [];
+    const rawPoints = Array.isArray(payload?.points) ? payload.points : [];
+    const points = rawPoints
+      .map((point) => {
+        const timestamp = typeof point?.timestamp === 'string' ? point.timestamp : null;
+        if (!timestamp) {
+          return null;
+        }
+        const score = Number(point?.score ?? point?.value ?? 0);
+        const numeric = Number.isFinite(score) ? Math.round(score) : 0;
+        const label = String(point?.label || point?.classification || '').trim() || DEFAULT_CLASSIFICATION;
+        return { timestamp, value: numeric, classification: label };
+      })
+      .filter(Boolean);
     if (!points.length) {
       errorEl.hidden = false;
       errorEl.textContent = 'Historique indisponible pour la période sélectionnée.';

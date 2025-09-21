@@ -57,7 +57,7 @@ The delivered dashboards already surface price, market cap, volume history and c
 
 ### 2.8 Sentiment Intelligence
 - CoinMarketCap integration seeds and refreshes the Crypto Fear & Greed index, storing values in the `fear_greed` table.
-- `/api/fear-greed/latest` and `/api/fear-greed/history` expose the dataset to frontend widgets, including today/yesterday/week/month snapshots and chart ranges (`30d`, `90d`, `1y`, `max`).
+- `/api/fng/latest` and `/api/fng/history` expose the dataset to frontend widgets, returning normalized `{ timestamp, score, label }` points with optional `days` filtering.
 - A dedicated sentiment page renders the gauge, history chart and contextual legend while the dashboard hero card links directly to it.
 
 ### 2.9 Navigation & Theming
