@@ -92,6 +92,7 @@ function formatDisplayName(item) {
   return `${first.toUpperCase()}${fallback.slice(1)}`;
 }
 
+=======
 function applyChangeValue(element, value) {
   if (!element) {
     return;
