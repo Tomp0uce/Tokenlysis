@@ -6,6 +6,11 @@ import {
 } from './charting.js';
 import { initThemeToggle, onThemeChange } from './theme.js';
 import { syncRangeSelector } from './range.js';
+import {
+  computeSentimentSnapshots,
+  collectSnapshotElements,
+  renderSentimentSnapshots,
+} from './sentiment.js';
 
 const API_URL = document.querySelector('meta[name="api-url"]')?.content || '';
 const API_BASE = API_URL.endsWith('/') ? API_URL.slice(0, -1) : API_URL;
@@ -16,6 +21,9 @@ let gaugeChart = null;
 let historyChart = null;
 let activeRange = DEFAULT_RANGE;
 let rangeInitialized = false;
+let latestDatapoint = null;
+let historyDatapoints = [];
+let snapshotElements = null;
 
 function getFetch(fetchImpl) {
   if (typeof fetchImpl === 'function') {
@@ -56,6 +64,17 @@ function setActiveRange(range) {
   activeRange = range;
 }
 
+function updateSnapshotSummary() {
+  if (!snapshotElements) {
+    snapshotElements = collectSnapshotElements();
+  }
+  if (!snapshotElements || snapshotElements.size === 0) {
+    return;
+  }
+  const snapshots = computeSentimentSnapshots(latestDatapoint, historyDatapoints);
+  renderSentimentSnapshots(snapshotElements, snapshots);
+}
+
 async function loadLatest(fetchImpl) {
   const { valueEl, classificationEl, gaugeContainer } = sentimentElements();
   if (!valueEl || !classificationEl || !gaugeContainer) {
@@ -74,9 +93,13 @@ async function loadLatest(fetchImpl) {
     const rawValue = Number(payload?.value ?? 0);
     const value = Number.isFinite(rawValue) ? Math.round(rawValue) : 0;
     const classification = String(payload?.classification || '').trim() || DEFAULT_CLASSIFICATION;
+    const timestamp = typeof payload?.timestamp === 'string' ? payload.timestamp : new Date().toISOString();
 
     valueEl.textContent = formatSentiment(value);
     classificationEl.textContent = classification;
+
+    latestDatapoint = { timestamp, value, classification };
+    updateSnapshotSummary();
 
     if (!gaugeChart) {
       gaugeChart = await createRadialGauge(gaugeContainer, { value, classification });
@@ -88,6 +111,8 @@ async function loadLatest(fetchImpl) {
     console.error(error);
     valueEl.textContent = '0';
     classificationEl.textContent = 'Indisponible';
+    latestDatapoint = null;
+    updateSnapshotSummary();
     if (gaugeChart) {
       await updateRadialGauge(gaugeChart, { value: 0, classification: 'Indisponible' });
     }
@@ -115,6 +140,8 @@ async function loadHistory(range = activeRange, fetchImpl) {
     if (!points.length) {
       errorEl.hidden = false;
       errorEl.textContent = 'Historique indisponible pour la période sélectionnée.';
+      historyDatapoints = [];
+      updateSnapshotSummary();
       if (historyChart) {
         await historyChart.updateSeries(
           [
@@ -129,6 +156,8 @@ async function loadHistory(range = activeRange, fetchImpl) {
       return null;
     }
     errorEl.hidden = true;
+    historyDatapoints = points;
+    updateSnapshotSummary();
     const categories = points
       .map((point) => point?.timestamp)
       .filter((ts) => typeof ts === 'string');
@@ -173,6 +202,8 @@ async function loadHistory(range = activeRange, fetchImpl) {
     console.error(error);
     errorEl.hidden = false;
     errorEl.textContent = 'Historique indisponible pour la période sélectionnée.';
+    historyDatapoints = [];
+    updateSnapshotSummary();
     return null;
   }
 }
@@ -202,6 +233,8 @@ export async function init() {
   initThemeToggle('[data-theme-toggle]');
   onThemeChange((theme) => refreshChartsTheme(theme));
   setActiveRange(DEFAULT_RANGE);
+  snapshotElements = collectSnapshotElements();
+  updateSnapshotSummary();
   const rangeContainer = document.getElementById('fear-greed-range');
   if (rangeContainer) {
     syncRangeSelector(rangeContainer, new Set(['30d', '90d', '1y', 'max']));

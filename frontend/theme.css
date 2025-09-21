@@ -235,6 +235,54 @@ a:hover {
   color: var(--text-secondary);
 }
 
+.sentiment-snapshots {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
+  margin: 8px 0 0;
+  padding: 0;
+}
+
+.sentiment-snapshot {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sentiment-snapshot-label {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.sentiment-snapshot-value {
+  font-size: 1.4rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  transition: color 0.2s ease;
+}
+
+.sentiment-snapshot-value[data-band='extreme-fear'] {
+  color: var(--fg-extreme-fear, #dc2626);
+}
+
+.sentiment-snapshot-value[data-band='fear'] {
+  color: var(--fg-fear, #f97316);
+}
+
+.sentiment-snapshot-value[data-band='neutral'] {
+  color: var(--fg-neutral, #facc15);
+}
+
+.sentiment-snapshot-value[data-band='greed'] {
+  color: var(--fg-greed, #22c55e);
+}
+
+.sentiment-snapshot-value[data-band='extreme-greed'] {
+  color: var(--fg-extreme-greed, #0ea5e9);
+}
+
 .sentiment-gauge {
   min-height: 260px;
   width: 100%;

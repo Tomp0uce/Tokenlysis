@@ -110,6 +110,24 @@ test('loadFearGreedWidget met à jour la jauge et les étiquettes', async (t) =>
             <div class="sentiment-legend-item"><dt>75-100</dt><dd>Extreme Greed</dd></div>
           </dl>
         </div>
+        <dl class="sentiment-snapshots" id="fear-greed-snapshots">
+          <div class="sentiment-snapshot" data-period="today">
+            <dt class="sentiment-snapshot-label">Aujourd'hui</dt>
+            <dd class="sentiment-snapshot-value" data-role="value">—</dd>
+          </div>
+          <div class="sentiment-snapshot" data-period="yesterday">
+            <dt class="sentiment-snapshot-label">Hier</dt>
+            <dd class="sentiment-snapshot-value" data-role="value">—</dd>
+          </div>
+          <div class="sentiment-snapshot" data-period="week">
+            <dt class="sentiment-snapshot-label">Semaine dernière</dt>
+            <dd class="sentiment-snapshot-value" data-role="value">—</dd>
+          </div>
+          <div class="sentiment-snapshot" data-period="month">
+            <dt class="sentiment-snapshot-label">Mois dernier</dt>
+            <dd class="sentiment-snapshot-value" data-role="value">—</dd>
+          </div>
+        </dl>
         <p id="fear-greed-classification">—</p>
       </a>
     </body></html>`;
@@ -139,9 +157,22 @@ test('loadFearGreedWidget met à jour la jauge et les étiquettes', async (t) =>
     classification: 'Greed',
     timestamp: '2024-03-12T00:00:00Z',
   };
+  const history = {
+    range: '90d',
+    points: [
+      { timestamp: '2024-02-10T00:00:00Z', value: 22, classification: 'Extreme Fear' },
+      { timestamp: '2024-03-05T00:00:00Z', value: 50, classification: 'Neutral' },
+      { timestamp: '2024-03-11T00:00:00Z', value: 57, classification: 'Greed' },
+    ],
+  };
+  const calls = [];
   global.fetch = async (url) => {
+    calls.push(url);
     if (url === 'https://example.test/api/fear-greed/latest') {
       return new Response(JSON.stringify(latest), { status: 200 });
+    }
+    if (url === 'https://example.test/api/fear-greed/history?range=90d') {
+      return new Response(JSON.stringify(history), { status: 200 });
     }
     throw new Error(`unexpected fetch ${url}`);
   };
@@ -152,6 +183,7 @@ test('loadFearGreedWidget met à jour la jauge et les étiquettes', async (t) =>
   testWindow.ApexCharts = ApexChartsStub;
   testDocument.documentElement.style.setProperty('--fg-greed', '#22c55e');
   testDocument.documentElement.style.setProperty('--fg-neutral', '#facc15');
+  testDocument.documentElement.style.setProperty('--fg-extreme-fear', '#dc2626');
   t.after(() => {
     testWindow.close();
     delete global.fetch;
@@ -164,6 +196,10 @@ test('loadFearGreedWidget met à jour la jauge et les étiquettes', async (t) =>
   assert.equal(document.getElementById('fear-greed-value').textContent, '62');
   assert.equal(document.getElementById('fear-greed-classification').textContent, 'Greed');
   assert.equal(document.querySelector('.sentiment-updated'), null);
+  assert.deepEqual(calls, [
+    'https://example.test/api/fear-greed/latest',
+    'https://example.test/api/fear-greed/history?range=90d',
+  ]);
   const card = document.getElementById('fear-greed-card');
   assert.ok(card);
   assert.equal(card.getAttribute('href') ?? card.getAttribute('data-href'), './fear-greed.html');
@@ -172,4 +208,19 @@ test('loadFearGreedWidget met à jour la jauge et les étiquettes', async (t) =>
   assert.equal(gauge.children.length >= 0, true);
   const [{ options }] = ApexChartsStub.instances;
   assert.equal(options.chart.background, 'transparent');
+
+  const getValue = (period) =>
+    document.querySelector(`[data-period="${period}"] [data-role="value"]`);
+  const today = getValue('today');
+  assert.equal(today.textContent, '62');
+  assert.equal(today.dataset.band, 'greed');
+  const yesterday = getValue('yesterday');
+  assert.equal(yesterday.textContent, '57');
+  assert.equal(yesterday.dataset.band, 'greed');
+  const week = getValue('week');
+  assert.equal(week.textContent, '50');
+  assert.equal(week.dataset.band, 'neutral');
+  const month = getValue('month');
+  assert.equal(month.textContent, '22');
+  assert.equal(month.dataset.band, 'extreme-fear');
 });
