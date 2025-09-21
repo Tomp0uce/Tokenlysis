@@ -149,6 +149,7 @@ test('loadCryptos renders table and last update with categories', async () => {
     '6.00%',
     'Détails',
   ]);
+
   const priceCell = rows[0].querySelector('td[data-label="Prix ($)"]');
   assert.ok(priceCell);
   assert.equal(priceCell.textContent.trim(), '1 $');
