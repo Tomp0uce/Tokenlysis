@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 import logging
+import math
 import os
 import threading
 from pathlib import Path
@@ -266,8 +267,49 @@ def fear_greed_history(
                 "value": row.value,
                 "classification": row.classification,
             }
-        )
+    )
     return {"range": range_key, "points": points}
+
+
+@app.get("/api/debug/history-gaps")
+def history_gaps(session: Session = Depends(get_session)) -> dict:
+    """Report coins with missing historical points for diagnostic purposes."""
+
+    prices_repo = PricesRepo(session)
+    vs_currency = "usd"
+    limit = max(int(settings.CG_TOP_N), 0)
+    latest_rows = prices_repo.get_top(vs_currency, limit) if limit else []
+    now = dt.datetime.now(dt.timezone.utc)
+    granularity_seconds = max(refresh_interval_seconds(settings.REFRESH_GRANULARITY), 1)
+    items: list[dict[str, object]] = []
+
+    for row in latest_rows:
+        missing_ranges: dict[str, dict[str, int]] = {}
+        coin_vs = row.vs_currency
+        for range_key, delta in RANGE_TO_DELTA.items():
+            seconds = delta.total_seconds()
+            if seconds <= 0:
+                continue
+            expected = max(int(math.ceil(seconds / granularity_seconds)), 1)
+            since = now - delta
+            history = prices_repo.get_history(row.coin_id, coin_vs, since)
+            actual = len(history)
+            missing = max(expected - actual, 0)
+            if missing > 0:
+                missing_ranges[range_key] = {
+                    "expected": expected,
+                    "actual": actual,
+                    "missing": missing,
+                }
+        if missing_ranges:
+            items.append({"coin_id": row.coin_id, "ranges": missing_ranges})
+
+    return {
+        "generated_at": now.isoformat(),
+        "granularity": settings.REFRESH_GRANULARITY,
+        "vs_currency": vs_currency,
+        "items": items,
+    }
 
 
 @app.get("/api/diag")
