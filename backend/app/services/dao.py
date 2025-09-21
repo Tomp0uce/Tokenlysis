@@ -115,6 +115,7 @@ class CoinsRepo:
             "name": "",
             "symbol": "",
             "logo_url": None,
+            "social_links": {},
         }
 
     @staticmethod
@@ -129,6 +130,12 @@ class CoinsRepo:
         details["name"] = row.name or ""
         details["symbol"] = row.symbol or ""
         details["logo_url"] = row.logo_url
+        try:
+            details["social_links"] = (
+                json.loads(row.social_links) if row.social_links else {}
+            )
+        except json.JSONDecodeError:
+            details["social_links"] = {}
         return details
 
     def upsert(self, rows: Iterable[dict]) -> None:
@@ -144,6 +151,7 @@ class CoinsRepo:
                 "logo_url": stmt.excluded.logo_url,
                 "category_names": stmt.excluded.category_names,
                 "category_ids": stmt.excluded.category_ids,
+                "social_links": stmt.excluded.social_links,
                 "updated_at": stmt.excluded.updated_at,
             },
         )
@@ -193,49 +201,76 @@ class CoinsRepo:
 
     def get_categories_with_timestamps(
         self, coin_ids: list[str]
-    ) -> dict[str, tuple[list[str], list[str], dt.datetime | None]]:
+    ) -> dict[str, tuple[list[str], list[str], dict[str, str], dt.datetime | None]]:
         if not coin_ids:
             return {}
         stmt = select(
-            Coin.id, Coin.category_names, Coin.category_ids, Coin.updated_at
+            Coin.id,
+            Coin.category_names,
+            Coin.category_ids,
+            Coin.social_links,
+            Coin.updated_at,
         ).where(Coin.id.in_(coin_ids))
         try:
             rows = self.session.execute(stmt).all()
         except OperationalError as exc:
             logger.warning("schema out-of-date: %s", exc)
-            return {cid: ([], [], None) for cid in coin_ids}
-        result: dict[str, tuple[list[str], list[str], dt.datetime | None]] = {}
-        for cid, names_raw, ids_raw, ts in rows:
+            return {cid: ([], [], {}, None) for cid in coin_ids}
+        result: dict[str, tuple[list[str], list[str], dict[str, str], dt.datetime | None]] = {}
+        for cid, names_raw, ids_raw, links_raw, ts in rows:
             names = json.loads(names_raw) if names_raw else []
             ids = json.loads(ids_raw) if ids_raw else []
+            if links_raw:
+                try:
+                    links = json.loads(links_raw)
+                    if not isinstance(links, dict):
+                        links = {}
+                except json.JSONDecodeError:
+                    links = {}
+            else:
+                links = {}
             if names_raw is None or ids_raw is None:
                 ts = None
             if ts is not None and ts.tzinfo is None:
                 ts = ts.replace(tzinfo=dt.timezone.utc)
-            result[cid] = (names, ids, ts)
+            result[cid] = (names, ids, links, ts)
         return result
 
     def get_categories_with_timestamp(
         self, coin_id: str
-    ) -> tuple[list[str], list[str], dt.datetime | None]:
-        stmt = select(Coin.category_names, Coin.category_ids, Coin.updated_at).where(
+    ) -> tuple[list[str], list[str], dict[str, str], dt.datetime | None]:
+        stmt = select(
+            Coin.category_names,
+            Coin.category_ids,
+            Coin.social_links,
+            Coin.updated_at,
+        ).where(
             Coin.id == coin_id
         )
         try:
             row = self.session.execute(stmt).first()
         except OperationalError as exc:
             logger.warning("schema out-of-date: %s", exc)
-            return [], [], None
+            return [], [], {}, None
         if not row:
-            return [], [], None
-        names_raw, ids_raw, ts = row
+            return [], [], {}, None
+        names_raw, ids_raw, links_raw, ts = row
         names = json.loads(names_raw) if names_raw else []
         ids = json.loads(ids_raw) if ids_raw else []
+        if links_raw:
+            try:
+                links = json.loads(links_raw)
+                if not isinstance(links, dict):
+                    links = {}
+            except json.JSONDecodeError:
+                links = {}
+        else:
+            links = {}
         if names_raw is None or ids_raw is None:
             ts = None
         if ts is not None and ts.tzinfo is None:
             ts = ts.replace(tzinfo=dt.timezone.utc)
-        return names, ids, ts
+        return names, ids, links, ts
 
     def list_category_issues(
         self,

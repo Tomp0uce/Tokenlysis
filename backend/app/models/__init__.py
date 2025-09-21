@@ -19,6 +19,7 @@ class Coin(Base):
     logo_url: Mapped[str | None] = mapped_column(String, nullable=True)
     category_names: Mapped[str | None] = mapped_column(Text, nullable=True)
     category_ids: Mapped[str | None] = mapped_column(Text, nullable=True)
+    social_links: Mapped[str | None] = mapped_column(Text, nullable=True)
     updated_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
 
 

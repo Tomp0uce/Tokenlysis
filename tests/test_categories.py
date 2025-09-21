@@ -60,16 +60,39 @@ def test_price_response_has_category_fields():
     assert resp.category_ids == []
 
 
-def test_get_coin_categories(monkeypatch):
+def test_get_coin_profile(monkeypatch):
     client = CoinGeckoClient(api_key=None)
 
     def fake_request(self, path, params=None):
         assert path == "/coins/bitcoin"
-        return DummyResp({"categories": ["Layer 1 (L1)", "Payments"]})
+        return DummyResp(
+            {
+                "categories": ["Layer 1 (L1)", "Payments"],
+                "links": {
+                    "homepage": ["https://bitcoin.org", ""],
+                    "twitter_screen_name": "Bitcoin",
+                    "subreddit_url": "https://reddit.com/r/bitcoin",
+                    "repos_url": {"github": ["https://github.com/bitcoin/bitcoin"]},
+                    "chat_url": [
+                        "https://discord.gg/bitcoin",
+                        "https://t.me/bitcoin",
+                    ],
+                    "telegram_channel_identifier": "bitcoin-official",
+                },
+            }
+        )
 
     monkeypatch.setattr(CoinGeckoClient, "_request", fake_request)
-    cats = client.get_coin_categories("bitcoin")
-    assert cats == ["Layer 1 (L1)", "Payments"]
+    profile = client.get_coin_profile("bitcoin")
+    assert profile["categories"] == ["Layer 1 (L1)", "Payments"]
+    assert profile["links"] == {
+        "website": "https://bitcoin.org",
+        "twitter": "https://twitter.com/Bitcoin",
+        "reddit": "https://reddit.com/r/bitcoin",
+        "github": "https://github.com/bitcoin/bitcoin",
+        "discord": "https://discord.gg/bitcoin",
+        "telegram": "https://t.me/bitcoin",
+    }
 
 
 def test_etl_and_api_expose_categories(monkeypatch, tmp_path):
@@ -98,6 +121,20 @@ def test_etl_and_api_expose_categories(monkeypatch, tmp_path):
             assert coin_id == "bitcoin"
             return ["Layer 1 (L1)", "Unmapped"]
 
+        def get_coin_profile(self, coin_id: str):
+            assert coin_id == "bitcoin"
+            return {
+                "categories": ["Layer 1 (L1)", "Unmapped"],
+                "links": {
+                    "website": "https://bitcoin.org",
+                    "twitter": "https://twitter.com/bitcoin",
+                    "reddit": "https://reddit.com/r/bitcoin",
+                    "github": "https://github.com/bitcoin/bitcoin",
+                    "discord": "https://discord.gg/bitcoin",
+                    "telegram": "https://t.me/bitcoin",
+                },
+            }
+
     run_module.run_etl(client=StubClient(), budget=None)
 
     main_module.app.dependency_overrides[get_session] = lambda: TestingSessionLocal()
@@ -111,10 +148,12 @@ def test_etl_and_api_expose_categories(monkeypatch, tmp_path):
     assert resp2.status_code == 200
     item = resp2.json()["items"][0]
     assert item["category_ids"] == ["layer-1", "unmapped"]
+    assert item["social_links"]["website"] == "https://bitcoin.org"
     resp3 = client.get("/api/price/bitcoin")
     assert resp3.status_code == 200
     data3 = resp3.json()
     assert data3["category_ids"] == ["layer-1", "unmapped"]
+    assert data3["social_links"]["twitter"] == "https://twitter.com/bitcoin"
 
 
 def test_etl_skips_category_fetch_if_recent(monkeypatch, tmp_path):
@@ -145,6 +184,10 @@ def test_etl_skips_category_fetch_if_recent(monkeypatch, tmp_path):
         def get_coin_categories(self, coin_id: str):
             self.cat_calls += 1
             return []
+
+        def get_coin_profile(self, coin_id: str):
+            self.cat_calls += 1
+            return {"categories": [], "links": {}}
 
     client = StubClient()
     run_module.run_etl(client=client, budget=None)

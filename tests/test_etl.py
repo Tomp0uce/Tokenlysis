@@ -45,8 +45,10 @@ def test_run_etl_persists_and_logs(monkeypatch, tmp_path, caplog):
 
     monkeypatch.setattr(settings, "CG_TOP_N", 10)
     monkeypatch.setattr(settings, "CG_PER_PAGE_MAX", 10)
+    monkeypatch.setattr(run_module, "_categories_cache", {})
+    monkeypatch.setattr(run_module, "_categories_cache_ts", None)
 
-    budget = CallBudget(tmp_path / "budget.json", quota=10)
+    budget = CallBudget(tmp_path / "budget.json", quota=20)
 
     class StubClient:
         def get_markets(self, *, vs, per_page, page):
@@ -67,6 +69,18 @@ def test_run_etl_persists_and_logs(monkeypatch, tmp_path, caplog):
                 for i in range(10)
             ]
 
+        def get_categories_list(self):
+            return []
+
+        def get_coin_profile(self, coin_id: str):
+            return {
+                "categories": [],
+                "links": {
+                    "website": f"https://{coin_id}.org",
+                    "twitter": f"https://twitter.com/{coin_id}",
+                },
+            }
+
     with caplog.at_level("INFO"):
         rows = run_module.run_etl(client=StubClient(), budget=budget)
     assert rows == 10
@@ -76,9 +90,9 @@ def test_run_etl_persists_and_logs(monkeypatch, tmp_path, caplog):
     meta_repo = MetaRepo(session)
     assert len(prices_repo.get_top("usd", 10)) == 10
     assert meta_repo.get("data_source") == "api"
-    assert meta_repo.get("monthly_call_count") == "1"
+    assert meta_repo.get("monthly_call_count") == "12"
     assert meta_repo.get("last_etl_items") == "10"
-    assert budget.monthly_call_count == 1
+    assert budget.monthly_call_count == 12
     payload = None
     for r in caplog.records:
         try:
@@ -89,12 +103,13 @@ def test_run_etl_persists_and_logs(monkeypatch, tmp_path, caplog):
             payload = msg
             break
     assert payload is not None
-    assert payload["coingecko_calls_total"] == 1
+    assert payload["coingecko_calls_total"] == 12
     assert meta_repo.get("last_refresh_at") is not None
     coins = session.query(Coin).order_by(Coin.id).all()
     assert coins
     assert coins[0].name == "Coin 0"
     assert coins[0].logo_url == "https://img.test/coin0.png"
+    assert json.loads(coins[0].social_links or "{}")["website"] == "https://coin0.org"
     session.close()
 
 
@@ -140,7 +155,7 @@ def test_run_etl_tracks_actual_calls(monkeypatch, tmp_path, caplog):
             pass
 
         def get_categories_with_timestamp(self, coin_id):  # pragma: no cover - trivial
-            return [], [], None
+            return [], [], {}, dt.datetime.now(dt.timezone.utc)
 
     monkeypatch.setattr(run_module, "SessionLocal", lambda: DummySession())
     monkeypatch.setattr(run_module, "PricesRepo", DummyPricesRepo)
@@ -165,6 +180,12 @@ def test_run_etl_tracks_actual_calls(monkeypatch, tmp_path, caplog):
                 }
                 for i in range(per_page)
             ]
+
+        def get_categories_list(self):  # pragma: no cover - trivial
+            return []
+
+        def get_coin_profile(self, coin_id: str):  # pragma: no cover - trivial
+            return {"categories": [], "links": {}}
 
     budget = CallBudget(tmp_path / "budget.json", quota=20)
     client = PagedClient()
@@ -231,7 +252,7 @@ def test_run_etl_downgrades_per_page_on_4xx(monkeypatch, tmp_path, caplog):
             pass
 
         def get_categories_with_timestamp(self, coin_id):  # pragma: no cover - trivial
-            return [], [], None
+            return [], [], {}, dt.datetime.now(dt.timezone.utc)
 
     monkeypatch.setattr(run_module, "SessionLocal", lambda: DummySession())
     monkeypatch.setattr(run_module, "PricesRepo", DummyPricesRepo)
@@ -327,7 +348,7 @@ def test_run_etl_stops_when_budget_exhausted(monkeypatch, tmp_path):
             pass
 
         def get_categories_with_timestamp(self, coin_id):  # pragma: no cover - trivial
-            return [], [], None
+            return [], [], {}, dt.datetime.now(dt.timezone.utc)
 
     monkeypatch.setattr(run_module, "SessionLocal", lambda: DummySession())
     monkeypatch.setattr(run_module, "PricesRepo", DummyPricesRepo)
@@ -415,17 +436,22 @@ def test_run_etl_backfills_missing_categories(monkeypatch, tmp_path):
             self.cat_calls += 1
             return ["Layer 1"]
 
+        def get_coin_profile(self, coin_id):
+            self.cat_calls += 1
+            return {"categories": ["Layer 1"], "links": {}}
+
     client = StubClient()
     run_module.run_etl(client=client, budget=None)
     assert client.cat_calls == 1
     assert client.list_calls == 1
     session = TestingSessionLocal()
-    names, ids, _ = run_module.CoinsRepo(session).get_categories_with_timestamp(
+    names, ids, links, _ = run_module.CoinsRepo(session).get_categories_with_timestamp(
         "bitcoin"
     )
     session.close()
     assert names == ["Layer 1"]
     assert ids == ["layer-1"]
+    assert links == {}
 
     run_module.run_etl(client=client, budget=None)
     assert client.cat_calls == 1
@@ -484,6 +510,10 @@ def test_run_etl_retries_on_429(monkeypatch, tmp_path):
             self.cat_calls += 1
             raise requests.HTTPError(response=self.resp)
 
+        def get_coin_profile(self, coin_id):
+            self.cat_calls += 1
+            raise requests.HTTPError(response=self.resp)
+
     sleep_calls: list[float] = []
     monkeypatch.setattr(run_module.time, "sleep", lambda s: sleep_calls.append(s))
 
@@ -492,11 +522,12 @@ def test_run_etl_retries_on_429(monkeypatch, tmp_path):
     assert client.cat_calls == 4
     assert sleep_calls[:3] == [0.25, 1.0, 2.0]
     session = TestingSessionLocal()
-    names, ids, _ = run_module.CoinsRepo(session).get_categories_with_timestamp(
+    names, ids, links, _ = run_module.CoinsRepo(session).get_categories_with_timestamp(
         "bitcoin"
     )
     session.close()
     assert names == [] and ids == []
+    assert links == {}
 
 
 def test_etl_loop_handles_operational_error(monkeypatch):

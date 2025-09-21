@@ -2,6 +2,7 @@ import json
 import logging
 import time
 from typing import List
+from urllib.parse import urlparse
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -153,7 +154,73 @@ class CoinGeckoClient:
             f"/coins/{coin_id.lower()}/market_chart/range", params=params
         ).json()
 
-    def get_coin_categories(self, coin_id: str) -> list[str]:
+    @staticmethod
+    def _clean_url(value: str | None) -> str | None:
+        if not value or not isinstance(value, str):
+            return None
+        candidate = value.strip()
+        if not candidate:
+            return None
+        parsed = urlparse(candidate)
+        if not parsed.scheme:
+            candidate = f"https://{candidate}"
+            parsed = urlparse(candidate)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            return None
+        return candidate
+
+    @staticmethod
+    def _build_twitter_url(handle: str | None) -> str | None:
+        if not handle or not isinstance(handle, str):
+            return None
+        cleaned = handle.strip().lstrip("@")
+        if not cleaned:
+            return None
+        return f"https://twitter.com/{cleaned}"
+
+    def _extract_links(self, payload: dict) -> dict[str, str]:
+        links: dict[str, str] = {}
+        homepage = payload.get("homepage")
+        if isinstance(homepage, list):
+            for candidate in homepage:
+                cleaned = self._clean_url(candidate)
+                if cleaned:
+                    links["website"] = cleaned
+                    break
+        twitter_url = self._clean_url(self._build_twitter_url(payload.get("twitter_screen_name")))
+        if twitter_url:
+            links["twitter"] = twitter_url
+        reddit_url = self._clean_url(payload.get("subreddit_url"))
+        if reddit_url:
+            links["reddit"] = reddit_url
+        repos = payload.get("repos_url")
+        if isinstance(repos, dict):
+            github_list = repos.get("github")
+            if isinstance(github_list, list):
+                for candidate in github_list:
+                    cleaned = self._clean_url(candidate)
+                    if cleaned:
+                        links["github"] = cleaned
+                        break
+        chat_urls = payload.get("chat_url")
+        chat_candidates = chat_urls if isinstance(chat_urls, list) else []
+        for candidate in chat_candidates:
+            cleaned = self._clean_url(candidate)
+            if cleaned and "discord" in cleaned.lower():
+                links.setdefault("discord", cleaned)
+            if cleaned and any(host in cleaned.lower() for host in ("t.me", "telegram.", "telegram.me")):
+                links.setdefault("telegram", cleaned)
+        if "telegram" not in links:
+            identifier = payload.get("telegram_channel_identifier")
+            if isinstance(identifier, str):
+                handle = identifier.strip().lstrip("@")
+                if handle:
+                    constructed = self._clean_url(f"https://t.me/{handle}")
+                    if constructed:
+                        links["telegram"] = constructed
+        return links
+
+    def get_coin_profile(self, coin_id: str) -> dict[str, object]:
         params = {
             "localization": "false",
             "tickers": "false",
@@ -165,11 +232,17 @@ class CoinGeckoClient:
         try:
             data = self._request(f"/coins/{coin_id.lower()}", params=params).json()
             cats = data.get("categories", [])
-            if isinstance(cats, list):
-                return [c for c in cats if isinstance(c, str)]
+            categories = [c for c in cats if isinstance(c, str)] if isinstance(cats, list) else []
+            links_payload = data.get("links") if isinstance(data.get("links"), dict) else {}
+            links = self._extract_links(links_payload)
+            return {"categories": categories, "links": links}
         except requests.HTTPError as exc:  # pragma: no cover - defensive
-            logger.warning("coin categories fetch failed for %s: %s", coin_id, exc)
-        return []
+            logger.warning("coin profile fetch failed for %s: %s", coin_id, exc)
+        return {"categories": [], "links": {}}
+
+    def get_coin_categories(self, coin_id: str) -> list[str]:
+        profile = self.get_coin_profile(coin_id)
+        return profile.get("categories", [])
 
     def get_categories_list(self) -> list[dict]:
         try:

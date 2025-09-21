@@ -12,6 +12,17 @@ const CHART_COLORS = {
   volume: '--chart-volume',
 };
 
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+const SOCIAL_DEFINITIONS = [
+  { key: 'website', label: 'Site officiel' },
+  { key: 'twitter', label: 'Twitter' },
+  { key: 'reddit', label: 'Reddit' },
+  { key: 'github', label: 'GitHub' },
+  { key: 'discord', label: 'Discord' },
+  { key: 'telegram', label: 'Telegram' },
+];
+
 const HISTORY_CHART_GROUP = 'coin-history-group';
 const HISTORY_SERIES = [
   {
@@ -283,6 +294,153 @@ function pruneUnavailableRange(range) {
   }
 }
 
+function createSvgElement(tag) {
+  return document.createElementNS(SVG_NS, tag);
+}
+
+function appendPath(svg, d, { fill = 'currentColor', stroke, strokeWidth = '1.5', strokeLinecap = 'round', strokeLinejoin = 'round' } = {}) {
+  const path = createSvgElement('path');
+  path.setAttribute('d', d);
+  if (fill === null) {
+    path.setAttribute('fill', 'none');
+  } else if (fill) {
+    path.setAttribute('fill', fill);
+  }
+  if (stroke) {
+    path.setAttribute('stroke', stroke);
+    path.setAttribute('stroke-width', strokeWidth);
+    path.setAttribute('stroke-linecap', strokeLinecap);
+    path.setAttribute('stroke-linejoin', strokeLinejoin);
+  }
+  svg.appendChild(path);
+}
+
+const SOCIAL_ICON_RENDERERS = {
+  website(svg) {
+    const outer = createSvgElement('circle');
+    outer.setAttribute('cx', '12');
+    outer.setAttribute('cy', '12');
+    outer.setAttribute('r', '9');
+    outer.setAttribute('fill', 'none');
+    outer.setAttribute('stroke', 'currentColor');
+    outer.setAttribute('stroke-width', '1.5');
+    svg.appendChild(outer);
+
+    const horizontal = createSvgElement('path');
+    horizontal.setAttribute('d', 'M3 12h18');
+    horizontal.setAttribute('stroke', 'currentColor');
+    horizontal.setAttribute('stroke-width', '1.5');
+    horizontal.setAttribute('stroke-linecap', 'round');
+    horizontal.setAttribute('fill', 'none');
+    svg.appendChild(horizontal);
+
+    appendPath(svg, 'M12 3c-3 4-3 14 0 18', {
+      fill: null,
+      stroke: 'currentColor',
+      strokeWidth: '1.5',
+    });
+    appendPath(svg, 'M12 3c3 4 3 14 0 18', {
+      fill: null,
+      stroke: 'currentColor',
+      strokeWidth: '1.5',
+    });
+    appendPath(svg, 'M4.5 9c3.2-2.2 11.8-2.2 15 0', {
+      fill: null,
+      stroke: 'currentColor',
+      strokeWidth: '1.5',
+    });
+    appendPath(svg, 'M4.5 15c3.2 2.2 11.8 2.2 15 0', {
+      fill: null,
+      stroke: 'currentColor',
+      strokeWidth: '1.5',
+    });
+  },
+  twitter(svg) {
+    appendPath(svg, 'M22.46 6c-.77.35-1.6.58-2.46.69a4.3 4.3 0 0 0 1.88-2.37 8.59 8.59 0 0 1-2.72 1.04 4.28 4.28 0 0 0-7.3 3.9 12.14 12.14 0 0 1-8.82-4.47 4.28 4.28 0 0 0 1.32 5.72 4.24 4.24 0 0 1-1.94-.54v.05a4.28 4.28 0 0 0 3.44 4.19 4.3 4.3 0 0 1-1.93.07 4.29 4.29 0 0 0 4 2.97A8.6 8.6 0 0 1 2 19.54a12.13 12.13 0 0 0 6.56 1.92c7.88 0 12.2-6.53 12.2-12.2 0-.19 0-.38-.01-.57A8.7 8.7 0 0 0 24 5.12a8.59 8.59 0 0 1-2.54.7Z');
+  },
+  reddit(svg) {
+    appendPath(svg, 'M21 10.6c-.3 0-.6.1-.9.2-.7-1.4-2.1-2.3-3.6-2.3-1.1 0-2.1.4-2.9 1-.5-.5-1.2-.8-1.9-.8-1.7 0-3.1 1.3-3.1 2.9 0 .2 0 .4.1.6-2.4.1-4.3 1.9-4.3 4.1 0 2.3 2 4.1 4.5 4.1h8.8c2.5 0 4.5-1.9 4.5-4.1 0-1.5-.9-2.8-2.2-3.5a1.6 1.6 0 0 0 0-.2c0-.9-.7-1.5-1.5-1.5Zm-11.1 1c.5 0 .9.4.9.8s-.4.8-.9.8-.9-.4-.9-.8.4-.8.9-.8Zm6.6 4.9c-1.2.8-2.7 1-3.9 1s-2.7-.2-3.9-1c-.2-.1-.3-.4-.2-.6.1-.2.4-.3.6-.1.9.6 2.1.8 3.4.8s2.5-.3 3.4-.8c.2-.1.5-.1.6.1.1.2 0 .5-.2.6Zm-.4-3.3c-.5 0-.9-.4-.9-.8s.4-.8.9-.8.9.4.9.8-.4.8-.9.8Z');
+  },
+  github(svg) {
+    appendPath(svg, 'M12 2c-3.3 0-6 2.8-6 6.2 0 2.7 1.6 4.9 3.8 5.7-.3.3-.5.8-.5 1.4v2.2c0 .2-.2.5-.5.5-2.3-.7-3.8-2.5-3.8-5.1 0-2.8 1.9-5 4.5-5.5.3-.1.5-.4.5-.7 0-.3-.2-.6-.5-.7-1-.3-2.1-.8-3.1-1.8-.2-.2-.5-.2-.7 0-.2.2-.2.5 0 .7.9.9 1.8 1.5 2.7 1.8-.6 1.3-.6 2.8.2 4.1.3.5.2 1.1-.3 1.4-.5.3-1.1.2-1.4-.3-.7-1.1-.8-2.5-.2-3.8-1.6.6-2.8 2.1-2.8 3.9 0 1.6.8 3.1 2 4-.4.5-1 .9-1.6 1.1-.3.1-.5.4-.4.7 0 .3.3.5.6.5 2.7 0 4.8 1.2 5.8 2.9.2.4.7.5 1.1.3.2-.1.3-.3.3-.5v-3.6c0-.4-.1-.7-.3-1 3.1-.8 5.4-3.6 5.4-7C18 4.8 15.3 2 12 2Z');
+  },
+  discord(svg) {
+    appendPath(svg, 'M21 6.5c-1.6-.7-3.2-1-4.9-1.1-.2.3-.4.7-.6 1-1.8-.3-3.6-.3-5.4 0-.2-.4-.4-.7-.6-1-1.7.1-3.3.4-4.9 1.1-1.3 1.9-2 4.1-2 6.3 0 .1 0 .2 0 .3 2.1 1.5 4.1 2.5 6.1 3 .3-.4.6-.9.8-1.4-.9-.3-1.7-.7-2.4-1.3.2-.1.3-.2.5-.3 2.3 1 4.8 1 7.1 0 .2.1.4.2.5.3-.7.6-1.5 1-2.4 1.3.3.5.6 1 .9 1.4 2-.5 4-1.5 6.1-3 0-.1 0-.2 0-.3 0-2.2-.7-4.4-2-6.3Zm-10 6.2c-.7 0-1.3-.6-1.3-1.3 0-.7.6-1.3 1.3-1.3.7 0 1.3.6 1.3 1.3 0 .7-.6 1.3-1.3 1.3Zm5 0c-.7 0-1.3-.6-1.3-1.3 0-.7.6-1.3 1.3-1.3.7 0 1.3.6 1.3 1.3 0 .7-.6 1.3-1.3 1.3Z');
+  },
+  telegram(svg) {
+    appendPath(svg, 'M21.5 3.5 2.4 11.2c-.9.4-.9 1.5-.1 1.9l4.6 1.8 1.7 5.5c.3.9 1.5 1.1 2 .3l2.3-3.4 4.8 3.7c.8.6 2 .2 2.2-.8l3-14.3c.2-.9-.7-1.6-1.4-1.2Z');
+  },
+};
+
+function createSocialIcon(key) {
+  const svg = createSvgElement('svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('aria-hidden', 'true');
+  const renderer = SOCIAL_ICON_RENDERERS[key];
+  if (renderer) {
+    renderer(svg);
+  }
+  return svg;
+}
+
+function sanitizeSocialUrl(value) {
+  if (typeof value !== 'string') {
+    return '';
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return '';
+  }
+  try {
+    const url = new URL(trimmed);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      return '';
+    }
+    return trimmed;
+  } catch (err) {
+    return '';
+  }
+}
+
+function renderSocialLinks(links) {
+  const container = document.getElementById('social-links');
+  if (!container) {
+    return;
+  }
+  container.innerHTML = '';
+  container.classList.add('social-links');
+  const normalized = [];
+  const seen = new Set();
+  const source = (links && typeof links === 'object') ? links : {};
+  SOCIAL_DEFINITIONS.forEach(({ key, label }) => {
+    const sanitized = sanitizeSocialUrl(source[key]);
+    if (sanitized && !seen.has(sanitized)) {
+      seen.add(sanitized);
+      normalized.push({ key, label, url: sanitized });
+    }
+  });
+  if (!normalized.length) {
+    const empty = document.createElement('p');
+    empty.className = 'empty-state';
+    empty.textContent = 'Aucun lien officiel disponible.';
+    container.appendChild(empty);
+    return;
+  }
+  normalized.forEach(({ key, label, url }) => {
+    const anchor = document.createElement('a');
+    anchor.className = 'social-link';
+    anchor.href = url;
+    anchor.target = '_blank';
+    anchor.rel = 'noopener noreferrer';
+    anchor.setAttribute('aria-label', `Ouvrir ${label}`);
+    const icon = createSocialIcon(key);
+    const text = document.createElement('span');
+    text.textContent = label;
+    anchor.append(icon, text);
+    container.appendChild(anchor);
+  });
+}
+
 function renderCategories(names) {
   const container = document.getElementById('categories');
   if (!container) return;
@@ -347,6 +505,7 @@ function renderDetail(detail) {
     volumeEl.textContent = formatUsd(detail.volume_24h);
   }
   renderCategories(detail.category_names || []);
+  renderSocialLinks(detail?.social_links || {});
 }
 
 function setActiveRange(range) {
