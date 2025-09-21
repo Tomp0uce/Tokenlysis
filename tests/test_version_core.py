@@ -27,3 +27,19 @@ def test_get_version_dev_env_missing_file(monkeypatch, tmp_path):
     module = importlib.reload(version_module)
 
     assert module.get_version(force_refresh=True) == "dev"
+
+
+def test_get_version_defaults_to_repo_root_parent(monkeypatch, tmp_path):
+    monkeypatch.delenv("APP_VERSION", raising=False)
+    monkeypatch.delenv("VERSION_FILE", raising=False)
+    module = importlib.reload(version_module)
+
+    backend_dir = tmp_path / "backend"
+    backend_dir.mkdir()
+    version_path = tmp_path / "VERSION"
+    version_path.write_text("9.9.9")
+
+    monkeypatch.setattr(module, "REPO_ROOT", backend_dir, raising=False)
+    monkeypatch.setattr(module, "_VERSION_CACHE", None, raising=False)
+
+    assert module.get_version(force_refresh=True) == "9.9.9"
