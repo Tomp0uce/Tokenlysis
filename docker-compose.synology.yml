@@ -16,6 +16,7 @@ services:
       DATABASE_URL: sqlite:////data/tokenlysis.db
       BUDGET_FILE: /data/budget.json
       COINGECKO_PLAN: demo
+      CMC_API_KEY: ${CMC_API_KEY}
       CG_THROTTLE_MS: 2100
       APP_VERSION: ${APP_VERSION}
       GIT_COMMIT: ${GIT_COMMIT}

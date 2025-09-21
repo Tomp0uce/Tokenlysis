@@ -39,6 +39,20 @@ const SORTABLE_COLUMN_ACCESSORS = new Map([
   [9, (item) => item.pct_change_30d],
 ]);
 
+const DATA_LABELS = {
+  asset: 'Actif',
+  categories: 'Catégories',
+  rank: 'Rank',
+  price: 'Prix ($)',
+  marketCap: 'Market Cap',
+  fullyDiluted: 'Fully Diluted Market Cap',
+  volume: 'Volume 24h',
+  change24h: 'Change 24h',
+  change7d: 'Change 7j',
+  change30d: 'Change 30j',
+  details: 'Détails',
+};
+
 let marketItems = [];
 const boundSortableHeaders = new WeakSet();
 let sortState = { columnIndex: 2, direction: 'asc' };
@@ -93,46 +107,6 @@ function formatDisplayName(item) {
   return `${first.toUpperCase()}${fallback.slice(1)}`;
 }
 
-function applyChangeValue(element, value) {
-  if (!element) {
-    return;
-  }
-  element.classList.remove('change-positive', 'change-negative');
-  const numeric = normalizeNumericValue(value);
-  if (numeric === null) {
-    element.textContent = '—';
-    return;
-  }
-  element.textContent = formatPct(numeric);
-  if (numeric > 0) {
-    element.classList.add('change-positive');
-  } else if (numeric < 0) {
-    element.classList.add('change-negative');
-  }
-}
-
-function formatDisplayName(item) {
-  const rawName = typeof item?.name === 'string' ? item.name.trim() : '';
-  if (rawName) {
-    const first = rawName.charAt(0);
-    if (first && first === first.toUpperCase()) {
-      return rawName;
-    }
-    return `${first.toUpperCase()}${rawName.slice(1)}`;
-  }
-  const fallbackSlug = typeof item?.coin_id === 'string' ? item.coin_id.trim() : '';
-  if (!fallbackSlug) {
-    return '—';
-  }
-  const fallback = fallbackSlug.replace(/[-_]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
-  if (!fallback) {
-    return '—';
-  }
-  const first = fallback.charAt(0);
-  return `${first.toUpperCase()}${fallback.slice(1)}`;
-}
-
-=======
 function applyChangeValue(element, value) {
   if (!element) {
     return;
@@ -596,11 +570,20 @@ function renderRows(items) {
     }
     const coinId = item.coin_id ?? '';
     const displayName = formatDisplayName(item);
-    const priceDisplay = formatCompactUsd(item.price) || '';
-    const marketCapDisplay = formatCompactUsd(item.market_cap) || '';
-    const fdvDisplay = formatCompactUsd(item.fully_diluted_market_cap) || '';
-    const volumeDisplay = formatCompactUsd(item.volume_24h) || '';
-    tr.innerHTML = `<td data-label="Actif"></td><td data-label="Catégories">${badges.trim()}</td><td data-label="Rank">${item.rank ?? ''}</td><td data-label="Prix">${priceDisplay}</td><td data-label="Market Cap">${marketCapDisplay}</td><td data-label="FDV">${fdvDisplay}</td><td data-label="Volume 24h">${volumeDisplay}</td>${renderChangeCell(item.pct_change_24h)}${renderChangeCell(item.pct_change_7d)}${renderChangeCell(item.pct_change_30d)}`;
+    const priceDisplay = formatCurrencyCell(item.price);
+    const marketCapDisplay = formatCurrencyCell(item.market_cap);
+    const fdvDisplay = formatCurrencyCell(item.fully_diluted_market_cap);
+    const volumeDisplay = formatCurrencyCell(item.volume_24h);
+    tr.innerHTML = `<td data-label="${DATA_LABELS.asset}"></td>`
+      + `<td data-label="${DATA_LABELS.categories}">${badges.trim()}</td>`
+      + `<td data-label="${DATA_LABELS.rank}">${item.rank ?? ''}</td>`
+      + `<td data-label="${DATA_LABELS.price}">${priceDisplay}</td>`
+      + `<td data-label="${DATA_LABELS.marketCap}">${marketCapDisplay}</td>`
+      + `<td data-label="${DATA_LABELS.fullyDiluted}">${fdvDisplay}</td>`
+      + `<td data-label="${DATA_LABELS.volume}">${volumeDisplay}</td>`
+      + `${renderChangeCell(item.pct_change_24h, DATA_LABELS.change24h)}`
+      + `${renderChangeCell(item.pct_change_7d, DATA_LABELS.change7d)}`
+      + `${renderChangeCell(item.pct_change_30d, DATA_LABELS.change30d)}`;
     const coinCell = tr.querySelector('td');
     if (coinCell) {
       const wrapper = document.createElement('div');
@@ -623,7 +606,7 @@ function renderRows(items) {
       coinCell.appendChild(wrapper);
     }
     const actionCell = document.createElement('td');
-    actionCell.setAttribute('data-label', 'Détails');
+    actionCell.setAttribute('data-label', DATA_LABELS.details);
     if (coinId) {
       const link = document.createElement('a');
       link.className = 'details-link';

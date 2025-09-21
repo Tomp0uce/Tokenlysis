@@ -12,6 +12,13 @@ def test_frontend_no_ranking_call():
     assert "/ranking" not in html
 
 
+def test_frontend_no_conflict_markers():
+    js = Path("frontend/main.js").read_text()
+    assert "<<<<<<<" not in js
+    assert "=======" not in js
+    assert ">>>>>>>" not in js
+
+
 def test_frontend_version_scripts_present():
     html = Path("frontend/index.html").read_text()
     assert '<script src="./app-version.js"></script>' in html
