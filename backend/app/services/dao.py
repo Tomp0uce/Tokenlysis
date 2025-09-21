@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime as dt
 from typing import Iterable
 import logging
+import json
 
 from sqlalchemy import select, insert, func
 from sqlalchemy.exc import OperationalError
@@ -74,6 +75,30 @@ class CoinsRepo:
     def __init__(self, session: Session) -> None:
         self.session = session
 
+    @staticmethod
+    def _empty_details() -> dict[str, object]:
+        return {
+            "category_names": [],
+            "category_ids": [],
+            "name": "",
+            "symbol": "",
+            "logo_url": None,
+        }
+
+    @staticmethod
+    def _build_details(row: Coin | None) -> dict[str, object]:
+        details = CoinsRepo._empty_details()
+        if row is None:
+            return details
+        details["category_names"] = (
+            json.loads(row.category_names) if row.category_names else []
+        )
+        details["category_ids"] = json.loads(row.category_ids) if row.category_ids else []
+        details["name"] = row.name or ""
+        details["symbol"] = row.symbol or ""
+        details["logo_url"] = row.logo_url
+        return details
+
     def upsert(self, rows: Iterable[dict]) -> None:
         if not rows:
             return
@@ -83,6 +108,7 @@ class CoinsRepo:
             set_={
                 "symbol": stmt.excluded.symbol,
                 "name": stmt.excluded.name,
+                "logo_url": stmt.excluded.logo_url,
                 "category_names": stmt.excluded.category_names,
                 "category_ids": stmt.excluded.category_ids,
                 "updated_at": stmt.excluded.updated_at,
@@ -91,38 +117,46 @@ class CoinsRepo:
         self.session.execute(stmt)
 
     def get_categories(self, coin_id: str) -> tuple[list[str], list[str]]:
-        stmt = select(Coin.category_names, Coin.category_ids).where(Coin.id == coin_id)
-        row = self.session.execute(stmt).first()
-        if not row:
-            return [], []
-        import json
-
-        names = json.loads(row[0]) if row[0] else []
-        ids = json.loads(row[1]) if row[1] else []
-        return names, ids
+        details = self.get_details(coin_id)
+        return list(details["category_names"]), list(details["category_ids"])
 
     def get_categories_bulk(
         self, coin_ids: list[str]
     ) -> dict[str, tuple[list[str], list[str]]]:
+        details_map = self.get_details_bulk(coin_ids)
+        return {
+            coin_id: (
+                list(info["category_names"]),
+                list(info["category_ids"]),
+            )
+            for coin_id, info in details_map.items()
+        }
+
+    def get_details_bulk(self, coin_ids: list[str]) -> dict[str, dict[str, object]]:
         if not coin_ids:
             return {}
-        stmt = select(Coin.id, Coin.category_names, Coin.category_ids).where(
-            Coin.id.in_(coin_ids)
-        )
+        stmt = select(Coin).where(Coin.id.in_(coin_ids))
         try:
-            rows = self.session.execute(stmt).all()
+            result = self.session.execute(stmt)
+            rows = list(result.scalars())
         except OperationalError as exc:
             logger.warning("schema out-of-date: %s", exc)
-            return {cid: ([], []) for cid in coin_ids}
-        import json
+            return {cid: self._empty_details() for cid in coin_ids}
+        details_map: dict[str, dict[str, object]] = {}
+        for row in rows:
+            details_map[row.id] = self._build_details(row)
+        for coin_id in coin_ids:
+            details_map.setdefault(coin_id, self._empty_details())
+        return details_map
 
-        return {
-            r[0]: (
-                json.loads(r[1]) if r[1] else [],
-                json.loads(r[2]) if r[2] else [],
-            )
-            for r in rows
-        }
+    def get_details(self, coin_id: str) -> dict[str, object]:
+        stmt = select(Coin).where(Coin.id == coin_id)
+        try:
+            row = self.session.execute(stmt).scalar_one_or_none()
+        except OperationalError as exc:
+            logger.warning("schema out-of-date: %s", exc)
+            return self._empty_details()
+        return self._build_details(row)
 
     def get_categories_with_timestamps(
         self, coin_ids: list[str]
@@ -137,8 +171,6 @@ class CoinsRepo:
         except OperationalError as exc:
             logger.warning("schema out-of-date: %s", exc)
             return {cid: ([], [], None) for cid in coin_ids}
-        import json
-
         result: dict[str, tuple[list[str], list[str], dt.datetime | None]] = {}
         for cid, names_raw, ids_raw, ts in rows:
             names = json.loads(names_raw) if names_raw else []
@@ -163,8 +195,6 @@ class CoinsRepo:
             return [], [], None
         if not row:
             return [], [], None
-        import json
-
         names_raw, ids_raw, ts = row
         names = json.loads(names_raw) if names_raw else []
         ids = json.loads(ids_raw) if ids_raw else []

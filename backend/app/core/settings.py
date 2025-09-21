@@ -82,7 +82,6 @@ class Settings(BaseSettings):
     CMC_API_KEY: str | None = None
     CMC_BASE_URL: str | None = None
     CMC_THROTTLE_MS: int = 1000
-    FEAR_GREED_SEED_FILE: str = "./crypto_fear_greed_index_data.txt"
     use_seed_on_failure: bool = Field(
         default=True, description="Use seed data when ETL fails"
     )

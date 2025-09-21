@@ -54,6 +54,9 @@ def test_run_etl_persists_and_logs(monkeypatch, tmp_path, caplog):
             return [
                 {
                     "id": f"coin{i}",
+                    "name": f"Coin {i}",
+                    "symbol": f"c{i}",
+                    "image": f"https://img.test/coin{i}.png",
                     "current_price": float(i),
                     "market_cap": float(i),
                     "total_volume": float(i),
@@ -87,6 +90,10 @@ def test_run_etl_persists_and_logs(monkeypatch, tmp_path, caplog):
     assert payload is not None
     assert payload["coingecko_calls_total"] == 1
     assert meta_repo.get("last_refresh_at") is not None
+    coins = session.query(Coin).order_by(Coin.id).all()
+    assert coins
+    assert coins[0].name == "Coin 0"
+    assert coins[0].logo_url == "https://img.test/coin0.png"
     session.close()
 
 
