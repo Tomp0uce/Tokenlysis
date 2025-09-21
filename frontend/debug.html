@@ -56,6 +56,17 @@
       color: var(--color-muted, #94a3b8);
     }
 
+    .metric-list {
+      margin: 0;
+      padding-left: 1.25rem;
+      color: var(--color-muted, #94a3b8);
+      font-size: 0.9rem;
+    }
+
+    .metric-list li {
+      margin-bottom: 0.25rem;
+    }
+
     .status-pill {
       display: inline-flex;
       align-items: center;
@@ -148,6 +159,12 @@
         <h2 id="budget-title" class="metric-title">Budget API</h2>
         <p class="metric-values">Appels mensuels : <strong id="budget-count">—</strong> / quota <strong id="budget-quota">—</strong></p>
         <p>Ratio : <span id="budget-ratio" class="status-pill status-unknown">—</span></p>
+        <div>
+          <p class="metric-values">Répartition par catégorie :</p>
+          <ul id="budget-breakdown-list" class="metric-list">
+            <li>Aucune donnée catégorisée</li>
+          </ul>
+        </div>
       </article>
     </section>
 

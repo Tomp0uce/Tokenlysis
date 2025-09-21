@@ -34,7 +34,8 @@ def test_diag_returns_debug(monkeypatch, tmp_path):
     session.close()
 
     budget = CallBudget(tmp_path / "budget.json", quota=settings.CG_MONTHLY_QUOTA)
-    budget.spend(2)
+    budget.spend(1, category="markets")
+    budget.spend(1, category="coin_profile")
 
     import backend.app.main as main_module
 
@@ -51,6 +52,10 @@ def test_diag_returns_debug(monkeypatch, tmp_path):
     assert data["last_refresh_at"] == "2025-09-07T20:51:26Z"
     assert data["last_etl_items"] == 50
     assert data["monthly_call_count"] == 2
+    assert data["monthly_call_categories"] == {
+        "coin_profile": 1,
+        "markets": 1,
+    }
     assert data["quota"] == settings.CG_MONTHLY_QUOTA
     assert data["data_source"] == "api"
     assert data["top_n"] == settings.CG_TOP_N
@@ -66,7 +71,7 @@ def test_diag_uses_budget_over_meta(monkeypatch, tmp_path):
     session.close()
 
     budget = CallBudget(tmp_path / "budget.json", quota=settings.CG_MONTHLY_QUOTA)
-    budget.spend(3)
+    budget.spend(3, category="markets")
 
     import backend.app.main as main_module
 
@@ -77,6 +82,7 @@ def test_diag_uses_budget_over_meta(monkeypatch, tmp_path):
     resp = client.get("/api/diag")
     data = resp.json()
     assert data["monthly_call_count"] == 3
+    assert data["monthly_call_categories"] == {"markets": 3}
 
 
 def test_diag_no_budget(monkeypatch, tmp_path):
@@ -90,6 +96,7 @@ def test_diag_no_budget(monkeypatch, tmp_path):
     resp = client.get("/api/diag")
     data = resp.json()
     assert data["monthly_call_count"] == 0
+    assert data["monthly_call_categories"] == {}
     assert data["last_refresh_at"] is None
     assert data["last_etl_items"] == 0
     assert data["data_source"] is None

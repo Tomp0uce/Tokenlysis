@@ -54,7 +54,7 @@ def _fetch_markets(
         except requests.HTTPError as exc:
             calls += 1
             if budget:
-                budget.spend(1)
+                budget.spend(1, category="markets")
             status = exc.response.status_code if exc.response is not None else 0
             if 400 <= status < 500 and per_page > 100:
                 per_page = 100
@@ -62,7 +62,7 @@ def _fetch_markets(
             raise
         calls += 1
         if budget:
-            budget.spend(1)
+            budget.spend(1, category="markets")
         if not data:
             break
         coins.extend(data)
@@ -130,7 +130,7 @@ def run_etl(
             cats_list = client.get_categories_list()
             calls += 1
             if budget:
-                budget.spend(1)
+                budget.spend(1, category="categories_list")
             mapping = {slugify(c["name"]): c["category_id"] for c in cats_list}
             _categories_cache = mapping
         except Exception:  # pragma: no cover - network failures
@@ -160,13 +160,13 @@ def run_etl(
                     profile = client.get_coin_profile(c["id"])
                     calls += 1
                     if budget:
-                        budget.spend(1)
+                        budget.spend(1, category="coin_profile")
                     time.sleep(0.2)
                     break
                 except requests.HTTPError as exc:
                     calls += 1
                     if budget:
-                        budget.spend(1)
+                        budget.spend(1, category="coin_profile")
                     status = exc.response.status_code if exc.response is not None else 0
                     if status == 429 and i < len(delays):
                         time.sleep(delays[i])

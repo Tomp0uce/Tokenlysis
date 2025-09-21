@@ -115,6 +115,49 @@ export function summarizeCategoryIssues(items) {
   };
 }
 
+export function normalizeBudgetCategories(diag) {
+  const totalCalls = toFiniteNumber(diag?.monthly_call_count);
+  const safeTotal = totalCalls !== null && totalCalls > 0 ? totalCalls : null;
+  const raw = diag?.monthly_call_categories;
+  const entries = [];
+
+  if (raw && typeof raw === 'object') {
+    for (const [rawName, rawCount] of Object.entries(raw)) {
+      const count = toFiniteNumber(rawCount);
+      if (count === null || count <= 0) {
+        continue;
+      }
+      const name = typeof rawName === 'string' && rawName.trim()
+        ? rawName.trim()
+        : 'uncategorized';
+      entries.push({ name, count });
+    }
+  }
+
+  entries.sort((a, b) => {
+    if (b.count !== a.count) {
+      return b.count - a.count;
+    }
+    return a.name.localeCompare(b.name);
+  });
+
+  const fallbackTotal = entries.reduce((sum, item) => sum + item.count, 0);
+  const denominator = safeTotal !== null && safeTotal > 0 ? safeTotal : fallbackTotal;
+  const categories = entries.map((item) => {
+    const ratio = denominator > 0 ? item.count / denominator : null;
+    return {
+      name: item.name,
+      count: item.count,
+      ratio: Number.isFinite(ratio) ? ratio : null,
+    };
+  });
+
+  return {
+    total: safeTotal !== null ? safeTotal : fallbackTotal,
+    categories,
+  };
+}
+
 function parseGranularityHours(granularity) {
   const numericValue = toFiniteNumber(granularity);
   if (numericValue !== null && numericValue > 0) {
@@ -213,6 +256,18 @@ function formatNumber(value) {
     console.error('formatNumber failed', err);
     return String(Math.round(num));
   }
+}
+
+function formatCategoryName(name) {
+  if (typeof name !== 'string') {
+    return 'Autres';
+  }
+  const trimmed = name.trim();
+  if (!trimmed || trimmed === 'uncategorized') {
+    return 'Autres';
+  }
+  const normalised = trimmed.replace(/[_-]+/g, ' ').toLowerCase();
+  return normalised.charAt(0).toUpperCase() + normalised.slice(1);
 }
 
 function formatRatio(ratio) {
@@ -322,6 +377,39 @@ function updateNumberElement(elementId, value) {
   element.textContent = formatNumber(value);
 }
 
+function updateBudgetBreakdown(diag) {
+  if (!hasDocument) {
+    return;
+  }
+  const list = document.getElementById('budget-breakdown-list');
+  if (!list) {
+    return;
+  }
+  list.innerHTML = '';
+  const breakdown = normalizeBudgetCategories(diag);
+  const categories = Array.isArray(breakdown?.categories) ? breakdown.categories : [];
+  if (categories.length === 0) {
+    const li = document.createElement('li');
+    li.textContent = 'Aucune donnée catégorisée';
+    list.appendChild(li);
+    return;
+  }
+  for (const item of categories) {
+    const li = document.createElement('li');
+    const label = formatCategoryName(item?.name);
+    const countText = formatNumber(item?.count);
+    let ratioText = '';
+    if (item?.ratio !== null && Number.isFinite(item.ratio)) {
+      const formatted = formatRatio(item.ratio);
+      if (formatted !== '—') {
+        ratioText = ` — ${formatted}`;
+      }
+    }
+    li.textContent = `${label} : ${countText}${ratioText}`;
+    list.appendChild(li);
+  }
+}
+
 function updateTextElement(elementId, value) {
   if (!hasDocument) {
     return;
@@ -413,6 +501,7 @@ function renderDiag(diag) {
   updateNumberElement('budget-count', diag?.monthly_call_count);
   updateNumberElement('budget-quota', diag?.quota);
   updateRatioElement('budget-ratio', metrics.budget);
+  updateBudgetBreakdown(diag);
 
   updateTextElement('diag-source', diag?.data_source);
   updateTextElement('diag-plan', diag?.plan);
