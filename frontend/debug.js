@@ -74,6 +74,93 @@ export function evaluateRatios(diag) {
   };
 }
 
+function parseGranularityHours(granularity) {
+  const numericValue = toFiniteNumber(granularity);
+  if (numericValue !== null && numericValue > 0) {
+    return numericValue;
+  }
+  if (typeof granularity === 'string') {
+    const trimmed = granularity.trim().toLowerCase();
+    if (!trimmed) {
+      return 12;
+    }
+    if (trimmed.endsWith('h')) {
+      const candidate = trimmed.slice(0, -1).trim().replace(',', '.');
+      const hours = toFiniteNumber(candidate);
+      if (hours !== null && hours > 0) {
+        return hours;
+      }
+    }
+    const fallback = trimmed.replace(',', '.');
+    const parsed = toFiniteNumber(fallback);
+    if (parsed !== null && parsed > 0) {
+      return parsed;
+    }
+  }
+  return 12;
+}
+
+function computeDifferenceHours(lastRefreshAt, nowMs = Date.now()) {
+  if (!lastRefreshAt) {
+    return null;
+  }
+  const parsed = Date.parse(lastRefreshAt);
+  if (Number.isNaN(parsed)) {
+    return null;
+  }
+  const nowValue = toFiniteNumber(nowMs);
+  const reference = nowValue !== null ? nowValue : Date.now();
+  const deltaMs = reference - parsed;
+  if (!Number.isFinite(deltaMs)) {
+    return null;
+  }
+  const deltaHours = deltaMs / (60 * 60 * 1000);
+  if (!Number.isFinite(deltaHours)) {
+    return null;
+  }
+  if (deltaHours < 0) {
+    return 0;
+  }
+  return deltaHours;
+}
+
+export function evaluateFreshness({ lastRefreshAt, granularity, stale, nowMs = Date.now() }) {
+  const differenceHours = computeDifferenceHours(lastRefreshAt, nowMs);
+  const granularityHours = parseGranularityHours(granularity);
+  let ratio = null;
+  if (differenceHours !== null && granularityHours > 0) {
+    ratio = differenceHours / granularityHours;
+    if (!Number.isFinite(ratio)) {
+      ratio = null;
+    }
+  }
+
+  let status = 'unknown';
+  if (stale === true) {
+    status = 'error';
+  } else if (ratio !== null) {
+    if (ratio <= 1) {
+      status = 'ok';
+    } else if (ratio <= 2) {
+      status = 'warn';
+    } else {
+      status = 'error';
+    }
+  } else if (differenceHours !== null) {
+    status = 'warn';
+  }
+
+  const staleFlag = stale === true ? true : stale === false ? false : null;
+
+  return {
+    differenceHours,
+    granularityHours,
+    ratio,
+    status,
+    stale: staleFlag,
+  };
+}
+
 function formatNumber(value) {
   const num = toFiniteNumber(value);
   if (num === null) {
@@ -97,6 +184,24 @@ function formatRatio(ratio) {
   }
   const formatted = percentage.toFixed(1).replace('.', ',');
   return `${formatted} %`;
+}
+
+function formatHours(value) {
+  const hours = toFiniteNumber(value);
+  if (hours === null) {
+    return '—';
+  }
+  const safeValue = Math.max(hours, 0);
+  try {
+    const formatter = new Intl.NumberFormat('fr-FR', {
+      minimumFractionDigits: 1,
+      maximumFractionDigits: 1,
+    });
+    return `${formatter.format(safeValue)} h`;
+  } catch (err) {
+    console.error('formatHours failed', err);
+    return `${safeValue.toFixed(1).replace('.', ',')} h`;
+  }
 }
 
 function applyStatusClass(element, status) {
@@ -142,6 +247,50 @@ function updateTextElement(elementId, value) {
   element.textContent = text;
 }
 
+function updateStaleElement(elementId, stale) {
+  if (!hasDocument) {
+    return;
+  }
+  const element = document.getElementById(elementId);
+  if (!element) {
+    return;
+  }
+  let status = 'unknown';
+  let text = '—';
+  if (stale === true) {
+    status = 'error';
+    text = 'Obsolète';
+  } else if (stale === false) {
+    status = 'ok';
+    text = 'À jour';
+  }
+  applyStatusClass(element, status);
+  element.textContent = text;
+}
+
+function updateFreshnessElement(elementId, metrics) {
+  if (!hasDocument) {
+    return;
+  }
+  const element = document.getElementById(elementId);
+  if (!element) {
+    return;
+  }
+  const parts = [];
+  const differenceText = formatHours(metrics?.differenceHours);
+  if (differenceText !== '—') {
+    parts.push(differenceText);
+  }
+  const granularityText = formatHours(metrics?.granularityHours);
+  if (granularityText !== '—') {
+    parts.push(`granularité ${granularityText}`);
+  }
+  const text = parts.length > 0 ? parts.join(' / ') : '—';
+  const status = metrics?.status || 'unknown';
+  applyStatusClass(element, status);
+  element.textContent = text;
+}
+
 function setStatusMessage(message, status) {
   if (!hasDocument) {
     return;
@@ -174,9 +323,35 @@ function renderDiag(diag) {
   updateTextElement('diag-last-refresh', diag?.last_refresh_at);
 }
 
+function renderMarketMeta(market, diag, nowMs = Date.now()) {
+  const lastRefresh = market?.last_refresh_at ?? diag?.last_refresh_at ?? null;
+  updateTextElement('market-source', market?.data_source ?? diag?.data_source);
+  updateTextElement('market-last-refresh', lastRefresh);
+  updateStaleElement('market-stale', market?.stale);
+  const freshness = evaluateFreshness({
+    lastRefreshAt: lastRefresh,
+    granularity: diag?.granularity,
+    stale: market?.stale,
+    nowMs,
+  });
+  updateFreshnessElement('market-lag', freshness);
+  return freshness;
+}
+
 async function fetchDiag() {
   const prefix = API_BASE || '';
   const response = await fetch(`${prefix}/diag`, {
+    headers: { 'Accept': 'application/json' },
+  });
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+  return response.json();
+}
+
+async function fetchMarketMeta() {
+  const prefix = API_BASE || '';
+  const response = await fetch(`${prefix}/markets/top?limit=1`, {
     headers: { 'Accept': 'application/json' },
   });
   if (!response.ok) {
@@ -193,7 +368,31 @@ export async function loadDiagnostics() {
     setStatusMessage('Chargement des diagnostics…', 'warn');
     const diag = await fetchDiag();
     renderDiag(diag);
-    setStatusMessage('Diagnostics chargés', 'ok');
+    let market = null;
+    let marketError = null;
+    try {
+      market = await fetchMarketMeta();
+    } catch (error) {
+      marketError = error;
+      console.error('fetchMarketMeta failed', error);
+    }
+    const freshness = renderMarketMeta(market, diag, Date.now());
+    let status = 'ok';
+    let message = 'Diagnostics chargés';
+    if (marketError) {
+      status = 'warn';
+      message = 'Diagnostics chargés (métadonnées marchés indisponibles)';
+    } else if (freshness.status === 'error') {
+      status = 'error';
+      message = 'Diagnostics chargés (rafraîchissement en retard)';
+    } else if (freshness.status === 'warn') {
+      status = 'warn';
+      message = 'Diagnostics chargés (rafraîchissement à surveiller)';
+    } else if (freshness.status === 'unknown') {
+      status = 'warn';
+      message = 'Diagnostics chargés (rafraîchissement indéterminé)';
+    }
+    setStatusMessage(message, status);
   } catch (error) {
     console.error('loadDiagnostics failed', error);
     setStatusMessage('Erreur lors du chargement des diagnostics', 'error');
