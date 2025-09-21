@@ -267,7 +267,7 @@ def fear_greed_history(
                 "value": row.value,
                 "classification": row.classification,
             }
-    )
+        )
     return {"range": range_key, "points": points}
 
 
@@ -342,9 +342,11 @@ def debug_categories(session: Session = Depends(get_session)) -> dict:
 
     return {
         "generated_at": now.isoformat(),
-        "stale_after_hours": int(stale_after_hours)
-        if isinstance(stale_after_hours, float) and stale_after_hours.is_integer()
-        else stale_after_hours,
+        "stale_after_hours": (
+            int(stale_after_hours)
+            if isinstance(stale_after_hours, float) and stale_after_hours.is_integer()
+            else stale_after_hours
+        ),
         "items": items,
     }
 
@@ -356,6 +358,8 @@ def diag(session: Session = Depends(get_session)) -> dict:
     last_refresh_at = meta_repo.get("last_refresh_at")
     last_etl_items_raw = meta_repo.get("last_etl_items")
     data_source = meta_repo.get("data_source")
+    fear_greed_last_refresh = meta_repo.get("fear_greed_last_refresh")
+    fear_greed_repo = FearGreedRepo(session)
     try:
         if last_etl_items_raw is None:
             last_etl_items = 0
@@ -365,6 +369,8 @@ def diag(session: Session = Depends(get_session)) -> dict:
         last_etl_items = 0
     budget: CallBudget | None = getattr(app.state, "budget", None)
     monthly_call_count = budget.monthly_call_count if budget else 0
+    fear_greed_count = fear_greed_repo.count()
+
     return {
         "plan": settings.COINGECKO_PLAN,
         "base_url": effective_coingecko_base_url(),
@@ -375,6 +381,8 @@ def diag(session: Session = Depends(get_session)) -> dict:
         "quota": settings.CG_MONTHLY_QUOTA,
         "data_source": data_source,
         "top_n": settings.CG_TOP_N,
+        "fear_greed_last_refresh": fear_greed_last_refresh,
+        "fear_greed_count": fear_greed_count,
     }
 
 

@@ -1,3 +1,5 @@
+import datetime as dt
+
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -5,7 +7,7 @@ from sqlalchemy.orm import sessionmaker
 from backend.app.core.settings import settings
 from backend.app.core.settings import effective_coingecko_base_url
 from backend.app.db import Base, get_session
-from backend.app.services.dao import MetaRepo
+from backend.app.services.dao import MetaRepo, FearGreedRepo
 from backend.app.services.budget import CallBudget
 
 
@@ -52,6 +54,8 @@ def test_diag_returns_debug(monkeypatch, tmp_path):
     assert data["quota"] == settings.CG_MONTHLY_QUOTA
     assert data["data_source"] == "api"
     assert data["top_n"] == settings.CG_TOP_N
+    assert data["fear_greed_last_refresh"] is None
+    assert data["fear_greed_count"] == 0
 
 
 def test_diag_uses_budget_over_meta(monkeypatch, tmp_path):
@@ -89,6 +93,8 @@ def test_diag_no_budget(monkeypatch, tmp_path):
     assert data["last_refresh_at"] is None
     assert data["last_etl_items"] == 0
     assert data["data_source"] is None
+    assert data["fear_greed_last_refresh"] is None
+    assert data["fear_greed_count"] == 0
 
 
 def test_diag_handles_invalid_last_etl_items(monkeypatch, tmp_path):
@@ -107,6 +113,46 @@ def test_diag_handles_invalid_last_etl_items(monkeypatch, tmp_path):
     resp = client.get("/api/diag")
     data = resp.json()
     assert data["last_etl_items"] == 0
+
+
+def test_diag_reports_fear_greed_metrics(monkeypatch, tmp_path):
+    TestingSessionLocal = _setup_test_session(tmp_path)
+    session = TestingSessionLocal()
+    repo = FearGreedRepo(session)
+    now = dt.datetime(2025, 1, 2, tzinfo=dt.timezone.utc)
+    earlier = now - dt.timedelta(days=1)
+    repo.upsert_many(
+        [
+            {
+                "timestamp": earlier,
+                "value": 20,
+                "classification": "Fear",
+                "ingested_at": now,
+            },
+            {
+                "timestamp": now,
+                "value": 55,
+                "classification": "Greed",
+                "ingested_at": now,
+            },
+        ]
+    )
+    meta = MetaRepo(session)
+    meta.set("fear_greed_last_refresh", now.isoformat())
+    session.commit()
+    session.close()
+
+    import backend.app.main as main_module
+
+    main_module.app.dependency_overrides[get_session] = lambda: TestingSessionLocal()
+    main_module.app.state.budget = None
+
+    client = TestClient(main_module.app)
+    resp = client.get("/api/diag")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["fear_greed_last_refresh"] == now.isoformat()
+    assert data["fear_greed_count"] == 2
 
 
 def test_diag_uses_configurable_granularity(monkeypatch, tmp_path):
