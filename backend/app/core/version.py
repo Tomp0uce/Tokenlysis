@@ -18,6 +18,9 @@ def _resolve_version_file() -> Path:
     version_file_env = os.getenv("VERSION_FILE")
     if version_file_env:
         return Path(version_file_env)
+    repo_parent_version = REPO_ROOT.parent / "VERSION"
+    if repo_parent_version.exists():
+        return repo_parent_version
     return REPO_ROOT / "VERSION"
 
 
@@ -26,8 +29,9 @@ def get_version(*, force_refresh: bool = False) -> str:
 
     Resolution order:
       1) ``APP_VERSION`` environment variable when set and not ``"dev"``
-      2) contents of ``VERSION`` file located next to the backend package
-         (override with ``VERSION_FILE`` environment variable)
+      2) contents of ``VERSION`` file located at the project root (``/app/VERSION``
+         in containers) or next to the backend package when present (override with
+         ``VERSION_FILE`` environment variable)
       3) fallback to ``"dev"``
     """
 
