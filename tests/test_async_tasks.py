@@ -2,6 +2,7 @@ import asyncio
 import logging
 import threading
 
+import pytest
 from httpx import ASGITransport, AsyncClient
 
 
@@ -103,3 +104,55 @@ async def _assert_startup_async(monkeypatch, tmp_path, caplog):
     session.close()
 
     assert any("startup fear & greed sync skipped" in record.message for record in caplog.records)
+
+
+def test_shutdown_does_not_block_when_etl_thread_is_running(monkeypatch):
+    asyncio.run(_assert_shutdown_async(monkeypatch))
+
+
+async def _assert_shutdown_async(monkeypatch):
+    import backend.app.main as main_module
+
+    main_module.app.state.budget = None
+
+    run_started = threading.Event()
+    release_run = threading.Event()
+
+    def blocking_run_etl(*_args, **_kwargs):
+        run_started.set()
+        release_run.wait(timeout=5)
+
+    monkeypatch.setattr(main_module, "run_etl", blocking_run_etl)
+    monkeypatch.setattr(main_module, "refresh_interval_seconds", lambda *_a, **_k: 3600)
+
+    prior_stop_event = getattr(main_module.app.state, "etl_stop_event", None)
+    prior_task = getattr(main_module.app.state, "etl_task", None)
+
+    stop_event = asyncio.Event()
+    main_module.app.state.etl_stop_event = stop_event
+    loop_task = asyncio.create_task(main_module.etl_loop(stop_event))
+    main_module.app.state.etl_task = loop_task
+
+    await asyncio.wait_for(asyncio.to_thread(run_started.wait, 5), timeout=5)
+
+    monkeypatch.setattr(main_module, "ETL_SHUTDOWN_TIMEOUT", 0.1, raising=False)
+
+    loop = asyncio.get_running_loop()
+    before = loop.time()
+
+    try:
+        await asyncio.wait_for(main_module.shutdown(), timeout=1)
+
+        elapsed = loop.time() - before
+        assert elapsed < 0.5, "shutdown should not wait for the ETL run to finish"
+        assert not release_run.is_set(), "shutdown should finish before ETL completes"
+    finally:
+        release_run.set()
+        try:
+            await asyncio.wait_for(loop_task, timeout=5)
+        except asyncio.CancelledError:
+            pass
+        except asyncio.TimeoutError:
+            loop_task.cancel()
+        main_module.app.state.etl_stop_event = prior_stop_event
+        main_module.app.state.etl_task = prior_task

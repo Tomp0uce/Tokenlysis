@@ -29,6 +29,8 @@ logger.setLevel(settings.log_level or "INFO")
 
 app = FastAPI(title="Tokenlysis", version=os.getenv("APP_VERSION", "dev"))
 
+ETL_SHUTDOWN_TIMEOUT = 10.0
+
 
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
@@ -479,17 +481,45 @@ async def startup() -> None:
 
 @app.on_event("shutdown")
 async def shutdown() -> None:
-    """Signal the ETL loop to stop and wait for the worker."""
+    """Signal the ETL loop to stop without hanging on slow iterations."""
 
     stop_event: asyncio.Event | None = getattr(app.state, "etl_stop_event", None)
     task = getattr(app.state, "etl_task", None)
     if stop_event is not None:
         stop_event.set()
+        app.state.etl_stop_event = None
     if isinstance(task, asyncio.Task):
+        raw_timeout = getattr(app.state, "etl_shutdown_timeout", None)
+        if isinstance(raw_timeout, (int, float)) and raw_timeout > 0:
+            timeout = float(raw_timeout)
+        else:
+            timeout = ETL_SHUTDOWN_TIMEOUT
+        if not task.done():
+            task.cancel()
         try:
-            await task
+            await asyncio.wait_for(task, timeout=timeout)
+        except asyncio.TimeoutError:
+            logger.warning(
+                "ETL loop still running after %.1fs shutdown grace period; continuing",
+                timeout,
+            )
+
+            def _drain_task_result(completed: asyncio.Task) -> None:
+                try:
+                    completed.result()
+                except asyncio.CancelledError:  # pragma: no cover - defensive
+                    pass
+                except Exception as exc:  # pragma: no cover - defensive
+                    logger.warning("ETL loop raised after shutdown: %s", exc)
+
+            if not task.done():
+                task.add_done_callback(_drain_task_result)
         except asyncio.CancelledError:  # pragma: no cover - defensive
             pass
+        except Exception:  # pragma: no cover - defensive
+            logger.exception("ETL loop raised during shutdown")
+        finally:
+            app.state.etl_task = None
 
 
 STATIC_DIRECTORY = _static_directory()
