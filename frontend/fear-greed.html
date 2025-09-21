@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="api-url" content="/api">
+  <title>Tokenlysis – Indice Fear &amp; Greed</title>
+  <link rel="stylesheet" href="./theme.css">
+  <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+</head>
+<body>
+  <main class="dashboard">
+    <header class="dashboard-header">
+      <div class="brand">
+        <a href="./index.html" class="breadcrumb-link">← Retour au tableau de bord</a>
+        <h1>Indice Crypto Fear &amp; Greed</h1>
+        <p>Visualisez l'évolution du sentiment du marché et son historique détaillé.</p>
+      </div>
+      <button type="button" class="theme-toggle" data-theme-toggle aria-label="Activer le thème sombre">Thème</button>
+    </header>
+    <section class="sentiment-layout">
+      <article class="sentiment-panel">
+        <div class="sentiment-card-header">
+          <span>Sentiment actuel</span>
+          <strong id="fear-greed-value">—</strong>
+        </div>
+        <p id="fear-greed-classification" class="sentiment-classification">—</p>
+        <div id="fear-greed-gauge" class="sentiment-gauge" aria-hidden="true"></div>
+        <p id="fear-greed-updated" class="sentiment-updated">Dernière mise à jour : —</p>
+      </article>
+      <article class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>Historique du sentiment</h2>
+            <p>Suivez la variation de l'indice sur différentes périodes.</p>
+          </div>
+          <div class="range-selector" id="fear-greed-range" role="radiogroup" aria-label="Période de l'historique">
+            <button type="button" data-range="30d" aria-pressed="false">30j</button>
+            <button type="button" data-range="90d" aria-pressed="false">90j</button>
+            <button type="button" data-range="1y" aria-pressed="false">1 an</button>
+            <button type="button" data-range="max" aria-pressed="false">Totalité</button>
+          </div>
+        </div>
+        <p id="history-error" class="history-empty" hidden>Historique indisponible pour la période sélectionnée.</p>
+        <div id="fear-greed-history" class="chart-target"></div>
+      </article>
+    </section>
+  </main>
+  <script type="module" src="./fear-greed.js"></script>
+</body>
+</html>

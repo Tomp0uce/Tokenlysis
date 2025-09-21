@@ -148,3 +148,15 @@ def test_coerce_bool_helper():
 
 def test_mask_secret():
     assert settings_module.mask_secret("abcdef1234") == "******1234"
+
+
+def test_cmc_api_key_empty(monkeypatch):
+    monkeypatch.setenv("CMC_API_KEY", "")
+    importlib.reload(settings_module)
+    assert settings_module.settings.CMC_API_KEY is None
+
+
+def test_cmc_throttle_parsing(monkeypatch):
+    monkeypatch.setenv("CMC_THROTTLE_MS", "2000")
+    cfg = settings_module.Settings()
+    assert cfg.CMC_THROTTLE_MS == 2000

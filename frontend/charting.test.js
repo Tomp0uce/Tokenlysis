@@ -89,3 +89,39 @@ test('refreshChartsTheme updates theme mode and palette from CSS variables', asy
   assert.deepEqual(chart.updateCalls.at(-1).colors, ['#445566']);
   await module.destroyTrackedCharts();
 });
+
+test('createRadialGauge chooses palette band and updates value', async () => {
+  const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost' });
+  global.window = dom.window;
+  global.document = dom.window.document;
+  global.localStorage = dom.window.localStorage;
+  dom.window.ApexCharts = ApexChartsStub;
+  document.documentElement.style.setProperty('--fg-extreme-fear', '#dc2626');
+  document.documentElement.style.setProperty('--fg-neutral', '#facc15');
+  document.documentElement.style.setProperty('--fg-greed', '#16a34a');
+
+  const module = await import('./charting.js');
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+
+  const chart = await module.createRadialGauge(container, {
+    value: 12,
+    classification: 'Extreme Fear',
+  });
+
+  assert.ok(chart instanceof ApexChartsStub);
+  assert.equal(chart.options.chart.type, 'radialBar');
+  assert.deepEqual(chart.options.series, [12]);
+  assert.deepEqual(chart.options.labels, ['Extreme Fear']);
+  assert.equal(chart.options.colors[0], '#dc2626');
+
+  await module.updateRadialGauge(chart, { value: 65, classification: 'Greed' });
+  assert.equal(chart.updateCalls.at(-1).series[0], 65);
+  assert.equal(chart.updateCalls.at(-1).labels[0], 'Greed');
+  assert.equal(chart.updateCalls.at(-1).colors[0], '#16a34a');
+
+  await module.updateRadialGauge(chart, { value: 50, classification: 'Neutral' });
+  assert.equal(chart.updateCalls.at(-1).colors[0], '#facc15');
+
+  await module.destroyTrackedCharts();
+});

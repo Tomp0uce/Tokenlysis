@@ -53,8 +53,154 @@ async function importFresh(modulePath) {
   return import(`${modulePath}?${cacheBuster}`);
 }
 
+function installApexChartsStub(win) {
+  const { document } = win;
+  const svgNS = 'http://www.w3.org/2000/svg';
+  const numberFormatter = new Intl.NumberFormat('en-US', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  });
+
+  function formatNumber(value) {
+    if (value === null || value === undefined) {
+      return '0';
+    }
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) {
+      return '0';
+    }
+    return numberFormatter.format(numeric);
+  }
+
+  function formatDateLabel(value) {
+    if (!value) return '';
+    const date = new Date(value);
+    if (!Number.isFinite(date.getTime())) {
+      return String(value);
+    }
+    return date.toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
+  }
+
+  class ApexChartsStub {
+    constructor(element, options) {
+      this.element = element;
+      this.options = options || {};
+      this.categories = options?.xaxis?.categories || [];
+      this.series = options?.series || [];
+    }
+
+    render() {
+      this.draw();
+      return Promise.resolve();
+    }
+
+    updateOptions(options = {}) {
+      if (options?.xaxis?.categories) {
+        this.categories = options.xaxis.categories;
+      }
+      this.draw();
+      return Promise.resolve();
+    }
+
+    updateSeries(series = []) {
+      if (Array.isArray(series) && series[0]?.data) {
+        this.series = series;
+      }
+      this.draw();
+      return Promise.resolve();
+    }
+
+    draw() {
+      const doc = document;
+      this.element.innerHTML = '';
+      const categories = Array.isArray(this.categories) ? this.categories : [];
+      const data = Array.isArray(this.series?.[0]?.data)
+        ? this.series[0].data.map((value) => {
+            const numeric = Number(value);
+            return Number.isFinite(numeric) ? numeric : null;
+          })
+        : [];
+
+      const polyline = doc.createElementNS(svgNS, 'polyline');
+      const points = data.map((value, index) => `${index},${value ?? 0}`).join(' ');
+      polyline.setAttribute('points', points);
+      this.element.appendChild(polyline);
+
+      const markers = doc.createElementNS(svgNS, 'g');
+      data.forEach((value) => {
+        const circle = doc.createElementNS(svgNS, 'circle');
+        const title = doc.createElementNS(svgNS, 'title');
+        title.textContent = formatNumber(value ?? 0);
+        circle.appendChild(title);
+        markers.appendChild(circle);
+      });
+      this.element.appendChild(markers);
+
+      const axisX = doc.createElementNS(svgNS, 'g');
+      axisX.setAttribute('class', 'axis axis-x');
+      axisX.appendChild(doc.createElementNS(svgNS, 'line'));
+      this.element.appendChild(axisX);
+
+      const axisY = doc.createElementNS(svgNS, 'g');
+      axisY.setAttribute('class', 'axis axis-y');
+      axisY.appendChild(doc.createElementNS(svgNS, 'line'));
+      this.element.appendChild(axisY);
+
+      if (categories.length) {
+        const axisXMin = doc.createElementNS(svgNS, 'text');
+        axisXMin.setAttribute('data-role', 'axis-x-min');
+        axisXMin.setAttribute('data-value', categories[0]);
+        axisXMin.textContent = formatDateLabel(categories[0]);
+        this.element.appendChild(axisXMin);
+
+        const axisXMax = doc.createElementNS(svgNS, 'text');
+        axisXMax.setAttribute('data-role', 'axis-x-max');
+        axisXMax.setAttribute('data-value', categories[categories.length - 1]);
+        axisXMax.textContent = formatDateLabel(categories[categories.length - 1]);
+        this.element.appendChild(axisXMax);
+
+        categories.slice(1, -1).forEach((value) => {
+          const tick = doc.createElementNS(svgNS, 'text');
+          tick.setAttribute('data-role', 'axis-x-tick');
+          tick.textContent = formatDateLabel(value);
+          axisX.appendChild(tick);
+        });
+      }
+
+      const numericValues = data.filter((value) => typeof value === 'number');
+      if (numericValues.length) {
+        const min = Math.min(...numericValues);
+        const max = Math.max(...numericValues);
+
+        const axisYMin = doc.createElementNS(svgNS, 'text');
+        axisYMin.setAttribute('data-role', 'axis-y-min');
+        axisYMin.setAttribute('data-value', String(min));
+        axisYMin.textContent = formatNumber(min);
+        this.element.appendChild(axisYMin);
+
+        const axisYMax = doc.createElementNS(svgNS, 'text');
+        axisYMax.setAttribute('data-role', 'axis-y-max');
+        axisYMax.setAttribute('data-value', String(max));
+        axisYMax.textContent = formatNumber(max);
+        this.element.appendChild(axisYMax);
+
+        const tick = doc.createElementNS(svgNS, 'text');
+        tick.setAttribute('data-role', 'axis-y-tick');
+        tick.textContent = formatNumber((min + max) / 2);
+        axisY.appendChild(tick);
+      }
+    }
+  }
+
+  win.ApexCharts = ApexChartsStub;
+  return ApexChartsStub;
+}
+
 test('init loads coin data, renders charts and activates default range', async (t) => {
   const dom = setupDom();
+  const originalDateNow = Date.now;
+  Date.now = () => new Date('2024-09-20T12:00:00Z').getTime();
+  installApexChartsStub(dom.window);
   const responses = {
     detail: {
       coin_id: 'bitcoin',
@@ -65,6 +211,31 @@ test('init loads coin data, renders charts and activates default range', async (
       snapshot_at: '2024-09-20T00:00:00Z',
     },
     history: {
+      max: {
+        coin_id: 'bitcoin',
+        vs_currency: 'usd',
+        range: 'max',
+        points: [
+          {
+            snapshot_at: '2024-09-12T00:00:00Z',
+            price: 40000,
+            market_cap: 810000000000,
+            volume_24h: 11000000000,
+          },
+          {
+            snapshot_at: '2024-09-16T00:00:00Z',
+            price: 43000,
+            market_cap: 840000000000,
+            volume_24h: 12500000000,
+          },
+          {
+            snapshot_at: '2024-09-20T00:00:00Z',
+            price: 44000,
+            market_cap: 850000000000,
+            volume_24h: 15000000000,
+          },
+        ],
+      },
       '7d': {
         coin_id: 'bitcoin',
         vs_currency: 'usd',
@@ -116,9 +287,14 @@ test('init loads coin data, renders charts and activates default range', async (
     delete global.window;
     delete global.document;
     delete global.HTMLElement;
+    Date.now = originalDateNow;
   });
   await module.init();
   assert.equal(fetchCalls[0].endsWith('/api/price/bitcoin'), true);
+  assert.equal(
+    fetchCalls.some((url) => url.includes('/api/price/bitcoin/history') && url.includes('range=max')),
+    true,
+  );
   assert.equal(
     fetchCalls.some((url) => url.includes('/api/price/bitcoin/history') && url.includes('range=7d')),
     true
@@ -178,7 +354,35 @@ test('init loads coin data, renders charts and activates default range', async (
 
 test('clicking a range button refetches history and updates active state', async (t) => {
   const dom = setupDom();
+  const originalDateNow = Date.now;
+  Date.now = () => new Date('2024-09-20T00:00:00Z').getTime();
+  installApexChartsStub(dom.window);
   const historyPayloads = {
+    max: {
+      coin_id: 'bitcoin',
+      vs_currency: 'usd',
+      range: 'max',
+      points: [
+        {
+          snapshot_at: '2024-09-12T00:00:00Z',
+          price: 1,
+          market_cap: 2,
+          volume_24h: 3,
+        },
+        {
+          snapshot_at: '2024-09-16T00:00:00Z',
+          price: 2,
+          market_cap: 3,
+          volume_24h: 4,
+        },
+        {
+          snapshot_at: '2024-09-20T00:00:00Z',
+          price: 3,
+          market_cap: 4,
+          volume_24h: 5,
+        },
+      ],
+    },
     '7d': {
       coin_id: 'bitcoin',
       vs_currency: 'usd',
@@ -237,7 +441,11 @@ test('clicking a range button refetches history and updates active state', async
     if (url.includes('/api/price/bitcoin/history')) {
       const parsed = new URL(url, 'https://example.com');
       const range = parsed.searchParams.get('range');
-      return new Response(JSON.stringify(historyPayloads[range]), { status: 200 });
+      const payload = historyPayloads[range];
+      if (!payload) {
+        throw new Error(`missing history for range ${range}`);
+      }
+      return new Response(JSON.stringify(payload), { status: 200 });
     }
     throw new Error(`unexpected fetch ${url}`);
   };
@@ -248,6 +456,7 @@ test('clicking a range button refetches history and updates active state', async
     delete global.window;
     delete global.document;
     delete global.HTMLElement;
+    Date.now = originalDateNow;
   });
   await module.init();
   const originalTitles = [

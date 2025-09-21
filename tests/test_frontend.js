@@ -119,7 +119,7 @@ test('loadCryptos renders table and last update with categories', async () => {
     '4.00%',
     '5.00%',
     '6.00%',
-    'Voir',
+    'Détails',
   ]);
   const badges = rows[0].querySelectorAll('td')[1].querySelectorAll('.badge');
   assert.equal(badges[0].getAttribute('title'), 'Layer 1');
@@ -136,7 +136,7 @@ test('loadCryptos renders table and last update with categories', async () => {
     '-2.00%',
     '-3.25%',
     '-10.00%',
-    'Voir',
+    'Détails',
   ]);
   assert.equal(rows[1].querySelectorAll('td')[1].children.length, 0);
   const cells3 = [...rows[2].querySelectorAll('td')].map((c) => c.textContent.trim());
@@ -151,7 +151,7 @@ test('loadCryptos renders table and last update with categories', async () => {
     '0.00%',
     '',
     '0.00%',
-    'Voir',
+    'Détails',
   ]);
   const changeCellsRow1 = rows[0].querySelectorAll('.change-cell');
   assert.equal(changeCellsRow1.length, 3);
@@ -212,7 +212,10 @@ test('loadCryptos handles failure', async () => {
   const { loadCryptos } = await import('../frontend/main.js');
   global.fetch = async () => new Response('oops', { status: 500 });
   await loadCryptos();
-  assert.match(document.getElementById('status').innerHTML, /Error fetching data/);
+  assert.match(
+    document.getElementById('status').innerHTML,
+    /Erreur lors de la récupération des données/,
+  );
 });
 
 test('clicking rank header toggles ascending then descending order', async () => {

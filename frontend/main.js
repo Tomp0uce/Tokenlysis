@@ -1,6 +1,12 @@
 import { getAppVersion } from './version.js';
 import { extractItems, resolveVersion } from './utils.js';
-import { createAreaChart, refreshChartsTheme, formatCompactUsd } from './charting.js';
+import {
+  createAreaChart,
+  refreshChartsTheme,
+  formatCompactUsd,
+  createRadialGauge,
+  updateRadialGauge,
+} from './charting.js';
 import { initThemeToggle, onThemeChange } from './theme.js';
 import { calculateAvailableRanges, pickInitialRange, syncRangeSelector } from './range.js';
 
@@ -43,6 +49,7 @@ let marketOverviewSnapshot = null;
 const marketHistoryCache = new Map();
 let marketRangeAvailability = new Set();
 let marketRangeListenersBound = false;
+let fearGreedChart = null;
 
 // ===== formatting helpers =====
 function formatPrice(p) {
@@ -369,6 +376,55 @@ async function renderMarketOverview(items) {
   }
 }
 
+export async function loadFearGreedWidget({ fetchImpl } = {}) {
+  const card = document.getElementById('fear-greed-card');
+  const gaugeContainer = document.getElementById('fear-greed-gauge');
+  const valueEl = document.getElementById('fear-greed-value');
+  const classificationEl = document.getElementById('fear-greed-classification');
+  const updatedEl = document.getElementById('fear-greed-updated');
+  if (!card || !gaugeContainer || !valueEl || !classificationEl || !updatedEl) {
+    return null;
+  }
+  const fetcher = typeof fetchImpl === 'function' ? fetchImpl : typeof fetch === 'function' ? fetch : null;
+  if (!fetcher) {
+    return null;
+  }
+  try {
+    const response = await fetcher(`${API_URL}/fear-greed/latest`);
+    if (!response?.ok) {
+      throw new Error(`HTTP ${response?.status ?? 'error'}`);
+    }
+    const payload = await response.json();
+    const rawValue = Number(payload?.value ?? 0);
+    const value = Number.isFinite(rawValue) ? Math.round(rawValue) : 0;
+    const classification = String(payload?.classification || '').trim() || 'Indéterminé';
+    const timestamp = typeof payload?.timestamp === 'string' ? payload.timestamp : null;
+    valueEl.textContent = String(value);
+    classificationEl.textContent = classification;
+    updatedEl.textContent = timestamp ? `Mis à jour : ${timestamp}` : 'Mis à jour : inconnue';
+    const gaugeData = { value, classification };
+    if (!fearGreedChart) {
+      fearGreedChart = await createRadialGauge(gaugeContainer, gaugeData);
+    } else {
+      await updateRadialGauge(fearGreedChart, gaugeData);
+    }
+    card.setAttribute('aria-label', `Indice Fear & Greed : ${classification} (${value}/100)`);
+    if (!card.getAttribute('href')) {
+      card.setAttribute('href', './fear-greed.html');
+    }
+    return fearGreedChart;
+  } catch (error) {
+    console.error(error);
+    valueEl.textContent = '0';
+    classificationEl.textContent = 'Indisponible';
+    updatedEl.textContent = 'Données indisponibles';
+    if (fearGreedChart) {
+      await updateRadialGauge(fearGreedChart, { value: 0, classification: 'Indisponible' });
+    }
+    return null;
+  }
+}
+
 function bindMarketRangeButtons() {
   if (marketRangeListenersBound) {
     return;
@@ -575,6 +631,7 @@ export function init() {
   });
   loadVersion();
   loadCryptos();
+  loadFearGreedWidget().catch((error) => console.error(error));
 }
 
 if (typeof window !== 'undefined') {
@@ -585,4 +642,5 @@ export const __test__ = {
   computeTopMarketCapSeries,
   combineMarketHistories,
   fetchAggregatedTopMarketHistory,
+  loadFearGreedWidget,
 };

@@ -16,6 +16,7 @@ from ..core.settings import settings
 from ..services.budget import CallBudget
 from ..services.coingecko import CoinGeckoClient
 from ..services.dao import PricesRepo, MetaRepo, CoinsRepo
+from ..services.fear_greed import sync_fear_greed_index
 from ..services.categories import slugify
 from ..db import SessionLocal
 
@@ -201,6 +202,12 @@ def run_etl(
     finally:
         session.close()
 
+    fear_greed_rows = 0
+    try:
+        fear_greed_rows = sync_fear_greed_index()
+    except Exception as exc:  # pragma: no cover - defensive logging
+        logger.warning("fear & greed sync skipped: %s", exc)
+
     logger.info(
         json.dumps(
             {
@@ -209,6 +216,7 @@ def run_etl(
                 "monthly_call_count": budget.monthly_call_count if budget else None,
                 "last_refresh_at": now.isoformat(),
                 "rows": len(price_rows),
+                "fear_greed_rows": fear_greed_rows,
             }
         )
     )

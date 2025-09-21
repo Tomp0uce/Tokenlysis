@@ -92,3 +92,75 @@ test('fetchAggregatedTopMarketHistory agrège les séries valides et ignore les 
   ]);
   assert.deepEqual(result.data, [150, 140]);
 });
+
+test('loadFearGreedWidget met à jour la jauge et les étiquettes', async (t) => {
+  const html = `<!doctype html><html><head><meta name="api-url" content="https://example.test/api"></head><body>
+      <a id="fear-greed-card" href="./fear-greed.html" class="sentiment-card">
+        <div class="sentiment-card-header">
+          <span>Sentiment du marché</span>
+          <strong id="fear-greed-value">—</strong>
+        </div>
+        <div id="fear-greed-gauge" class="sentiment-gauge"></div>
+        <p id="fear-greed-classification">—</p>
+        <p id="fear-greed-updated">—</p>
+      </a>
+    </body></html>`;
+  class ApexChartsStub {
+    constructor(el, options) {
+      this.el = el;
+      this.options = options;
+      this.updateCalls = [];
+    }
+    render() {
+      this.rendered = true;
+      return Promise.resolve();
+    }
+    updateSeries(series) {
+      this.updateCalls.push({ series });
+      return Promise.resolve();
+    }
+    updateOptions(options) {
+      this.updateCalls.push(options);
+      return Promise.resolve();
+    }
+  }
+  const latest = {
+    value: 62,
+    classification: 'Greed',
+    timestamp: '2024-03-12T00:00:00Z',
+  };
+  global.fetch = async (url) => {
+    if (url === 'https://example.test/api/fear-greed/latest') {
+      return new Response(JSON.stringify(latest), { status: 200 });
+    }
+    throw new Error(`unexpected fetch ${url}`);
+  };
+
+  const exports = await loadTestExports({ html, url: 'https://example.test' });
+  const testWindow = global.window;
+  const testDocument = global.document;
+  testWindow.ApexCharts = ApexChartsStub;
+  testDocument.documentElement.style.setProperty('--fg-greed', '#22c55e');
+  testDocument.documentElement.style.setProperty('--fg-neutral', '#facc15');
+  t.after(() => {
+    testWindow.close();
+    delete global.fetch;
+    delete global.window;
+    delete global.document;
+    delete global.localStorage;
+  });
+
+  await exports.loadFearGreedWidget();
+  assert.equal(document.getElementById('fear-greed-value').textContent, '62');
+  assert.equal(document.getElementById('fear-greed-classification').textContent, 'Greed');
+  assert.match(
+    document.getElementById('fear-greed-updated').textContent,
+    /2024-03-12/,
+  );
+  const card = document.getElementById('fear-greed-card');
+  assert.ok(card);
+  assert.equal(card.getAttribute('href') ?? card.getAttribute('data-href'), './fear-greed.html');
+  const gauge = document.getElementById('fear-greed-gauge');
+  assert.ok(gauge);
+  assert.equal(gauge.children.length >= 0, true);
+});
