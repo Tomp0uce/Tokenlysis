@@ -12,6 +12,18 @@ const CHART_COLORS = {
   volume: '--chart-volume',
 };
 
+const USD_SUFFIXES = [
+  { threshold: 1_000_000_000_000, suffix: 'T$' },
+  { threshold: 1_000_000_000, suffix: 'B$' },
+  { threshold: 1_000_000, suffix: 'M$' },
+  { threshold: 1_000, suffix: 'k$' },
+];
+
+const USD_COMPACT_FORMATTER = new Intl.NumberFormat('en-US', {
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 2,
+});
+
 let currentCoinId = '';
 let currentRange = null;
 let priceChart = null;
@@ -56,7 +68,19 @@ function formatUsd(value) {
   if (value === null || value === undefined) {
     return '—';
   }
-  return `${Number(value).toLocaleString('en-US')} $`;
+  const numeric = Number(value);
+  if (Number.isNaN(numeric) || !Number.isFinite(numeric)) {
+    return '—';
+  }
+  const abs = Math.abs(numeric);
+  for (const { threshold, suffix } of USD_SUFFIXES) {
+    if (abs >= threshold) {
+      const scaled = numeric / threshold;
+      const formatted = USD_COMPACT_FORMATTER.format(scaled);
+      return `${formatted} ${suffix}`;
+    }
+  }
+  return `${numeric.toLocaleString('en-US')} $`;
 }
 
 function formatDateTime(iso) {
@@ -154,12 +178,30 @@ function renderCategories(names) {
 }
 
 function renderDetail(detail) {
-  const title = titleFromId(detail.coin_id || currentCoinId);
+  const rawName = typeof detail?.name === 'string' ? detail.name.trim() : '';
+  const title = rawName || titleFromId(detail.coin_id || currentCoinId);
   const titleEl = document.getElementById('coin-title');
-  if (titleEl) {
+  const titleTextEl = document.getElementById('coin-title-text');
+  if (titleTextEl) {
+    titleTextEl.textContent = title;
+  } else if (titleEl) {
     titleEl.textContent = title;
   }
   document.title = `Tokenlysis – ${title}`;
+  const logoEl = document.getElementById('coin-logo');
+  if (logoEl) {
+    const rawLogo = typeof detail?.logo_url === 'string' ? detail.logo_url.trim() : '';
+    if (rawLogo) {
+      logoEl.setAttribute('src', rawLogo);
+      logoEl.alt = title;
+      logoEl.hidden = false;
+      logoEl.removeAttribute('hidden');
+    } else {
+      logoEl.setAttribute('src', '');
+      logoEl.alt = '';
+      logoEl.hidden = true;
+    }
+  }
   const priceEl = document.getElementById('price-value');
   if (priceEl) {
     priceEl.textContent = formatCurrency(detail.price);
@@ -390,4 +432,6 @@ if (typeof window !== 'undefined') {
 export const __test__ = {
   buildHistoricalDataset,
   normalizePointValue,
+  formatUsd,
+  renderDetail,
 };

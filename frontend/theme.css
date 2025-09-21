@@ -97,6 +97,12 @@ a:hover {
   color: var(--text-primary);
 }
 
+.coin-title {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
 .brand p {
   margin: 0;
   color: var(--text-secondary);
@@ -510,6 +516,11 @@ tbody td {
   object-fit: contain;
   box-shadow: 0 0 0 1px var(--border-subtle);
   background: var(--surface-base);
+}
+
+.coin-title .coin-logo {
+  width: 48px;
+  height: 48px;
 }
 
 .coin-name {
