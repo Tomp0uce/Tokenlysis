@@ -301,14 +301,8 @@ test('init loads coin data, renders charts and activates default range', async (
   );
   assert.equal(document.getElementById('coin-title').textContent.includes('Bitcoin'), true);
   assert.equal(document.getElementById('price-value').textContent.includes('44,000'), true);
-  assert.equal(
-    document.getElementById('market-cap-value').textContent.includes('850,000,000,000'),
-    true
-  );
-  assert.equal(
-    document.getElementById('volume-value').textContent.includes('15,000,000,000'),
-    true
-  );
+  assert.equal(document.getElementById('market-cap-value').textContent, '850 B$');
+  assert.equal(document.getElementById('volume-value').textContent, '15 B$');
   assert.match(
     document.getElementById('price-updated').textContent,
     /Dernière mise à jour/
