@@ -1,13 +1,15 @@
 # AGENTS Instructions
 
 ## Project Overview
-Tokenlysis is a platform that ranks over 1,000 crypto-assets each day. It computes thematic scores (Community, Liquidity, Opportunity, Security, Technology, Tokenomics) and a global score. A simple FastAPI backend serves data to a static frontend table.
+Tokenlysis is a platform that ranks over 1,000 crypto-assets each day. It computes thematic scores (Community, Liquidity, Opportunity, Security, Technology, Tokenomics) and a global score. A FastAPI backend serves data to interactive vanilla-JS dashboards (market overview, coin detail and sentiment) rendered with ApexCharts.
 
 ## Build and Test Commands
 - Install backend dependencies: `pip install -r backend/requirements.txt`
+- Install Node test dependencies: `npm install`
 - Run the API locally: `uvicorn backend.app.main:app --reload`
 - Format and lint: `ruff backend && black backend`
-- Run tests: `pytest`
+- Run backend tests: `pytest`
+- Run frontend tests: `node --test tests/*.js`
 
 ## Code Style Guidelines
 - Python code follows PEP 8 and is formatted with `black` and linted by `ruff`.
@@ -16,7 +18,8 @@ Tokenlysis is a platform that ranks over 1,000 crypto-assets each day. It comput
 
 ## Testing Instructions
 - Add Pytest unit tests for new Python features and keep coverage close to 80%.
-- Ensure `pytest` passes before committing. Frontend tests will be added with Jest in future phases.
+- Add Node `node --test` suites (using jsdom) for new frontend utilities and UI logic.
+- Ensure both `pytest` and `node --test tests/*.js` pass before committing.
 
 ## Security Considerations
 - Never commit secrets or credentials.
@@ -26,4 +29,5 @@ Tokenlysis is a platform that ranks over 1,000 crypto-assets each day. It comput
 - Avoid writing empty environment variables; fall back to defaults when values are blank and raise clear errors for invalid entries.
 
 ## Documentation
-- Update the README when the feature scope evolves.
+- Update the README and `Functional_specs.md` when the feature scope evolves.
+- Keep roadmap checklists (POC/MVP/EVT) aligned across documentation and actual feature status.
