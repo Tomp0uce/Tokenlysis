@@ -1,6 +1,6 @@
 # Tokenlysis
 
-Tokenlysis is a FastAPI-based cryptocurrency ranking proof of concept. It ingests a configurable top ``N`` assets (50 by default) from CoinGecko, stores both the latest snapshot and historical prices in SQLite and serves a lightweight dashboard written in vanilla JavaScript.
+Tokenlysis is a FastAPI-based cryptocurrency ranking proof of concept. It ingests a configurable top ``N`` assets (50 by default) from CoinGecko, stores the latest snapshots, multi-range historical prices and sentiment metrics in SQLite, and serves an interactive multi-page dashboard written in vanilla JavaScript with ApexCharts. Operators can monitor market breadth, open detailed asset views and track the Crypto Fear & Greed index without leaving the bundle.
 
 > ⚠️ **Proprietary Notice**  
 > This project is the proprietary software of **Tokenlysis**.  
@@ -12,14 +12,16 @@ The long-term roadmap is to analyse more than 1,000 assets with additional thema
 
 ## Current Capabilities
 
-- **Universe** – configurable top ``N`` assets (default 50) fetched from CoinGecko.
-- **Scores** – Liquidity, Opportunity and a derived Global score computed from CoinGecko market data.
+- **Universe** – configurable top ``N`` assets (default 50) fetched from CoinGecko with logos and slugged categories cached server-side.
+- **Scores & analytics** – Liquidity, Opportunity and a derived Global score computed from CoinGecko market data, persisted for historical comparisons and surfaced through dashboard gauges.
+- **Historical prices** – `/api/price/{coin_id}/history` exposes 24h, 7d, 1m, 3m, 1y, 2y, 5y and full-range series that feed coin detail charts and the market overview.
+- **Market overview** – aggregated market capitalisation and volume cards with 24h/7d deltas plus a top-market chart rendered from cached history.
+- **Sentiment** – Crypto Fear & Greed index seeded from bundled history, refreshed via the CoinMarketCap API and rendered as a gauge with daily/weekly/monthly snapshots.
 - **Refresh cadence** – background ETL runs every 12 hours (configurable with `REFRESH_GRANULARITY`).
-- **Persistence** – SQLite keeps the latest market snapshot (`latest_prices`), historical snapshots (`prices`) and service metadata (`meta`).
-- **Categories** – CoinGecko categories are cached per asset and refreshed every 24 hours.
-- **Sentiment** – Crypto Fear & Greed index seeded from bundled history and refreshed via the CoinMarketCap API.
+- **Persistence** – SQLite keeps the latest market snapshot (`latest_prices`), historical snapshots (`prices`), sentiment entries (`fear_greed`) and service metadata (`meta`).
+- **Frontend** – accessible vanilla JavaScript + ApexCharts bundle with retry handling, category badges (including overflow counters), light/dark theming and dedicated coin/sentiment pages.
 - **Seed fallback** – when live data is unavailable the startup sequence loads a bundled seed fallback (`backend/app/seed/top20.json`) if `USE_SEED_ON_FAILURE` is enabled.
-- **CoinGecko budget** – optional persisted call counter throttles requests according to `CG_MONTHLY_QUOTA`.
+- **CoinGecko budget** – optional persisted call counter throttles requests according to `CG_MONTHLY_QUOTA` and surfaces monthly usage in diagnostics.
 
 ### API Surface
 
@@ -27,6 +29,7 @@ The long-term roadmap is to analyse more than 1,000 assets with additional thema
 | -------- | ----------- |
 | `GET /api/markets/top` | Latest market snapshots limited to ``limit`` (clamped to ``[1, CG_TOP_N]``) for the `usd` quote. |
 | `GET /api/price/{coin_id}` | Latest market snapshot for a single asset or `404` when unknown. |
+| `GET /api/price/{coin_id}/history` | Historical price, market cap and volume series for the requested `range` (`24h`, `7d`, `1m`, `3m`, `1y`, `2y`, `5y`, `max`). |
 | `GET /api/coins/{coin_id}/categories` | Cached CoinGecko category names and identifiers for an asset. |
 | `GET /api/fear-greed/latest` | Most recent Crypto Fear & Greed datapoint with classification, or `404` when unavailable. |
 | `GET /api/fear-greed/history` | Historical values filtered by `range` (`30d`, `90d`, `1y`, `max`). |
@@ -38,17 +41,16 @@ The long-term roadmap is to analyse more than 1,000 assets with additional thema
 
 ### Frontend Dashboard
 
-- Static HTML + vanilla JavaScript served from ``/`` by FastAPI.
-- Fetches `/api/markets/top?limit=20&vs=usd` on load and renders a sortable table.
-- Displays CoinGecko categories as badges with overflow counters beyond three categories.
-- Shows the daily Crypto Fear & Greed gauge linking to a dedicated sentiment page.
-- Queries `/api/diag` to display a banner whenever the service runs on the CoinGecko demo plan.
-- Includes a retry affordance on fetch errors and shows the last refresh timestamp and data source.
-- A dedicated `fear-greed.html` view renders the gauge and historical chart with range selection (`30d`, `90d`, `1y`, `max`).
+- Multi-page static bundle served from ``/`` by FastAPI (dashboard, coin detail and sentiment views) written in modular vanilla JavaScript with ApexCharts.
+- Dashboard fetches `/api/markets/top?limit=20&vs=usd`, renders hero summary cards (market cap & volume with 24h/7d deltas), a top-market chart with range selector and a sortable table enriched with coin logos.
+- Category badges include overflow counters beyond three entries and link to dedicated asset pages (`coin.html?coin_id=...`).
+- Coin detail view merges `/api/price/{coin_id}` and `/api/price/{coin_id}/history` to display price, market cap and volume charts with accessible `24h` → `max` range selectors and empty-state messaging.
+- Fear & Greed view combines the latest/history endpoints, draws the gauge, renders snapshots for today/yesterday/week/month and plots sentiment history over `30d`, `90d`, `1y` or the full range.
+- Theme toggle persists the preferred mode, `/api/diag` drives the demo-plan banner and the status bar surfaces retry actions plus last-refresh metadata when the API is unreachable.
 
 ## Asset Intelligence Reference
 
-The reference dashboard shared for Tokenlysis highlights the information that must be surfaced for every cryptocurrency, even if the final UI differs from the mock-up. Each asset view aggregates the following insights:
+The reference dashboard shared for Tokenlysis highlights the information that must be surfaced for every cryptocurrency, even if the final UI differs from the mock-up. The current coin detail view already charts price, market cap, volume and categories as stepping stones towards that vision. Each asset view aggregates the following insights:
 
 ### Market intelligence & scores
 - Score total dynamique combining daily refreshed thematic KPIs into a single gauge.
@@ -79,12 +81,13 @@ The reference dashboard shared for Tokenlysis highlights the information that mu
 
 ## ETL & Data Management
 
-1. Resolve configuration (CoinGecko base URL, throttle, API key, quota).
-2. Fetch market data via `CoinGeckoClient` with per-call throttling and retry handling.
-3. Persist latest snapshots and append to the historical table within a single transaction.
-4. Refresh category assignments when the cached value is older than 24 hours, falling back to cached slugs.
-5. Update metadata (`last_refresh_at`, `last_etl_items`, `data_source`) and store the monthly call count when a budget file is configured.
-6. On network failures, raise `DataUnavailable` so the caller can trigger the seed fallback and mark the dataset as stale.
+1. Resolve configuration (CoinGecko base URL, throttle, API key, quota, persisted budget path).
+2. Fetch market data via `CoinGeckoClient` with per-call throttling, demo-plan backoff and budget accounting.
+3. Persist latest snapshots and append to the historical table within a single transaction so the API and charts stay in sync.
+4. Refresh category assignments and coin metadata (name, symbol, logo URL) when the cached value is older than 24 hours, falling back to slugified names.
+5. Update metadata (`last_refresh_at`, `last_etl_items`, `data_source`, `monthly_call_count`) so diagnostics can expose freshness and quota consumption.
+6. Trigger `sync_fear_greed_index()` after market ingestion to keep the sentiment cache aligned with CoinMarketCap.
+7. On network failures, raise `DataUnavailable` so the caller can trigger the seed fallback and mark the dataset as stale.
 
 The ETL runs on startup and then loops in the background according to `REFRESH_GRANULARITY`. It shares a persisted budget (`BUDGET_FILE`) with the API so the diagnostic endpoint can show quota consumption.
 
@@ -110,51 +113,61 @@ Roadmap categories (Community, Security, Technology, Tokenomics) remain part of 
 1. **ETL runner** – Python task fetching CoinGecko markets, refreshing category metadata and writing to SQLite.
 2. **API backend** – FastAPI application exposing public endpoints under `/api`, diagnostics, health probes and static assets under `/`.
 3. **Persistence layer** – SQLAlchemy ORM models for coins, latest prices, historical prices and metadata.
-4. **Frontend** – Static HTML/vanilla JS table bundled inside the repository and served by FastAPI.
+4. **Frontend** – Static HTML/vanilla JS dashboards (market overview, coin detail, sentiment) bundled inside the repository and served by FastAPI with ApexCharts.
 5. **Call budget service** – Optional JSON-backed counter used to enforce the CoinGecko monthly quota and surface usage in diagnostics.
 6. **Logging** – Structured JSON logs for outbound CoinGecko calls and contextual logs for ETL execution paths.
+7. **Sentiment synchroniser** – CoinMarketCap client invoked after each ETL run to refresh Crypto Fear & Greed values consumed by the API and dashboards.
 
 ## Development Phases
 
 ### Proof of Concept (delivered)
 - [x] Liquidity and Opportunity scoring with global aggregation.
-- [x] CoinGecko ETL with persisted snapshots, cached categories and seed fallback.
-- [x] REST API for markets, price detail, categories, diagnostics, health and version.
-- [x] Static dashboard delivered by the backend.
+- [x] CoinGecko ETL with persisted snapshots, cached categories, logo ingestion and seed fallback.
+- [x] REST API for markets, price detail, price history, categories, diagnostics, health and version endpoints.
+- [x] Crypto Fear & Greed ingestion with latest/history endpoints feeding dashboard widgets.
+- [x] Interactive dashboard bundle (hero metrics, top-market chart, sortable table, light/dark theming) served by the backend.
+- [x] Dedicated coin detail view with category badges and historical price/market/volume charts.
 - [x] Docker Compose setup for backend + frontend (deployable on Synology NAS).
 
 ### Minimum Viable Product (planned)
 - [ ] Add Community, Security, Technology and Tokenomics scores.
 - [ ] Detect 100 trending assets outside the top 1,000.
 - [ ] Introduce persistent PostgreSQL storage and background workers for heavier jobs.
-- [ ] Provide basic charts and user-defined weighting UI on the frontend.
-- [ ] Improve observability and automated alerting around ETL freshness.
+- [ ] Provide user-defined weighting UI, saved filters and CSV/JSON export from the dashboard.
+- [ ] Extend frontend with watchlists, category filters and richer attribution drill-downs powered by new API query parameters.
+- [ ] Improve observability and automated alerting around ETL freshness, sentiment sync drift and budget exhaustion.
 
 ### Engineering Validation Test (future)
 - **Market intelligence & scores**
   - [ ] Score total dynamique consolidating every category into a dynamic asset scorecard.
   - [ ] Score fondamental with curated news timeline, ETF coverage and macro narrative tracking.
   - [ ] Automated category and theme explorer tying comparable assets together.
+  - [ ] Scenario analysis and what-if weighting simulator combining macro drivers with Tokenlysis scores.
 - **Community analytics & sentiment**
   - [ ] Abonnés Twitter, Telegram, Reddit, Discord and YouTube dashboards with alerting thresholds.
   - [ ] Google Trends and social sentiment overlay to capture community momentum shifts.
   - [ ] Newsletter, influencer and media coverage bench-marking per asset.
+  - [ ] Real-time alerting on social breakouts with anomaly detection and localisation for key regions.
 - **Liquidity & DeFi depth**
   - [ ] Total Value Locked (TVL) history with protocol granularity and dominance ratios.
   - [ ] Order book depth, exchange quality scoring and fiat/stablecoin on-ramp visibility.
   - [ ] Capital flow indicators such as exchange inflow/outflow, stablecoin share and DeFi lock-up tracking.
+  - [ ] Cross-exchange order book consolidation with slippage simulation and on-chain flow overlays.
 - **Opportunité & trading signals**
   - [ ] RSI 14 j, breakout detection, volatility regime classification and funding rate direction.
   - [ ] Volume acceleration, whale transaction alerts and derivative open-interest monitors.
   - [ ] Seasonal performance, correlation clusters and relative strength versus benchmarks.
+  - [ ] Backtesting playground to validate strategies and push signals to external alerting channels.
 - **Sécurité & technologie**
   - [ ] Audit registry integration, bug bounty coverage and incident response tracking.
   - [ ] GitHub velocity metrics (commits, contributors, releases) with quality scoring.
   - [ ] Node distribution, infrastructure redundancy and compliance controls.
+  - [ ] Supply-chain risk scoring covering dependencies on oracles, custodians and validators.
 - **Tokenomics & supply distribution**
   - [ ] Unlock and vesting calendar with alerting and impact scoring.
   - [ ] Inflation, burn schedule, staking ratio and yield analytics.
   - [ ] Treasury allocation visibility, whale concentration and token distribution monitoring.
+  - [ ] Treasury performance dashboard tracking historical allocations versus market moves and governance outcomes.
 
 ## Development
 
@@ -258,6 +271,7 @@ docker compose -f docker-compose.yml -f docker-compose.synology.yml up -d
 
 ```bash
 pytest
+node --test tests/*.js
 ```
 
 ## Image Versioning
