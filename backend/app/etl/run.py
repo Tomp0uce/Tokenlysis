@@ -191,7 +191,10 @@ def run_etl(
             ids = [mapping.get(slugify(n), slugify(n)) for n in names]
             links_obj = profile.get("links")
             links = links_obj if isinstance(links_obj, dict) else {}
-            if fetched_profile and not links:
+            if not fetched_profile:
+                names, ids = cached_names, cached_ids
+                links = cached_links
+            elif not links:
                 links = {"__synced__": True}
         else:
             names, ids = cached_names, cached_ids
