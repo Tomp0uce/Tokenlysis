@@ -16,6 +16,7 @@ def test_run_migrations_uses_settings_db(monkeypatch, tmp_path):
     cols = [row[1] for row in cur.fetchall()]
     assert "category_names" in cols
     assert "category_ids" in cols
+    assert "social_links" in cols
     con.close()
 
 

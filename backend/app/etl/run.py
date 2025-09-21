@@ -147,14 +147,17 @@ def run_etl(
     for c in markets:
         names: list[str]
         ids: list[str]
-        cached_names, cached_ids, ts = coins_repo.get_categories_with_timestamp(c["id"])
+        links: dict[str, str]
+        cached_names, cached_ids, cached_links, ts = coins_repo.get_categories_with_timestamp(
+            c["id"]
+        )
         stale = ts is None or (now - ts) > dt.timedelta(hours=24)
         if stale:
             delays = [0.25, 1.0, 2.0]
-            names = []
+            profile: dict[str, object] = {"categories": [], "links": {}}
             for i in range(len(delays) + 1):
                 try:
-                    names = client.get_coin_categories(c["id"])
+                    profile = client.get_coin_profile(c["id"])
                     calls += 1
                     if budget:
                         budget.spend(1)
@@ -168,14 +171,23 @@ def run_etl(
                     if status == 429 and i < len(delays):
                         time.sleep(delays[i])
                         continue
-                    names = []
+                    profile = {"categories": [], "links": {}}
                     break
                 except Exception:
-                    names = []
+                    profile = {"categories": [], "links": {}}
                     break
+            categories_raw = profile.get("categories")
+            names = (
+                [n for n in categories_raw if isinstance(n, str)]
+                if isinstance(categories_raw, list)
+                else []
+            )
             ids = [mapping.get(slugify(n), slugify(n)) for n in names]
+            links_obj = profile.get("links")
+            links = links_obj if isinstance(links_obj, dict) else {}
         else:
             names, ids = cached_names, cached_ids
+            links = cached_links if isinstance(cached_links, dict) else {}
         coin_rows.append(
             {
                 "id": c["id"],
@@ -184,6 +196,7 @@ def run_etl(
                 "logo_url": c.get("image"),
                 "category_names": json.dumps(names),
                 "category_ids": json.dumps(ids),
+                "social_links": json.dumps(links),
                 "updated_at": now,
             }
         )

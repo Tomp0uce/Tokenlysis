@@ -28,6 +28,9 @@ function setupCoinDom() {
         <strong id="market-cap-value">—</strong>
         <strong id="volume-value">—</strong>
         <div id="categories"></div>
+        <section class="panel info-panel">
+          <div id="social-links"></div>
+        </section>
       </main>
     </body></html>`,
     { url: 'http://localhost' },
@@ -90,6 +93,11 @@ test('renderDetail updates title, metrics and logo with compact values', async (
     snapshot_at: '2024-01-31T12:30:00Z',
     category_names: ['Layer 1', 'Payments'],
     logo_url: 'https://img.test/bitcoin.png',
+    social_links: {
+      website: 'https://bitcoin.org',
+      twitter: 'https://twitter.com/bitcoin',
+      discord: 'https://discord.gg/bitcoin',
+    },
   });
 
   const titleText = dom.window.document.getElementById('coin-title-text').textContent.trim();
@@ -105,6 +113,22 @@ test('renderDetail updates title, metrics and logo with compact values', async (
   assert.equal(logo.getAttribute('src'), 'https://img.test/bitcoin.png');
   assert.equal(logo.getAttribute('alt'), 'Bitcoin');
   assert.equal(logo.hasAttribute('hidden'), false);
+  const socialAnchors = [
+    ...dom.window.document.querySelectorAll('#social-links a.social-link'),
+  ];
+  assert.equal(socialAnchors.length, 3);
+  assert.deepEqual(
+    socialAnchors.map((node) => node.getAttribute('href')),
+    [
+      'https://bitcoin.org',
+      'https://twitter.com/bitcoin',
+      'https://discord.gg/bitcoin',
+    ],
+  );
+  socialAnchors.forEach((node) => {
+    assert.equal(node.getAttribute('target'), '_blank');
+    assert.ok(node.querySelector('svg'));
+  });
 });
 
 test('renderDetail hides the logo when url is missing and falls back to coin id', async () => {
@@ -130,6 +154,30 @@ test('renderDetail hides the logo when url is missing and falls back to coin id'
   assert.equal(logo.getAttribute('alt'), '');
   const volumeText = dom.window.document.getElementById('volume-value').textContent;
   assert.equal(volumeText, '—');
+});
+
+test('renderDetail shows empty state when social links are missing or invalid', async () => {
+  const { renderDetail } = await loadTestExports();
+  const dom = setupCoinDom();
+
+  renderDetail({
+    coin_id: 'ether',
+    price: 2,
+    market_cap: 1000,
+    volume_24h: 50,
+    snapshot_at: '2024-02-02T00:00:00Z',
+    social_links: {
+      website: 'ftp://invalid.example',
+      twitter: '',
+      reddit: null,
+    },
+  });
+
+  const container = dom.window.document.getElementById('social-links');
+  assert.equal(container.querySelectorAll('a').length, 0);
+  const empty = container.querySelector('.empty-state');
+  assert.ok(empty);
+  assert.equal(empty.textContent.trim(), 'Aucun lien officiel disponible.');
 });
 
 test('history selection sync shows tooltips on every chart', async () => {

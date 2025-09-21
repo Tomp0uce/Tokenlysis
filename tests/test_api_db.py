@@ -49,6 +49,16 @@ def test_markets_top_reads_db_and_stale_flag(monkeypatch, tmp_path):
                 "logo_url": "https://img.test/bitcoin.png",
                 "category_names": json.dumps(["Payments"]),
                 "category_ids": json.dumps(["payments"]),
+                "social_links": json.dumps(
+                    {
+                        "twitter": "https://twitter.com/bitcoin",
+                        "reddit": "https://reddit.com/r/bitcoin",
+                        "github": "https://github.com/bitcoin/bitcoin",
+                        "discord": "https://discord.gg/bitcoin",
+                        "telegram": "https://t.me/bitcoin",
+                        "website": "https://bitcoin.org",
+                    }
+                ),
                 "updated_at": now,
             }
         ]
@@ -78,6 +88,14 @@ def test_markets_top_reads_db_and_stale_flag(monkeypatch, tmp_path):
     assert data["items"][0]["fully_diluted_market_cap"] == 2.0
     assert data["items"][0]["pct_change_7d"] == 0.5
     assert data["items"][0]["pct_change_30d"] == -1.0
+    assert data["items"][0]["social_links"] == {
+        "twitter": "https://twitter.com/bitcoin",
+        "reddit": "https://reddit.com/r/bitcoin",
+        "github": "https://github.com/bitcoin/bitcoin",
+        "discord": "https://discord.gg/bitcoin",
+        "telegram": "https://t.me/bitcoin",
+        "website": "https://bitcoin.org",
+    }
     assert data["data_source"] == "api"
     assert data["stale"] is False
 

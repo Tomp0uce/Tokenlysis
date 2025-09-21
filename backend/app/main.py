@@ -9,6 +9,7 @@ import math
 import os
 import threading
 from pathlib import Path
+from urllib.parse import urlparse
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -84,6 +85,20 @@ FEAR_GREED_RANGE_TO_DELTA: dict[str, dt.timedelta] = {
 }
 
 
+def _normalize_link(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    candidate = value.strip()
+    if not candidate:
+        return None
+    parsed = urlparse(candidate)
+    if parsed.scheme not in {"http", "https"}:
+        return None
+    if not parsed.netloc:
+        return None
+    return candidate
+
+
 def _serialize_price(p, details: dict[str, object]) -> dict:
     """Convert ORM rows and metadata into an API payload."""
     names_raw = details.get("category_names") if details else []
@@ -98,6 +113,13 @@ def _serialize_price(p, details: dict[str, object]) -> dict:
     logo_url = (
         raw_logo.strip() if isinstance(raw_logo, str) and raw_logo.strip() else None
     )
+    raw_links = details.get("social_links") if details else {}
+    social_links: dict[str, str] = {}
+    if isinstance(raw_links, dict):
+        for key in ("website", "twitter", "reddit", "github", "discord", "telegram"):
+            normalized = _normalize_link(raw_links.get(key))
+            if normalized:
+                social_links[key] = normalized
     return {
         "coin_id": p.coin_id,
         "vs_currency": p.vs_currency,
@@ -115,6 +137,7 @@ def _serialize_price(p, details: dict[str, object]) -> dict:
         "name": name,
         "symbol": symbol,
         "logo_url": logo_url,
+        "social_links": social_links,
     }
 
 

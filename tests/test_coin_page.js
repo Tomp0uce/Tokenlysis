@@ -25,6 +25,9 @@ function setupDom(url = 'https://example.com/coin.html?coin_id=bitcoin') {
         </div>
       </div>
       <section id="categories"></section>
+      <section class="panel info-panel">
+        <div id="social-links"></div>
+      </section>
       <div id="range-selector">
         <button data-range="24h"></button>
         <button data-range="7d"></button>
@@ -209,6 +212,14 @@ test('init loads coin data, renders charts and activates default range', async (
       market_cap: 850000000000,
       volume_24h: 15000000000,
       snapshot_at: '2024-09-20T00:00:00Z',
+      social_links: {
+        twitter: 'https://twitter.com/bitcoin',
+        reddit: 'https://reddit.com/r/bitcoin',
+        github: 'https://github.com/bitcoin/bitcoin',
+        discord: 'https://discord.gg/bitcoin',
+        telegram: 'https://t.me/bitcoin',
+        website: 'https://bitcoin.org',
+      },
     },
     history: {
       max: {
@@ -307,6 +318,27 @@ test('init loads coin data, renders charts and activates default range', async (
     document.getElementById('price-updated').textContent,
     /Dernière mise à jour/
   );
+  const socialLinks = [
+    ...document.querySelectorAll('#social-links a.social-link'),
+  ];
+  assert.equal(socialLinks.length, 6);
+  assert.deepEqual(
+    socialLinks.map((node) => node.getAttribute('href')),
+    [
+      'https://bitcoin.org',
+      'https://twitter.com/bitcoin',
+      'https://reddit.com/r/bitcoin',
+      'https://github.com/bitcoin/bitcoin',
+      'https://discord.gg/bitcoin',
+      'https://t.me/bitcoin',
+    ],
+  );
+  socialLinks.forEach((node) => {
+    assert.equal(node.getAttribute('target'), '_blank');
+    assert.equal(node.getAttribute('rel'), 'noopener noreferrer');
+    assert.ok(node.getAttribute('aria-label'));
+    assert.ok(node.querySelector('svg'));
+  });
   const activeButton = document.querySelector('[data-range="7d"]');
   assert.equal(activeButton.classList.contains('active'), true);
   const pricePoints = document.querySelector('#price-chart polyline').getAttribute('points');
@@ -428,6 +460,7 @@ test('clicking a range button refetches history and updates active state', async
           market_cap: 5,
           volume_24h: 6,
           snapshot_at: '2024-09-20T00:00:00Z',
+          social_links: { website: 'https://bitcoin.org' },
         }),
         { status: 200 }
       );
