@@ -15,7 +15,7 @@ depends_on = None
 def upgrade() -> None:
     op.add_column(
         "coins",
-        sa.Column("logo_url", sa.String(), nullable=True, server_default=""),
+        sa.Column("logo_url", sa.String(), nullable=True),
     )
 
 
