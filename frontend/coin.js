@@ -12,6 +12,34 @@ const CHART_COLORS = {
   volume: '--chart-volume',
 };
 
+const HISTORY_CHART_GROUP = 'coin-history-group';
+const HISTORY_SERIES = [
+  {
+    key: 'price',
+    elementId: 'price-chart',
+    name: 'Prix ($)',
+    dataKey: 'price',
+    colorVar: CHART_COLORS.price,
+    chartId: 'coin-history-price',
+  },
+  {
+    key: 'market',
+    elementId: 'market-cap-chart',
+    name: 'Capitalisation ($)',
+    dataKey: 'marketCap',
+    colorVar: CHART_COLORS.marketCap,
+    chartId: 'coin-history-market',
+  },
+  {
+    key: 'volume',
+    elementId: 'volume-chart',
+    name: 'Volume 24h ($)',
+    dataKey: 'volume',
+    colorVar: CHART_COLORS.volume,
+    chartId: 'coin-history-volume',
+  },
+];
+
 const USD_SUFFIXES = [
   { threshold: 1_000_000_000_000, suffix: 'T$' },
   { threshold: 1_000_000_000, suffix: 'B$' },
@@ -26,11 +54,111 @@ const USD_COMPACT_FORMATTER = new Intl.NumberFormat('en-US', {
 
 let currentCoinId = '';
 let currentRange = null;
-let priceChart = null;
-let marketChart = null;
-let volumeChart = null;
+const historyCharts = new Map(
+  HISTORY_SERIES.map(({ key, chartId }) => [key, { id: chartId, instance: null }]),
+);
 const historyCache = new Map();
 let availableHistoryRanges = new Set();
+
+function getHistoryChartEntry(key) {
+  return historyCharts.get(key) || null;
+}
+
+function setHistoryChartInstance(key, chart) {
+  const entry = historyCharts.get(key);
+  if (!entry) {
+    return;
+  }
+  entry.instance = chart || null;
+}
+
+function resetHistoryChartInstances() {
+  historyCharts.forEach((entry) => {
+    entry.instance = null;
+  });
+}
+
+function getHistoryChartsSnapshot() {
+  return HISTORY_SERIES.map(({ key }) => {
+    const entry = historyCharts.get(key);
+    return {
+      key,
+      id: entry?.id || '',
+      instance: entry?.instance || null,
+    };
+  });
+}
+
+function resolveDataPointIndex(details) {
+  if (!details || typeof details !== 'object') {
+    return null;
+  }
+  const { dataPointIndex, selectedDataPoints } = details;
+  if (Number.isInteger(dataPointIndex) && dataPointIndex >= 0) {
+    return dataPointIndex;
+  }
+  if (Array.isArray(selectedDataPoints)) {
+    for (const seriesPoints of selectedDataPoints) {
+      if (!Array.isArray(seriesPoints) || seriesPoints.length === 0) {
+        continue;
+      }
+      const lastIndex = seriesPoints[seriesPoints.length - 1];
+      if (Number.isInteger(lastIndex) && lastIndex >= 0) {
+        return lastIndex;
+      }
+    }
+  }
+  return null;
+}
+
+function syncHistoryTooltips(index) {
+  if (!Number.isInteger(index) || index < 0) {
+    return;
+  }
+  const exec = window?.ApexCharts?.exec;
+  if (typeof exec !== 'function') {
+    return;
+  }
+  getHistoryChartsSnapshot().forEach(({ id, instance }) => {
+    if (!instance || !id) {
+      return;
+    }
+    exec(id, 'tooltip.show', { seriesIndex: 0, dataPointIndex: index });
+  });
+}
+
+function hideHistoryTooltips() {
+  const exec = window?.ApexCharts?.exec;
+  if (typeof exec !== 'function') {
+    return;
+  }
+  getHistoryChartsSnapshot().forEach(({ id, instance }) => {
+    if (!instance || !id) {
+      return;
+    }
+    exec(id, 'tooltip.hide');
+  });
+}
+
+function handleHistorySelection(_key, details) {
+  const index = resolveDataPointIndex(details);
+  if (index === null) {
+    hideHistoryTooltips();
+    return;
+  }
+  syncHistoryTooltips(index);
+}
+
+function buildHistoryEvents(key) {
+  return {
+    dataPointSelection(event, chartContext, config) {
+      handleHistorySelection(key, config);
+    },
+    markerClick(event, chartContext, { dataPointIndex }) {
+      handleHistorySelection(key, { dataPointIndex });
+    },
+  };
+}
 
 function getRangeContainer() {
   return document.getElementById('range-selector');
@@ -239,22 +367,34 @@ function hasValues(series) {
   return Array.isArray(series) && series.some((value) => value !== null);
 }
 
-async function renderOrUpdateChart({ key, elementId, name, data, categories, colorVar }) {
+async function renderOrUpdateChart({
+  key,
+  elementId,
+  name,
+  data,
+  categories,
+  colorVar,
+  chartId,
+  chartGroup,
+  events,
+}) {
   const element = document.getElementById(elementId);
   if (!element) {
     return;
   }
-  const existing =
-    key === 'price' ? priceChart : key === 'market' ? marketChart : volumeChart;
+  const entry = getHistoryChartEntry(key);
+  const existing = entry?.instance || null;
   if (!existing) {
-    const chart = await createAreaChart(element, { name, categories, data, colorVar });
-    if (key === 'price') {
-      priceChart = chart;
-    } else if (key === 'market') {
-      marketChart = chart;
-    } else {
-      volumeChart = chart;
-    }
+    const chart = await createAreaChart(element, {
+      name,
+      categories,
+      data,
+      colorVar,
+      chartId,
+      chartGroup,
+      events,
+    });
+    setHistoryChartInstance(key, chart);
     return;
   }
   await existing.updateOptions(
@@ -279,34 +419,25 @@ async function renderHistory(points) {
   const dataset = buildHistoricalDataset(points);
   const hasHistory =
     dataset.categories.length > 0 &&
-    (hasValues(dataset.price) || hasValues(dataset.marketCap) || hasValues(dataset.volume));
+    HISTORY_SERIES.some(({ dataKey }) => hasValues(dataset[dataKey]));
   showEmptyHistory(!hasHistory);
-  await Promise.all([
-    renderOrUpdateChart({
-      key: 'price',
-      elementId: 'price-chart',
-      name: 'Prix ($)',
-      data: dataset.price,
-      categories: dataset.categories,
-      colorVar: CHART_COLORS.price,
+  hideHistoryTooltips();
+  await Promise.all(
+    HISTORY_SERIES.map((definition) => {
+      const entry = getHistoryChartEntry(definition.key);
+      return renderOrUpdateChart({
+        key: definition.key,
+        elementId: definition.elementId,
+        name: definition.name,
+        data: dataset[definition.dataKey],
+        categories: dataset.categories,
+        colorVar: definition.colorVar,
+        chartId: entry?.id,
+        chartGroup: HISTORY_CHART_GROUP,
+        events: buildHistoryEvents(definition.key),
+      });
     }),
-    renderOrUpdateChart({
-      key: 'market',
-      elementId: 'market-cap-chart',
-      name: 'Capitalisation ($)',
-      data: dataset.marketCap,
-      categories: dataset.categories,
-      colorVar: CHART_COLORS.marketCap,
-    }),
-    renderOrUpdateChart({
-      key: 'volume',
-      elementId: 'volume-chart',
-      name: 'Volume 24h ($)',
-      data: dataset.volume,
-      categories: dataset.categories,
-      colorVar: CHART_COLORS.volume,
-    }),
-  ]);
+  );
 }
 
 async function fetchJson(url) {
@@ -380,6 +511,7 @@ async function loadCoin() {
   }
   setStatus('Chargement...');
   historyCache.clear();
+  hideHistoryTooltips();
   availableHistoryRanges = new Set();
   currentRange = null;
   setActiveRange('');
@@ -434,4 +566,11 @@ export const __test__ = {
   normalizePointValue,
   formatUsd,
   renderDetail,
+  historySync: {
+    registerInstance: (key, chart) => setHistoryChartInstance(key, chart),
+    handleSelection: (key, details) => handleHistorySelection(key, details),
+    syncTooltips: (index) => syncHistoryTooltips(index),
+    clearTooltips: () => hideHistoryTooltips(),
+    reset: () => resetHistoryChartInstances(),
+  },
 };

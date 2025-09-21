@@ -185,6 +185,9 @@ function baseAreaOptions({
   yFormatter,
   tooltipFormatter,
   banding,
+  chartId,
+  chartGroup,
+  events,
 } = {}) {
   const palette = basePalette(colorVar);
   const theme = document?.documentElement?.dataset?.theme || 'light';
@@ -207,17 +210,27 @@ function baseAreaOptions({
   };
   const resolvedYFormatter = wrapFormatter(yFormatter, defaultFormatter);
   const resolvedTooltipFormatter = wrapFormatter(tooltipFormatter, resolvedYFormatter);
+  const chartOptions = {
+    type: 'area',
+    height: 280,
+    toolbar: { show: false },
+    zoom: { enabled: false },
+    selection: { enabled: false },
+    animations: { easing: 'easeinout', speed: 600 },
+    fontFamily: 'Inter, "Segoe UI", sans-serif',
+    foreColor: palette.muted,
+  };
+  if (typeof chartId === 'string' && chartId) {
+    chartOptions.id = chartId;
+  }
+  if (typeof chartGroup === 'string' && chartGroup) {
+    chartOptions.group = chartGroup;
+  }
+  if (events && typeof events === 'object') {
+    chartOptions.events = events;
+  }
   const options = {
-    chart: {
-      type: 'area',
-      height: 280,
-      toolbar: { show: false },
-      zoom: { enabled: false },
-      selection: { enabled: false },
-      animations: { easing: 'easeinout', speed: 600 },
-      fontFamily: 'Inter, "Segoe UI", sans-serif',
-      foreColor: palette.muted,
-    },
+    chart: chartOptions,
     series: [
       {
         name,

@@ -131,3 +131,65 @@ test('renderDetail hides the logo when url is missing and falls back to coin id'
   const volumeText = dom.window.document.getElementById('volume-value').textContent;
   assert.equal(volumeText, '—');
 });
+
+test('history selection sync shows tooltips on every chart', async () => {
+  const testExports = await loadTestExports();
+  const { historySync } = testExports;
+  historySync.reset();
+  const execCalls = [];
+  global.window.ApexCharts = {
+    exec: (...args) => {
+      execCalls.push(args);
+      return Promise.resolve();
+    },
+  };
+
+  historySync.registerInstance('price', {});
+  historySync.registerInstance('market', {});
+  historySync.registerInstance('volume', {});
+
+  historySync.handleSelection('price', { dataPointIndex: 2 });
+
+  assert.deepEqual(execCalls, [
+    ['coin-history-price', 'tooltip.show', { seriesIndex: 0, dataPointIndex: 2 }],
+    ['coin-history-market', 'tooltip.show', { seriesIndex: 0, dataPointIndex: 2 }],
+    ['coin-history-volume', 'tooltip.show', { seriesIndex: 0, dataPointIndex: 2 }],
+  ]);
+});
+
+test('history selection hides tooltips when nothing is selected', async () => {
+  const testExports = await loadTestExports();
+  const { historySync } = testExports;
+  historySync.reset();
+  const execCalls = [];
+  global.window.ApexCharts = {
+    exec: (...args) => {
+      execCalls.push(args);
+      return Promise.resolve();
+    },
+  };
+
+  historySync.registerInstance('price', {});
+  historySync.registerInstance('market', {});
+  historySync.registerInstance('volume', {});
+
+  historySync.handleSelection('market', { selectedDataPoints: [[]] });
+
+  assert.deepEqual(execCalls, [
+    ['coin-history-price', 'tooltip.hide'],
+    ['coin-history-market', 'tooltip.hide'],
+    ['coin-history-volume', 'tooltip.hide'],
+  ]);
+});
+
+test('syncing tooltips ignores invalid indices or missing exec', async () => {
+  const testExports = await loadTestExports();
+  const { historySync } = testExports;
+  historySync.reset();
+  delete global.window.ApexCharts;
+
+  assert.doesNotThrow(() => {
+    historySync.syncTooltips(3);
+    historySync.handleSelection('price', { dataPointIndex: -1 });
+  });
+});

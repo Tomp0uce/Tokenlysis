@@ -69,6 +69,39 @@ test('createAreaChart builds smooth area config with shared categories', async (
   await module.destroyTrackedCharts();
 });
 
+test('createAreaChart applies chart id, group and custom events', async () => {
+  const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost' });
+  global.window = dom.window;
+  global.document = dom.window.document;
+  global.localStorage = dom.window.localStorage;
+  dom.window.ApexCharts = ApexChartsStub;
+  document.documentElement.style.setProperty('--chart-primary', '#654321');
+  document.documentElement.style.setProperty('--text-muted', '#222222');
+  document.documentElement.style.setProperty('--border-subtle', '#cccccc');
+
+  const module = await import('./charting.js');
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const events = {
+    dataPointSelection() {},
+  };
+
+  const chart = await module.createAreaChart(container, {
+    name: 'Volumes',
+    categories: [],
+    data: [],
+    colorVar: '--chart-primary',
+    chartId: 'custom-chart',
+    chartGroup: 'history-group',
+    events,
+  });
+
+  assert.equal(chart.options.chart.id, 'custom-chart');
+  assert.equal(chart.options.chart.group, 'history-group');
+  assert.equal(chart.options.chart.events.dataPointSelection, events.dataPointSelection);
+  await module.destroyTrackedCharts();
+});
+
 test('createAreaChart supports fear-greed banding and custom formatters', async () => {
   const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost' });
   global.window = dom.window;
