@@ -29,16 +29,36 @@
       <div class="hero-insights">
         <div class="summary-grid">
           <article class="summary-card">
-            <span>Capitalisation totale</span>
-            <strong id="summary-market-cap">—</strong>
+            <div class="summary-card-header">
+              <span>Capitalisation totale</span>
+              <strong id="summary-market-cap">—</strong>
+            </div>
+            <ul class="summary-card-metrics">
+              <li class="summary-metric">
+                <span class="summary-metric-label">Variation 24h</span>
+                <span id="summary-market-cap-change-24h" class="summary-change-value">—</span>
+              </li>
+              <li class="summary-metric">
+                <span class="summary-metric-label">Variation 7j</span>
+                <span id="summary-market-cap-change-7d" class="summary-change-value">—</span>
+              </li>
+            </ul>
           </article>
           <article class="summary-card">
-            <span>Volume 24h</span>
-            <strong id="summary-volume">—</strong>
-          </article>
-          <article class="summary-card">
-            <span>Variation moyenne 24h</span>
-            <strong id="summary-change">—</strong>
+            <div class="summary-card-header">
+              <span>Volume total</span>
+              <strong id="summary-volume">—</strong>
+            </div>
+            <ul class="summary-card-metrics">
+              <li class="summary-metric">
+                <span class="summary-metric-label">Variation 24h</span>
+                <span id="summary-volume-change-24h" class="summary-change-value">—</span>
+              </li>
+              <li class="summary-metric">
+                <span class="summary-metric-label">Variation 7j</span>
+                <span id="summary-volume-change-7d" class="summary-change-value">—</span>
+              </li>
+            </ul>
           </article>
         </div>
         <a id="fear-greed-card" class="sentiment-card" href="./fear-greed.html" aria-label="Voir le détail de l'indice Fear &amp; Greed">
@@ -46,9 +66,47 @@
             <span>Sentiment du marché</span>
             <strong id="fear-greed-value">—</strong>
           </div>
-          <div id="fear-greed-gauge" class="sentiment-gauge" aria-hidden="true"></div>
+          <div class="sentiment-visual">
+            <div id="fear-greed-gauge" class="sentiment-gauge" aria-hidden="true"></div>
+            <ul class="sentiment-legend">
+              <li class="sentiment-legend-item" data-band="extreme-fear">
+                <span class="legend-swatch" aria-hidden="true"></span>
+                <div class="legend-text">
+                  <span class="legend-range">0 – 25</span>
+                  <span class="legend-label">Extreme Fear</span>
+                </div>
+              </li>
+              <li class="sentiment-legend-item" data-band="fear">
+                <span class="legend-swatch" aria-hidden="true"></span>
+                <div class="legend-text">
+                  <span class="legend-range">26 – 44</span>
+                  <span class="legend-label">Fear</span>
+                </div>
+              </li>
+              <li class="sentiment-legend-item" data-band="neutral">
+                <span class="legend-swatch" aria-hidden="true"></span>
+                <div class="legend-text">
+                  <span class="legend-range">45 – 54</span>
+                  <span class="legend-label">Neutral</span>
+                </div>
+              </li>
+              <li class="sentiment-legend-item" data-band="greed">
+                <span class="legend-swatch" aria-hidden="true"></span>
+                <div class="legend-text">
+                  <span class="legend-range">55 – 74</span>
+                  <span class="legend-label">Greed</span>
+                </div>
+              </li>
+              <li class="sentiment-legend-item" data-band="extreme-greed">
+                <span class="legend-swatch" aria-hidden="true"></span>
+                <div class="legend-text">
+                  <span class="legend-range">75 – 100</span>
+                  <span class="legend-label">Extreme Greed</span>
+                </div>
+              </li>
+            </ul>
+          </div>
           <p id="fear-greed-classification" class="sentiment-classification">—</p>
-          <p id="fear-greed-updated" class="sentiment-updated">Mis à jour : —</p>
         </a>
       </div>
     </section>
@@ -88,7 +146,7 @@
               <th>Actif</th>
               <th>Catégories</th>
               <th>Rank</th>
-              <th>Prix (USD)</th>
+              <th>Prix ($)</th>
               <th>Market Cap</th>
               <th>Fully Diluted Market Cap</th>
               <th>Volume 24h</th>

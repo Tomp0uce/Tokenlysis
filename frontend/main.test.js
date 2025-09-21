@@ -100,9 +100,17 @@ test('loadFearGreedWidget met à jour la jauge et les étiquettes', async (t) =>
           <span>Sentiment du marché</span>
           <strong id="fear-greed-value">—</strong>
         </div>
-        <div id="fear-greed-gauge" class="sentiment-gauge"></div>
+        <div class="sentiment-visual">
+          <div id="fear-greed-gauge" class="sentiment-gauge"></div>
+          <dl class="sentiment-legend">
+            <div class="sentiment-legend-item"><dt>0-25</dt><dd>Extreme Fear</dd></div>
+            <div class="sentiment-legend-item"><dt>26-44</dt><dd>Fear</dd></div>
+            <div class="sentiment-legend-item"><dt>45-54</dt><dd>Neutral</dd></div>
+            <div class="sentiment-legend-item"><dt>55-74</dt><dd>Greed</dd></div>
+            <div class="sentiment-legend-item"><dt>75-100</dt><dd>Extreme Greed</dd></div>
+          </dl>
+        </div>
         <p id="fear-greed-classification">—</p>
-        <p id="fear-greed-updated">—</p>
       </a>
     </body></html>`;
   class ApexChartsStub {
@@ -110,6 +118,7 @@ test('loadFearGreedWidget met à jour la jauge et les étiquettes', async (t) =>
       this.el = el;
       this.options = options;
       this.updateCalls = [];
+      ApexChartsStub.instances.push(this);
     }
     render() {
       this.rendered = true;
@@ -124,6 +133,7 @@ test('loadFearGreedWidget met à jour la jauge et les étiquettes', async (t) =>
       return Promise.resolve();
     }
   }
+  ApexChartsStub.instances = [];
   const latest = {
     value: 62,
     classification: 'Greed',
@@ -153,14 +163,13 @@ test('loadFearGreedWidget met à jour la jauge et les étiquettes', async (t) =>
   await exports.loadFearGreedWidget();
   assert.equal(document.getElementById('fear-greed-value').textContent, '62');
   assert.equal(document.getElementById('fear-greed-classification').textContent, 'Greed');
-  assert.match(
-    document.getElementById('fear-greed-updated').textContent,
-    /2024-03-12/,
-  );
+  assert.equal(document.querySelector('.sentiment-updated'), null);
   const card = document.getElementById('fear-greed-card');
   assert.ok(card);
   assert.equal(card.getAttribute('href') ?? card.getAttribute('data-href'), './fear-greed.html');
   const gauge = document.getElementById('fear-greed-gauge');
   assert.ok(gauge);
   assert.equal(gauge.children.length >= 0, true);
+  const [{ options }] = ApexChartsStub.instances;
+  assert.equal(options.chart.background, 'transparent');
 });
