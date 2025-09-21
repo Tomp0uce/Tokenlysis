@@ -110,6 +110,42 @@ def test_shutdown_does_not_block_when_etl_thread_is_running(monkeypatch):
     asyncio.run(_assert_shutdown_async(monkeypatch))
 
 
+def test_run_etl_async_uses_daemon_thread(monkeypatch):
+    asyncio.run(_assert_run_etl_async_daemon_async(monkeypatch))
+
+
+async def _assert_run_etl_async_daemon_async(monkeypatch):
+    import backend.app.main as main_module
+
+    main_module.app.state.budget = None
+
+    run_started = threading.Event()
+    release_run = threading.Event()
+    recorded_threads: list[threading.Thread] = []
+
+    def blocking_run_etl(*_args, **_kwargs):
+        recorded_threads.append(threading.current_thread())
+        run_started.set()
+        release_run.wait(timeout=5)
+        return 42
+
+    monkeypatch.setattr(main_module, "run_etl", blocking_run_etl)
+
+    etl_task = asyncio.create_task(main_module.run_etl_async(budget=None))
+
+    await asyncio.wait_for(asyncio.to_thread(run_started.wait, 5), timeout=5)
+
+    assert recorded_threads, "run_etl should execute in a worker thread"
+    assert (
+        recorded_threads[0].daemon
+    ), "ETL worker thread should be daemonized to avoid blocking shutdown"
+
+    release_run.set()
+
+    result = await asyncio.wait_for(etl_task, timeout=5)
+    assert result == 42
+
+
 async def _assert_shutdown_async(monkeypatch):
     import backend.app.main as main_module
 
