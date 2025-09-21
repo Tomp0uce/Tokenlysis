@@ -33,6 +33,276 @@ def test_run_etl_skips_when_budget_exceeded(monkeypatch, tmp_path, caplog):
     assert "quota exceeded" in caplog.text
 
 
+def test_run_etl_skips_when_recent_data(monkeypatch):
+    fresh_time = dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=5)
+
+    class StubSession:
+        def commit(self) -> None:  # pragma: no cover - not used
+            raise AssertionError("should not commit when skipping refresh")
+
+        def rollback(self) -> None:  # pragma: no cover - not used
+            pass
+
+        def close(self) -> None:  # pragma: no cover - noop
+            pass
+
+    class StubMetaRepo:
+        last_instance = None
+
+        def __init__(self, session) -> None:
+            self.session = session
+            self.values: dict[str, str] = {
+                "last_refresh_at": fresh_time.isoformat(),
+            }
+            self.set_calls: list[tuple[str, str]] = []
+            StubMetaRepo.last_instance = self
+
+        def get(self, key: str) -> str | None:
+            return self.values.get(key)
+
+        def set(self, key: str, value: str) -> None:
+            self.set_calls.append((key, value))
+            self.values[key] = value
+
+    class GuardClient:
+        def get_markets(self, **_: object) -> list[dict]:  # pragma: no cover - should skip
+            raise AssertionError("should not fetch markets when data is fresh")
+
+        def get_categories_list(self) -> list[dict]:  # pragma: no cover - should skip
+            raise AssertionError("should not fetch categories when data is fresh")
+
+        def get_coin_profile(self, coin_id: str) -> dict:  # pragma: no cover - should skip
+            raise AssertionError("should not fetch profiles when data is fresh")
+
+    monkeypatch.setattr(run_module, "SessionLocal", lambda: StubSession())
+    monkeypatch.setattr(run_module, "MetaRepo", StubMetaRepo)
+
+    rows = run_module.run_etl(client=GuardClient(), budget=None)
+    assert rows == 0
+    assert StubMetaRepo.last_instance is not None
+    assert StubMetaRepo.last_instance.set_calls == []
+
+
+def test_run_etl_avoids_coin_profile_when_recent(monkeypatch):
+    updated_at = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=5)
+
+    class StubSession:
+        def commit(self) -> None:  # pragma: no cover - patched tests do not hit
+            pass
+
+        def rollback(self) -> None:  # pragma: no cover - patched tests do not hit
+            pass
+
+        def close(self) -> None:  # pragma: no cover - noop
+            pass
+
+    class StubMetaRepo:
+        last_instance = None
+
+        def __init__(self, session) -> None:
+            self.session = session
+            self.values: dict[str, str] = {}
+            StubMetaRepo.last_instance = self
+
+        def get(self, key: str) -> str | None:
+            return self.values.get(key)
+
+        def set(self, key: str, value: str) -> None:
+            self.values[key] = value
+
+    class StubPricesRepo:
+        last_instance = None
+
+        def __init__(self, session) -> None:
+            self.session = session
+            self.latest_rows: list[dict] = []
+            self.snapshot_rows: list[dict] = []
+            StubPricesRepo.last_instance = self
+
+        def upsert_latest(self, rows) -> None:
+            self.latest_rows.extend(rows)
+
+        def insert_snapshot(self, rows) -> None:
+            self.snapshot_rows.extend(rows)
+
+    class StubCoinsRepo:
+        last_instance = None
+
+        def __init__(self, session) -> None:
+            self.session = session
+            self.upserts: list[dict] = []
+            StubCoinsRepo.last_instance = self
+
+        def get_categories_with_timestamp(self, coin_id):
+            return (
+                ["Layer 1"],
+                ["layer-1"],
+                {"website": "https://example.org"},
+                updated_at,
+            )
+
+        def upsert(self, rows) -> None:
+            self.upserts.extend(list(rows))
+
+    class GuardClient:
+        def __init__(self) -> None:
+            self.markets_calls = 0
+
+        def get_markets(self, *, vs, per_page, page):
+            self.markets_calls += 1
+            assert vs == "usd"
+            assert per_page == 10
+            assert page == 1
+            return [
+                {
+                    "id": f"coin{i}",
+                    "symbol": f"c{i}",
+                    "name": f"Coin {i}",
+                    "image": f"https://img.test/coin{i}.png",
+                    "current_price": 30000.0 + i,
+                    "market_cap": 1000.0 + i,
+                    "total_volume": 50.0 + i,
+                    "market_cap_rank": i,
+                    "price_change_percentage_24h": 0.1,
+                }
+                for i in range(per_page)
+            ]
+
+        def get_categories_list(self):
+            return []
+
+        def get_coin_profile(self, coin_id: str):  # pragma: no cover - should skip
+            raise AssertionError("coin profile should not be fetched when data is recent")
+
+    monkeypatch.setattr(settings, "CG_TOP_N", 10)
+    monkeypatch.setattr(settings, "CG_PER_PAGE_MAX", 10)
+    monkeypatch.setattr(run_module, "SessionLocal", lambda: StubSession())
+    monkeypatch.setattr(run_module, "MetaRepo", StubMetaRepo)
+    monkeypatch.setattr(run_module, "PricesRepo", StubPricesRepo)
+    monkeypatch.setattr(run_module, "CoinsRepo", StubCoinsRepo)
+    monkeypatch.setattr(run_module, "_categories_cache", {})
+    monkeypatch.setattr(run_module, "_categories_cache_ts", None)
+    monkeypatch.setattr(run_module, "sync_fear_greed_index", lambda: 0)
+
+    client = GuardClient()
+    rows = run_module.run_etl(client=client, budget=None)
+    assert rows == 10
+    assert client.markets_calls == 1
+    assert StubCoinsRepo.last_instance is not None
+    assert len(StubCoinsRepo.last_instance.upserts) == 10
+    assert StubMetaRepo.last_instance is not None
+    assert "last_refresh_at" in StubMetaRepo.last_instance.values
+
+
+def test_run_etl_fetches_coin_profile_when_stale(monkeypatch):
+    stale_ts = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=45)
+
+    class StubSession:
+        def commit(self) -> None:
+            pass
+
+        def rollback(self) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+
+    class StubMetaRepo:
+        last_instance = None
+
+        def __init__(self, session) -> None:
+            self.session = session
+            self.values: dict[str, str] = {}
+            StubMetaRepo.last_instance = self
+
+        def get(self, key: str) -> str | None:
+            return self.values.get(key)
+
+        def set(self, key: str, value: str) -> None:
+            self.values[key] = value
+
+    class StubPricesRepo:
+        def __init__(self, session) -> None:
+            self.session = session
+
+        def upsert_latest(self, rows) -> None:
+            pass
+
+        def insert_snapshot(self, rows) -> None:
+            pass
+
+    class StubCoinsRepo:
+        last_instance = None
+
+        def __init__(self, session) -> None:
+            self.session = session
+            self.upserts: list[dict] = []
+            StubCoinsRepo.last_instance = self
+
+        def get_categories_with_timestamp(self, coin_id):
+            return (
+                ["Layer 1"],
+                ["layer-1"],
+                {"website": "https://old.example"},
+                stale_ts,
+            )
+
+        def upsert(self, rows) -> None:
+            self.upserts.extend(list(rows))
+
+    class TrackingClient:
+        def __init__(self) -> None:
+            self.profile_calls: list[str] = []
+
+        def get_markets(self, *, vs, per_page, page):
+            assert vs == "usd"
+            assert per_page == 10
+            return [
+                {
+                    "id": f"coin{i}",
+                    "symbol": f"c{i}",
+                    "name": f"Coin {i}",
+                    "image": f"https://img.test/coin{i}.png",
+                    "current_price": 30000.0 + i,
+                    "market_cap": 1000.0 + i,
+                    "total_volume": 50.0 + i,
+                    "market_cap_rank": i,
+                    "price_change_percentage_24h": 0.1,
+                }
+                for i in range(per_page)
+            ]
+
+        def get_categories_list(self):
+            return []
+
+        def get_coin_profile(self, coin_id: str):
+            self.profile_calls.append(coin_id)
+            return {
+                "categories": ["Layer 1"],
+                "links": {"website": "https://fresh.example"},
+            }
+
+    monkeypatch.setattr(settings, "CG_TOP_N", 10)
+    monkeypatch.setattr(settings, "CG_PER_PAGE_MAX", 10)
+    monkeypatch.setattr(run_module, "SessionLocal", lambda: StubSession())
+    monkeypatch.setattr(run_module, "MetaRepo", StubMetaRepo)
+    monkeypatch.setattr(run_module, "PricesRepo", StubPricesRepo)
+    monkeypatch.setattr(run_module, "CoinsRepo", StubCoinsRepo)
+    monkeypatch.setattr(run_module, "_categories_cache", {})
+    monkeypatch.setattr(run_module, "_categories_cache_ts", None)
+    monkeypatch.setattr(run_module, "sync_fear_greed_index", lambda: 0)
+
+    client = TrackingClient()
+    rows = run_module.run_etl(client=client, budget=None)
+    assert rows == 10
+    assert client.profile_calls == [f"coin{i}" for i in range(10)]
+    assert StubCoinsRepo.last_instance is not None
+    assert len(StubCoinsRepo.last_instance.upserts) == 10
+    payload = StubCoinsRepo.last_instance.upserts[0]
+    links = json.loads(payload["social_links"])
+    assert links.get("website") == "https://fresh.example"
+
+
 def test_run_etl_persists_and_logs(monkeypatch, tmp_path, caplog):
     engine = create_engine(
         f"sqlite:///{tmp_path/'test.db'}", connect_args={"check_same_thread": False}
@@ -147,6 +417,9 @@ def test_run_etl_tracks_actual_calls(monkeypatch, tmp_path, caplog):
         def set(self, key: str, value: str) -> None:
             self.data[key] = value
 
+        def get(self, key: str) -> str | None:
+            return self.data.get(key)
+
     class DummyCoinsRepo:
         def __init__(self, session) -> None:  # pragma: no cover - trivial
             pass
@@ -250,6 +523,9 @@ def test_run_etl_downgrades_per_page_on_4xx(monkeypatch, tmp_path, caplog):
         def set(self, key: str, value: str) -> None:
             self.data[key] = value
 
+        def get(self, key: str) -> str | None:
+            return self.data.get(key)
+
     class DummyCoinsRepo:
         def __init__(self, session) -> None:  # pragma: no cover - trivial
             pass
@@ -346,6 +622,9 @@ def test_run_etl_stops_when_budget_exhausted(monkeypatch, tmp_path):
         def set(self, key: str, value: str) -> None:
             self.data[key] = value
 
+        def get(self, key: str) -> str | None:
+            return self.data.get(key)
+
     class DummyCoinsRepo:
         def __init__(self, session) -> None:  # pragma: no cover - trivial
             pass
@@ -387,7 +666,8 @@ def test_run_etl_stops_when_budget_exhausted(monkeypatch, tmp_path):
 
     assert budget.monthly_call_count == 3
     assert len(client.calls) == 3
-    assert DummyMetaRepo.last_instance is None
+    assert DummyMetaRepo.last_instance is not None
+    assert DummyMetaRepo.last_instance.data == {}
 
 
 def test_run_etl_backfills_missing_categories(monkeypatch, tmp_path):

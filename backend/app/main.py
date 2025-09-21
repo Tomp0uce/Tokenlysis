@@ -8,6 +8,7 @@ import logging
 import math
 import os
 import threading
+from collections.abc import Iterable
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -28,11 +29,16 @@ from .core.version import get_version
 from .db import Base, engine, get_session
 from .etl.run import DataUnavailable, load_seed, run_etl
 from .schemas.version import VersionResponse
+from .models import FearGreed
 from .services.budget import CallBudget
 from .services.dao import PricesRepo, MetaRepo, CoinsRepo, FearGreedRepo
-from .services.fear_greed import sync_fear_greed_index
+from .services.fear_greed import DEFAULT_CLASSIFICATION, sync_fear_greed_index
 from .services.markets_cache import MarketsCache
 from .services.serialization import serialize_price
+from .utils.time import (
+    DEFAULT_REFRESH_SECONDS,
+    refresh_interval_seconds as compute_refresh_interval_seconds,
+)
 
 logger = logging.getLogger(__name__)
 logger.setLevel(settings.log_level or "INFO")
@@ -95,6 +101,9 @@ def get_fng_client() -> CoinMarketCapFearGreedClient:
     return build_fng_client()
 
 
+_FNG_TIMESTAMP_MIN = dt.datetime.min.replace(tzinfo=dt.timezone.utc)
+
+
 def _parse_fng_timestamp(raw: object) -> dt.datetime:
     if isinstance(raw, str):
         candidate = raw.strip()
@@ -109,7 +118,64 @@ def _parse_fng_timestamp(raw: object) -> dt.datetime:
                 return parsed.replace(tzinfo=parsed.tzinfo or dt.timezone.utc).astimezone(
                     dt.timezone.utc
                 )
-    return dt.datetime.min.replace(tzinfo=dt.timezone.utc)
+    return _FNG_TIMESTAMP_MIN
+
+
+def _serialize_fng_row(row: FearGreed | None) -> dict[str, object] | None:
+    if row is None or row.timestamp is None:
+        return None
+    timestamp = row.timestamp
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.replace(tzinfo=dt.timezone.utc)
+    else:
+        timestamp = timestamp.astimezone(dt.timezone.utc)
+    value = row.value if row.value is not None else 0
+    classification = (
+        str(row.classification).strip() if row.classification is not None else ""
+    ) or DEFAULT_CLASSIFICATION
+    return {
+        "timestamp": timestamp.isoformat(),
+        "score": int(value),
+        "label": classification,
+    }
+
+
+def _cache_fng_points(
+    repo: FearGreedRepo,
+    session: Session,
+    points: Iterable[dict[str, object]],
+) -> None:
+    now = dt.datetime.now(dt.timezone.utc)
+    rows: list[dict[str, object]] = []
+    for point in points:
+        if not isinstance(point, dict):
+            continue
+        timestamp = _parse_fng_timestamp(point.get("timestamp"))
+        if timestamp == _FNG_TIMESTAMP_MIN:
+            continue
+        try:
+            raw_score = point.get("score")
+            value = int(raw_score)
+        except (TypeError, ValueError):
+            continue
+        value = max(0, min(100, value))
+        label = str(point.get("label") or "").strip() or DEFAULT_CLASSIFICATION
+        rows.append(
+            {
+                "timestamp": timestamp,
+                "value": value,
+                "classification": label,
+                "ingested_at": now,
+            }
+        )
+    if not rows:
+        return
+    try:
+        repo.upsert_many(rows)
+        session.commit()
+    except Exception:  # pragma: no cover - defensive persistence
+        session.rollback()
+        logger.warning("fear & greed cache persistence failed", exc_info=True)
 
 @app.get("/api/markets/top")
 def markets_top(
@@ -224,30 +290,60 @@ def coin_categories(coin_id: str, session: Session = Depends(get_session)) -> di
 
 
 @app.get("/api/fng/latest")
-def fng_latest(client: CoinMarketCapFearGreedClient = Depends(get_fng_client)) -> dict:
-    """Return the latest Fear & Greed datapoint from CoinMarketCap."""
+def fng_latest(
+    client: CoinMarketCapFearGreedClient = Depends(get_fng_client),
+    session: Session = Depends(get_session),
+) -> dict:
+    """Return the latest Fear & Greed datapoint with graceful degradation."""
 
+    repo = FearGreedRepo(session)
+    try:
+        cached = _serialize_fng_row(repo.get_latest())
+    except OperationalError as exc:
+        logger.warning("fear & greed latest cache unavailable: %s", exc)
+        cached = None
+    if cached is not None:
+        logger.info("fear & greed latest served from database cache")
+        return cached
+
+    latest_error: requests.RequestException | None = None
     try:
         latest = client.get_latest()
     except requests.RequestException as exc:
         logger.warning("fear & greed latest fetch failed: %s", exc)
+        latest_error = exc
         latest = None
     if latest:
+        _cache_fng_points(repo, session, [latest])
         return latest
+
+    history_error: requests.RequestException | None = None
+    fallback_point: dict[str, object] | None = None
     try:
         history = client.get_historical(limit=1)
     except requests.RequestException as exc:
         logger.error("fear & greed fallback fetch failed: %s", exc)
-        raise HTTPException(status_code=502, detail="fear & greed data unavailable") from exc
-    if not history:
-        raise HTTPException(status_code=502, detail="fear & greed data unavailable")
-    return history[-1]
+        history_error = exc
+    else:
+        if history:
+            fallback_point = history[-1]
+    if fallback_point:
+        _cache_fng_points(repo, session, [fallback_point])
+        return fallback_point
+
+    detail = "fear & greed data unavailable"
+    if history_error is not None:
+        raise HTTPException(status_code=502, detail=detail) from history_error
+    if latest_error is not None:
+        raise HTTPException(status_code=502, detail=detail) from latest_error
+    raise HTTPException(status_code=502, detail=detail)
 
 
 @app.get("/api/fng/history")
 def fng_history(
     days: int | None = Query(None),
     client: CoinMarketCapFearGreedClient = Depends(get_fng_client),
+    session: Session = Depends(get_session),
 ) -> dict:
     """Return historical Fear & Greed datapoints sorted chronologically."""
 
@@ -259,13 +355,40 @@ def fng_history(
             raise HTTPException(status_code=400, detail="invalid days parameter") from None
         if limit <= 0:
             raise HTTPException(status_code=400, detail="days must be positive")
+
+    repo = FearGreedRepo(session)
+    try:
+        rows = repo.get_history()
+    except OperationalError as exc:
+        logger.warning("fear & greed history cache unavailable: %s", exc)
+        rows = []
+    if limit is not None and limit > 0:
+        rows = rows[-limit:]
+    cached_points = [_serialize_fng_row(row) for row in rows]
+    ordered = [point for point in cached_points if point is not None]
+    if ordered:
+        logger.info(
+            "fear & greed history served from database cache", extra={"count": len(ordered)}
+        )
+        return {"days": limit, "points": ordered}
+
+    fetch_error: requests.RequestException | None = None
     try:
         points = client.get_historical(limit=limit)
     except requests.RequestException as exc:
         logger.error("fear & greed history fetch failed: %s", exc)
-        raise HTTPException(status_code=502, detail="fear & greed history unavailable") from exc
+        fetch_error = exc
+        points = []
     filtered = [point for point in points if isinstance(point, dict)]
-    ordered = sorted(filtered, key=lambda item: _parse_fng_timestamp(item.get("timestamp")))
+    ordered = []
+    if filtered:
+        ordered = sorted(
+            filtered, key=lambda item: _parse_fng_timestamp(item.get("timestamp"))
+        )
+        if ordered:
+            _cache_fng_points(repo, session, ordered)
+    if not ordered and fetch_error is not None:
+        raise HTTPException(status_code=502, detail="fear & greed history unavailable") from fetch_error
     return {"days": limit, "points": ordered}
 
 
@@ -396,13 +519,10 @@ def last_refresh(session: Session = Depends(get_session)) -> dict:
 
 def refresh_interval_seconds(value: str | None = None) -> int:
     """Convert refresh granularity hints to seconds with a 12h fallback."""
-    granularity = value or settings.REFRESH_GRANULARITY
-    try:
-        if granularity.endswith("h"):
-            return int(float(granularity[:-1]) * 60 * 60)
-    except Exception:  # pragma: no cover - defensive
-        pass
-    return 12 * 60 * 60
+    granularity = value if value is not None else settings.REFRESH_GRANULARITY
+    return compute_refresh_interval_seconds(
+        granularity, default=DEFAULT_REFRESH_SECONDS
+    )
 
 
 async def run_etl_async(*, budget: CallBudget | None) -> int:

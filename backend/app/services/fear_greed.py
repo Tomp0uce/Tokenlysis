@@ -13,7 +13,9 @@ from ..clients.cmc_fng import (
     build_default_client,
 )
 from ..db import SessionLocal
+from ..core.settings import settings
 from .dao import FearGreedRepo, MetaRepo
+from ..utils.time import refresh_interval_seconds as compute_refresh_interval_seconds
 
 DEFAULT_CLASSIFICATION = "Indéterminé"
 
@@ -110,6 +112,24 @@ def sync_fear_greed_index(
     meta_repo = MetaRepo(session)
     client = client or build_default_client()
     timestamp_now = now or dt.datetime.now(dt.timezone.utc)
+    refresh_seconds = compute_refresh_interval_seconds(settings.REFRESH_GRANULARITY)
+    last_refresh_raw = meta_repo.get("fear_greed_last_refresh")
+    last_refresh_at = _parse_timestamp(last_refresh_raw)
+    if (
+        last_refresh_at is not None
+        and refresh_seconds > 0
+        and timestamp_now - last_refresh_at < dt.timedelta(seconds=refresh_seconds)
+    ):
+        age_seconds = int((timestamp_now - last_refresh_at).total_seconds())
+        logger.info(
+            "fear & greed sync skipped: recent data",
+            extra={
+                "last_refresh_at": last_refresh_at.isoformat(),
+                "age_seconds": age_seconds,
+                "refresh_interval_seconds": refresh_seconds,
+            },
+        )
+        return 0
     processed = 0
     try:
         try:

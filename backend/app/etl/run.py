@@ -20,6 +20,7 @@ from ..services.dao import PricesRepo, MetaRepo, CoinsRepo
 from ..services.fear_greed import sync_fear_greed_index
 from ..services.categories import slugify
 from ..db import SessionLocal
+from ..utils.time import refresh_interval_seconds as compute_refresh_interval_seconds
 
 if TYPE_CHECKING:
     from ..services.markets_cache import MarketsCache
@@ -29,6 +30,8 @@ logger.setLevel(settings.log_level or "INFO")
 
 _categories_cache: dict[str, str] = {}
 _categories_cache_ts: dt.datetime | None = None
+
+COIN_PROFILE_STALE_AFTER = dt.timedelta(days=30)
 
 
 class DataUnavailable(Exception):
@@ -102,6 +105,21 @@ def _fetch_markets(
     return coins[:limit], calls
 
 
+def _parse_iso_timestamp(value: str | None) -> dt.datetime | None:
+    if not value:
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    try:
+        parsed = dt.datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=dt.timezone.utc)
+    return parsed.astimezone(dt.timezone.utc)
+
+
 def run_etl(
     *,
     client: CoinGeckoClient | None = None,
@@ -122,165 +140,199 @@ def run_etl(
             base_url=base_url,
         )
 
-    limit = max(10, settings.CG_TOP_N)
-    per_page_max = settings.CG_PER_PAGE_MAX
-    try:
-        markets, calls = _fetch_markets(client, limit, per_page_max, budget)
-    except DataUnavailable:
-        raise
-    except Exception as exc:  # pragma: no cover - network failures
-        logger.exception("market fetch failed: %s", exc)
-        raise DataUnavailable("fetch failed") from exc
-
-    now = dt.datetime.now(dt.timezone.utc)
-    price_rows = [
-        {
-            "coin_id": c["id"],
-            "vs_currency": "usd",
-            "price": c.get("current_price"),
-            "market_cap": c.get("market_cap"),
-            "fully_diluted_market_cap": c.get("fully_diluted_valuation"),
-            "volume_24h": c.get("total_volume"),
-            "rank": c.get("market_cap_rank"),
-            "pct_change_24h": c.get("price_change_percentage_24h"),
-            "pct_change_7d": c.get("price_change_percentage_7d_in_currency")
-            or c.get("price_change_percentage_7d"),
-            "pct_change_30d": c.get("price_change_percentage_30d_in_currency")
-            or c.get("price_change_percentage_30d"),
-            "snapshot_at": now,
-        }
-        for c in markets
-    ]
-
-    global _categories_cache, _categories_cache_ts
-    mapping = _categories_cache
-    if not _categories_cache_ts or (now - _categories_cache_ts) > dt.timedelta(
-        hours=24
-    ):
-        try:
-            cats_list = client.get_categories_list()
-            calls += 1
-            if budget:
-                budget.spend(1, category="categories_list")
-            mapping = {slugify(c["name"]): c["category_id"] for c in cats_list}
-            _categories_cache = mapping
-        except Exception:  # pragma: no cover - network failures
-            mapping = {}
-            _categories_cache = {}
-        _categories_cache_ts = now
-
+    refresh_seconds = compute_refresh_interval_seconds(settings.REFRESH_GRANULARITY)
     session = SessionLocal()
-    prices_repo = PricesRepo(session)
-    meta_repo = MetaRepo(session)
-    coins_repo = CoinsRepo(session)
+    price_rows: list[dict] = []
+    markets: list[dict] = []
+    calls = 0
+    ingest_time: dt.datetime | None = None
+    skip_processing = False
+    skip_last_refresh: dt.datetime | None = None
+    skip_age_seconds: int | None = None
 
-    coin_rows: list[dict] = []
-    for c in markets:
-        names: list[str]
-        ids: list[str]
-        links: dict[str, str]
-        cached_names, cached_ids, cached_links_raw, ts = coins_repo.get_categories_with_timestamp(
-            c["id"]
-        )
-        cached_links = (
-            cached_links_raw if isinstance(cached_links_raw, dict) else {}
-        )
-        stale = ts is None or (now - ts) > dt.timedelta(hours=24)
-        missing_links = not cached_links
-        market_categories = _extract_market_categories(c)
-        market_links = _extract_market_links(c)
-        if market_categories:
-            names = market_categories
-            ids = [mapping.get(slugify(n), slugify(n)) for n in market_categories]
-        else:
-            names, ids = cached_names, cached_ids
-        if market_links:
-            links = dict(market_links)
-        else:
-            links = dict(cached_links)
-        fetched_profile = False
-        need_categories = not market_categories and stale
-        need_links = not market_links and (missing_links or stale)
-        if need_categories or need_links:
-            delays = [0.25, 1.0, 2.0]
-            profile: dict[str, object] = {"categories": [], "links": {}}
-            for i in range(len(delays) + 1):
-                try:
-                    profile = client.get_coin_profile(c["id"])
-                    fetched_profile = True
-                    calls += 1
-                    if budget:
-                        budget.spend(1, category="coin_profile")
-                    time.sleep(0.2)
-                    break
-                except requests.HTTPError as exc:
-                    calls += 1
-                    if budget:
-                        budget.spend(1, category="coin_profile")
-                    status = exc.response.status_code if exc.response is not None else 0
-                    if status == 429 and i < len(delays):
-                        time.sleep(delays[i])
-                        continue
-                    profile = {"categories": [], "links": {}}
-                    break
-                except Exception:
-                    profile = {"categories": [], "links": {}}
-                    break
-            categories_raw = profile.get("categories")
-            names = (
-                [n for n in categories_raw if isinstance(n, str)]
-                if isinstance(categories_raw, list)
-                else []
-            )
-            ids = [mapping.get(slugify(n), slugify(n)) for n in names]
-            links_obj = profile.get("links")
-            links = links_obj if isinstance(links_obj, dict) else {}
-            if not fetched_profile:
-                names, ids = cached_names, cached_ids
-                links = dict(cached_links)
-            elif not links:
-                links = {"__synced__": True}
-        coin_rows.append(
-            {
-                "id": c["id"],
-                "symbol": c.get("symbol", ""),
-                "name": c.get("name", ""),
-                "logo_url": c.get("image"),
-                "category_names": json.dumps(names),
-                "category_ids": json.dumps(ids),
-                "social_links": json.dumps(links),
-                "updated_at": now,
-            }
-        )
     try:
-        prices_repo.upsert_latest(price_rows)
-        prices_repo.insert_snapshot(price_rows)
-        coins_repo.upsert(coin_rows)
-        meta_repo.set("last_refresh_at", now.isoformat())
-        meta_repo.set("last_etl_items", str(len(price_rows)))
-        if budget:
-            meta_repo.set("monthly_call_count", str(budget.monthly_call_count))
-        meta_repo.set("data_source", "api")
-        session.commit()
-    except Exception:
-        session.rollback()
-        raise
+        meta_repo = MetaRepo(session)
+        last_refresh_raw = meta_repo.get("last_refresh_at")
+        last_refresh_at = _parse_iso_timestamp(last_refresh_raw)
+        now_check = dt.datetime.now(dt.timezone.utc)
+        if (
+            last_refresh_at is not None
+            and refresh_seconds > 0
+            and now_check - last_refresh_at < dt.timedelta(seconds=refresh_seconds)
+        ):
+            skip_processing = True
+            skip_last_refresh = last_refresh_at
+            skip_age_seconds = int((now_check - last_refresh_at).total_seconds())
+        else:
+            limit = max(10, settings.CG_TOP_N)
+            per_page_max = settings.CG_PER_PAGE_MAX
+            try:
+                markets, calls = _fetch_markets(client, limit, per_page_max, budget)
+            except DataUnavailable:
+                raise
+            except Exception as exc:  # pragma: no cover - network failures
+                logger.exception("market fetch failed: %s", exc)
+                raise DataUnavailable("fetch failed") from exc
+
+            ingest_time = dt.datetime.now(dt.timezone.utc)
+            price_rows = [
+                {
+                    "coin_id": c["id"],
+                    "vs_currency": "usd",
+                    "price": c.get("current_price"),
+                    "market_cap": c.get("market_cap"),
+                    "fully_diluted_market_cap": c.get("fully_diluted_valuation"),
+                    "volume_24h": c.get("total_volume"),
+                    "rank": c.get("market_cap_rank"),
+                    "pct_change_24h": c.get("price_change_percentage_24h"),
+                    "pct_change_7d": c.get("price_change_percentage_7d_in_currency")
+                    or c.get("price_change_percentage_7d"),
+                    "pct_change_30d": c.get("price_change_percentage_30d_in_currency")
+                    or c.get("price_change_percentage_30d"),
+                    "snapshot_at": ingest_time,
+                }
+                for c in markets
+            ]
+
+            global _categories_cache, _categories_cache_ts
+            mapping = _categories_cache
+            if not _categories_cache_ts or (
+                ingest_time - _categories_cache_ts
+            ) > dt.timedelta(hours=24):
+                try:
+                    cats_list = client.get_categories_list()
+                    calls += 1
+                    if budget:
+                        budget.spend(1, category="categories_list")
+                    mapping = {slugify(c["name"]): c["category_id"] for c in cats_list}
+                    _categories_cache = mapping
+                except Exception:  # pragma: no cover - network failures
+                    mapping = {}
+                    _categories_cache = {}
+                _categories_cache_ts = ingest_time
+
+            prices_repo = PricesRepo(session)
+            coins_repo = CoinsRepo(session)
+
+            coin_rows: list[dict] = []
+            for c in markets:
+                names: list[str]
+                ids: list[str]
+                links: dict[str, str]
+                (
+                    cached_names,
+                    cached_ids,
+                    cached_links_raw,
+                    ts,
+                ) = coins_repo.get_categories_with_timestamp(c["id"])
+                cached_links = (
+                    cached_links_raw if isinstance(cached_links_raw, dict) else {}
+                )
+                stale = ts is None or (
+                    ingest_time - ts
+                ) > COIN_PROFILE_STALE_AFTER
+                missing_links = not cached_links
+                market_categories = _extract_market_categories(c)
+                market_links = _extract_market_links(c)
+                if market_categories:
+                    names = market_categories
+                    ids = [mapping.get(slugify(n), slugify(n)) for n in market_categories]
+                else:
+                    names, ids = cached_names, cached_ids
+                if market_links:
+                    links = dict(market_links)
+                else:
+                    links = dict(cached_links)
+                fetched_profile = False
+                need_categories = not market_categories and stale
+                need_links = not market_links and (missing_links or stale)
+                if need_categories or need_links:
+                    delays = [0.25, 1.0, 2.0]
+                    profile: dict[str, object] = {"categories": [], "links": {}}
+                    for i in range(len(delays) + 1):
+                        try:
+                            profile = client.get_coin_profile(c["id"])
+                            fetched_profile = True
+                            calls += 1
+                            if budget:
+                                budget.spend(1, category="coin_profile")
+                            time.sleep(0.2)
+                            break
+                        except requests.HTTPError as exc:
+                            calls += 1
+                            if budget:
+                                budget.spend(1, category="coin_profile")
+                            status = (
+                                exc.response.status_code
+                                if exc.response is not None
+                                else 0
+                            )
+                            if status == 429 and i < len(delays):
+                                time.sleep(delays[i])
+                                continue
+                            profile = {"categories": [], "links": {}}
+                            break
+                        except Exception:
+                            profile = {"categories": [], "links": {}}
+                            break
+                    categories_raw = profile.get("categories")
+                    names = (
+                        [n for n in categories_raw if isinstance(n, str)]
+                        if isinstance(categories_raw, list)
+                        else []
+                    )
+                    ids = [mapping.get(slugify(n), slugify(n)) for n in names]
+                    links_obj = profile.get("links")
+                    links = links_obj if isinstance(links_obj, dict) else {}
+                    if not fetched_profile:
+                        names, ids = cached_names, cached_ids
+                        links = dict(cached_links)
+                    elif not links:
+                        links = {"__synced__": True}
+                coin_rows.append(
+                    {
+                        "id": c["id"],
+                        "symbol": c.get("symbol", ""),
+                        "name": c.get("name", ""),
+                        "logo_url": c.get("image"),
+                        "category_names": json.dumps(names),
+                        "category_ids": json.dumps(ids),
+                        "social_links": json.dumps(links),
+                        "updated_at": ingest_time,
+                    }
+                )
+            try:
+                prices_repo.upsert_latest(price_rows)
+                prices_repo.insert_snapshot(price_rows)
+                coins_repo.upsert(coin_rows)
+                meta_repo.set("last_refresh_at", ingest_time.isoformat())
+                meta_repo.set("last_etl_items", str(len(price_rows)))
+                if budget:
+                    meta_repo.set(
+                        "monthly_call_count", str(budget.monthly_call_count)
+                    )
+                meta_repo.set("data_source", "api")
+                session.commit()
+            except Exception:
+                session.rollback()
+                raise
     finally:
         session.close()
 
-    cache = markets_cache
-    if cache is None:
-        try:
-            from .. import main as main_module  # type: ignore
-        except Exception:  # pragma: no cover - defensive
-            cache = None
-        else:
-            cache = getattr(main_module.app.state, "markets_cache", None)
-    if cache is not None:
-        try:
-            cache.invalidate()
-        except Exception:  # pragma: no cover - defensive
-            logger.warning("markets cache invalidation failed", exc_info=True)
+    if not skip_processing:
+        cache = markets_cache
+        if cache is None:
+            try:
+                from .. import main as main_module  # type: ignore
+            except Exception:  # pragma: no cover - defensive
+                cache = None
+            else:
+                cache = getattr(main_module.app.state, "markets_cache", None)
+        if cache is not None:
+            try:
+                cache.invalidate()
+            except Exception:  # pragma: no cover - defensive
+                logger.warning("markets cache invalidation failed", exc_info=True)
 
     fear_greed_rows = 0
     try:
@@ -288,13 +340,32 @@ def run_etl(
     except Exception as exc:  # pragma: no cover - defensive logging
         logger.warning("fear & greed sync skipped: %s", exc)
 
+    monthly_count = budget.monthly_call_count if budget else None
+    if skip_processing:
+        logger.info(
+            json.dumps(
+                {
+                    "event": "etl run skipped",
+                    "reason": "fresh_data",
+                    "refresh_interval_seconds": refresh_seconds,
+                    "last_refresh_at": skip_last_refresh.isoformat()
+                    if skip_last_refresh
+                    else None,
+                    "age_seconds": skip_age_seconds,
+                    "monthly_call_count": monthly_count,
+                    "fear_greed_rows": fear_greed_rows,
+                }
+            )
+        )
+        return 0
+
     logger.info(
         json.dumps(
             {
                 "event": "etl run completed",
                 "coingecko_calls_total": calls,
-                "monthly_call_count": budget.monthly_call_count if budget else None,
-                "last_refresh_at": now.isoformat(),
+                "monthly_call_count": monthly_count,
+                "last_refresh_at": ingest_time.isoformat() if ingest_time else None,
                 "rows": len(price_rows),
                 "fear_greed_rows": fear_greed_rows,
             }
