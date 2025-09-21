@@ -148,16 +148,22 @@ def run_etl(
         names: list[str]
         ids: list[str]
         links: dict[str, str]
-        cached_names, cached_ids, cached_links, ts = coins_repo.get_categories_with_timestamp(
+        cached_names, cached_ids, cached_links_raw, ts = coins_repo.get_categories_with_timestamp(
             c["id"]
         )
+        cached_links = (
+            cached_links_raw if isinstance(cached_links_raw, dict) else {}
+        )
         stale = ts is None or (now - ts) > dt.timedelta(hours=24)
-        if stale:
+        missing_links = not cached_links
+        fetched_profile = False
+        if stale or missing_links:
             delays = [0.25, 1.0, 2.0]
             profile: dict[str, object] = {"categories": [], "links": {}}
             for i in range(len(delays) + 1):
                 try:
                     profile = client.get_coin_profile(c["id"])
+                    fetched_profile = True
                     calls += 1
                     if budget:
                         budget.spend(1)
@@ -185,9 +191,11 @@ def run_etl(
             ids = [mapping.get(slugify(n), slugify(n)) for n in names]
             links_obj = profile.get("links")
             links = links_obj if isinstance(links_obj, dict) else {}
+            if fetched_profile and not links:
+                links = {"__synced__": True}
         else:
             names, ids = cached_names, cached_ids
-            links = cached_links if isinstance(cached_links, dict) else {}
+            links = cached_links
         coin_rows.append(
             {
                 "id": c["id"],
