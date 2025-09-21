@@ -695,3 +695,64 @@ def test_etl_loop_handles_operational_error(monkeypatch):
     stop_event = asyncio.Event()
     with pytest.raises(asyncio.CancelledError):
         asyncio.run(main_module.etl_loop(stop_event))
+
+
+def test_run_etl_uses_market_categories_when_available(monkeypatch, tmp_path):
+    engine = create_engine(
+        f"sqlite:///{tmp_path/'market.db'}", connect_args={"check_same_thread": False}
+    )
+    TestingSessionLocal = sessionmaker(
+        bind=engine, autoflush=False, autocommit=False, expire_on_commit=False
+    )
+    Base.metadata.create_all(bind=engine)
+    monkeypatch.setattr(run_module, "SessionLocal", TestingSessionLocal)
+    monkeypatch.setattr(run_module, "_categories_cache", {})
+    monkeypatch.setattr(run_module, "_categories_cache_ts", None)
+
+    class StubClient:
+        def __init__(self) -> None:
+            self.profile_calls = 0
+
+        def get_markets(self, *, vs, per_page, page):
+            return [
+                {
+                    "id": "bitcoin",
+                    "symbol": "btc",
+                    "name": "Bitcoin",
+                    "image": "https://img.test/bitcoin.png",
+                    "current_price": 10.0,
+                    "market_cap": 20.0,
+                    "total_volume": 30.0,
+                    "market_cap_rank": 1,
+                    "price_change_percentage_24h": 1.0,
+                    "categories": ["Layer 1", "Payments"],
+                    "links": {
+                        "website": "https://bitcoin.org",
+                        "twitter": "https://twitter.com/bitcoin",
+                    },
+                }
+            ]
+
+        def get_categories_list(self):  # pragma: no cover - trivial
+            return []
+
+        def get_coin_profile(self, coin_id: str):
+            self.profile_calls += 1
+            raise AssertionError("coin profile should not be fetched")
+
+    client = StubClient()
+    run_module.run_etl(client=client, budget=None)
+
+    assert client.profile_calls == 0
+
+    session = TestingSessionLocal()
+    coins_repo = run_module.CoinsRepo(session)
+    names, ids, links, _ = coins_repo.get_categories_with_timestamp("bitcoin")
+    session.close()
+
+    assert names == ["Layer 1", "Payments"]
+    assert ids == ["layer-1", "payments"]
+    assert links == {
+        "website": "https://bitcoin.org",
+        "twitter": "https://twitter.com/bitcoin",
+    }

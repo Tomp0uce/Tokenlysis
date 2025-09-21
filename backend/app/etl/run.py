@@ -9,6 +9,7 @@ import json
 import logging
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import requests
 
@@ -20,6 +21,9 @@ from ..services.fear_greed import sync_fear_greed_index
 from ..services.categories import slugify
 from ..db import SessionLocal
 
+if TYPE_CHECKING:
+    from ..services.markets_cache import MarketsCache
+
 logger = logging.getLogger(__name__)
 logger.setLevel(settings.log_level or "INFO")
 
@@ -29,6 +33,32 @@ _categories_cache_ts: dt.datetime | None = None
 
 class DataUnavailable(Exception):
     """Raised when live data could not be fetched."""
+
+
+def _extract_market_categories(payload: dict[str, object]) -> list[str]:
+    raw = payload.get("categories")
+    if not isinstance(raw, list):
+        return []
+    categories: list[str] = []
+    for value in raw:
+        if isinstance(value, str):
+            cleaned = value.strip()
+            if cleaned:
+                categories.append(cleaned)
+    return categories
+
+
+def _extract_market_links(payload: dict[str, object]) -> dict[str, str]:
+    raw = payload.get("links")
+    if not isinstance(raw, dict):
+        return {}
+    links: dict[str, str] = {}
+    for key, value in raw.items():
+        if isinstance(key, str) and isinstance(value, str):
+            cleaned = value.strip()
+            if cleaned:
+                links[key] = cleaned
+    return links
 
 
 def _fetch_markets(
@@ -76,6 +106,7 @@ def run_etl(
     *,
     client: CoinGeckoClient | None = None,
     budget: CallBudget | None = None,
+    markets_cache: "MarketsCache | None" = None,
 ) -> int:
     """Fetch markets and persist them. Returns number of rows processed."""
 
@@ -156,8 +187,21 @@ def run_etl(
         )
         stale = ts is None or (now - ts) > dt.timedelta(hours=24)
         missing_links = not cached_links
+        market_categories = _extract_market_categories(c)
+        market_links = _extract_market_links(c)
+        if market_categories:
+            names = market_categories
+            ids = [mapping.get(slugify(n), slugify(n)) for n in market_categories]
+        else:
+            names, ids = cached_names, cached_ids
+        if market_links:
+            links = dict(market_links)
+        else:
+            links = dict(cached_links)
         fetched_profile = False
-        if stale or missing_links:
+        need_categories = not market_categories and stale
+        need_links = not market_links and (missing_links or stale)
+        if need_categories or need_links:
             delays = [0.25, 1.0, 2.0]
             profile: dict[str, object] = {"categories": [], "links": {}}
             for i in range(len(delays) + 1):
@@ -193,12 +237,9 @@ def run_etl(
             links = links_obj if isinstance(links_obj, dict) else {}
             if not fetched_profile:
                 names, ids = cached_names, cached_ids
-                links = cached_links
+                links = dict(cached_links)
             elif not links:
                 links = {"__synced__": True}
-        else:
-            names, ids = cached_names, cached_ids
-            links = cached_links
         coin_rows.append(
             {
                 "id": c["id"],
@@ -226,6 +267,20 @@ def run_etl(
         raise
     finally:
         session.close()
+
+    cache = markets_cache
+    if cache is None:
+        try:
+            from .. import main as main_module  # type: ignore
+        except Exception:  # pragma: no cover - defensive
+            cache = None
+        else:
+            cache = getattr(main_module.app.state, "markets_cache", None)
+    if cache is not None:
+        try:
+            cache.invalidate()
+        except Exception:  # pragma: no cover - defensive
+            logger.warning("markets cache invalidation failed", exc_info=True)
 
     fear_greed_rows = 0
     try:
