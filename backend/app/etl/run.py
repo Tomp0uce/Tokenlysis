@@ -144,9 +144,7 @@ def run_etl(
         meta_repo = MetaRepo(session)
         coins_repo = CoinsRepo(session)
 
-        guard_interval = refresh_granularity_to_timedelta(
-            settings.REFRESH_GRANULARITY
-        )
+        guard_interval = refresh_granularity_to_timedelta(settings.REFRESH_GRANULARITY)
         interval_seconds = max(int(guard_interval.total_seconds()), 1)
         guard_now = dt.datetime.now(dt.timezone.utc)
         last_refresh = _parse_iso_timestamp(meta_repo.get("last_refresh_at"))
@@ -259,9 +257,7 @@ def run_etl(
                         if budget:
                             budget.spend(1, category="coin_profile")
                         status = (
-                            exc.response.status_code
-                            if exc.response is not None
-                            else 0
+                            exc.response.status_code if exc.response is not None else 0
                         )
                         if status == 429 and i < len(delays):
                             time.sleep(delays[i])

@@ -14,10 +14,11 @@ from ..clients.cmc_fng import (
 )
 from ..core.scheduling import refresh_granularity_to_timedelta
 from ..core.settings import settings
-from ..db import SessionLocal
+from ..db import Base, SessionLocal
 from .dao import FearGreedRepo, MetaRepo
 
 DEFAULT_CLASSIFICATION = "Indéterminé"
+_MIN_HISTORY_SPAN = dt.timedelta(days=365 * 2)
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +79,8 @@ def _normalize_entry(entry: dict, ingested_at: dt.datetime) -> dict | None:
         "classification": classification,
         "ingested_at": ingested_at,
     }
+
+
 def _ingest_history(
     repo: FearGreedRepo,
     entries: Iterable[dict],
@@ -111,10 +114,12 @@ def sync_fear_greed_index(
     try:
         repo = FearGreedRepo(session)
         meta_repo = MetaRepo(session)
+        try:
+            Base.metadata.create_all(bind=session.get_bind(), checkfirst=True)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("fear & greed table ensure failed: %s", exc)
         timestamp_now = now or dt.datetime.now(dt.timezone.utc)
-        guard_interval = refresh_granularity_to_timedelta(
-            settings.REFRESH_GRANULARITY
-        )
+        guard_interval = refresh_granularity_to_timedelta(settings.REFRESH_GRANULARITY)
         interval_seconds = max(int(guard_interval.total_seconds()), 1)
         last_refresh = _parse_timestamp(meta_repo.get("fear_greed_last_refresh"))
         existing_points = repo.count()
@@ -132,20 +137,74 @@ def sync_fear_greed_index(
             )
             return 0
 
+        earliest_ts, latest_ts = repo.get_timespan()
+        history_span: dt.timedelta | None = None
+        if earliest_ts is not None and latest_ts is not None:
+            earliest_norm = _ensure_timezone(earliest_ts)
+            latest_norm = _ensure_timezone(latest_ts)
+            history_span = latest_norm - earliest_norm
+
+        latest_row = repo.get_latest()
+        latest_timestamp = (
+            _ensure_timezone(latest_row.timestamp) if latest_row else None
+        )
+        has_today_value = (
+            latest_timestamp is not None
+            and latest_timestamp.date() == timestamp_now.date()
+        )
+        has_multi_year_history = (
+            history_span is not None and history_span >= _MIN_HISTORY_SPAN
+        )
+        should_fetch_history = not has_multi_year_history
+        should_fetch_latest = not has_today_value
+
+        if not should_fetch_history and not should_fetch_latest:
+            logger.info(
+                "fear & greed sync skipped: multi-year cache is up-to-date",
+                extra={
+                    "history_span_days": (
+                        int(history_span.days) if history_span is not None else None
+                    ),
+                    "latest_timestamp": (
+                        latest_timestamp.isoformat() if latest_timestamp else None
+                    ),
+                },
+            )
+            return 0
+
         client = client or build_default_client()
         processed = 0
         try:
-            try:
-                history = client.get_historical()
-                processed += _ingest_history(repo, history, timestamp_now)
-            except requests.RequestException as exc:
-                logger.warning("fear & greed history fetch failed: %s", exc)
-            try:
-                latest = client.get_latest()
-                if latest:
-                    processed += _ingest_history(repo, [latest], timestamp_now)
-            except requests.RequestException as exc:
-                logger.warning("fear & greed latest fetch failed: %s", exc)
+            if should_fetch_history:
+                try:
+                    history = client.get_historical()
+                except requests.RequestException as exc:
+                    logger.warning("fear & greed history fetch failed: %s", exc)
+                else:
+                    ingested = _ingest_history(repo, history, timestamp_now)
+                    processed += ingested
+                    if ingested:
+                        latest_row = repo.get_latest()
+                        latest_timestamp = (
+                            _ensure_timezone(latest_row.timestamp)
+                            if latest_row
+                            else None
+                        )
+                        has_today_value = (
+                            latest_timestamp is not None
+                            and latest_timestamp.date() == timestamp_now.date()
+                        )
+            if should_fetch_latest and not has_today_value:
+                try:
+                    latest = client.get_latest()
+                except requests.RequestException as exc:
+                    logger.warning("fear & greed latest fetch failed: %s", exc)
+                else:
+                    if latest:
+                        ingested_latest = _ingest_history(repo, [latest], timestamp_now)
+                        processed += ingested_latest
+                        if ingested_latest:
+                            has_today_value = True
             if processed:
                 meta_repo.set("fear_greed_last_refresh", timestamp_now.isoformat())
             session.commit()
@@ -156,5 +215,6 @@ def sync_fear_greed_index(
     finally:
         if managed_session:
             session.close()
+
 
 __all__ = ["sync_fear_greed_index", "DEFAULT_CLASSIFICATION"]
