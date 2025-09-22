@@ -582,6 +582,223 @@ def test_sync_fear_greed_index_skips_when_fresh(monkeypatch, TestingSessionLocal
     assert processed == 0
 
 
+def test_sync_fear_greed_index_skips_history_when_multi_year_today_present(
+    monkeypatch, TestingSessionLocal
+):
+    from backend.app.services import fear_greed as service_module
+    from backend.app.services.dao import FearGreedRepo, MetaRepo
+    from backend.app.core.settings import settings
+
+    monkeypatch.setattr(settings, "REFRESH_GRANULARITY", "24h")
+
+    now = dt.datetime(2024, 7, 1, 12, tzinfo=dt.timezone.utc)
+
+    session = TestingSessionLocal()
+    repo = FearGreedRepo(session)
+    meta_repo = MetaRepo(session)
+
+    repo.upsert_many(
+        [
+            {
+                "timestamp": now - dt.timedelta(days=900),
+                "value": 15,
+                "classification": "Extreme Fear",
+                "ingested_at": now - dt.timedelta(days=900),
+            },
+            {
+                "timestamp": now - dt.timedelta(days=400),
+                "value": 45,
+                "classification": "Neutral",
+                "ingested_at": now - dt.timedelta(days=400),
+            },
+            {
+                "timestamp": dt.datetime(
+                    now.year, now.month, now.day, tzinfo=dt.timezone.utc
+                ),
+                "value": 60,
+                "classification": "Greed",
+                "ingested_at": now - dt.timedelta(hours=1),
+            },
+        ]
+    )
+    meta_repo.set(
+        "fear_greed_last_refresh",
+        (now - dt.timedelta(days=3)).isoformat(),
+    )
+    session.commit()
+
+    class StubClient:
+        def get_historical(self, **_: object):  # pragma: no cover - should skip
+            raise AssertionError("history fetch should be skipped when span is sufficient")
+
+        def get_latest(self, **_: object):  # pragma: no cover - should skip
+            raise AssertionError("latest fetch should be skipped when today is cached")
+
+    try:
+        processed = service_module.sync_fear_greed_index(
+            session=session, client=StubClient(), now=now
+        )
+    finally:
+        session.close()
+
+    assert processed == 0
+
+
+def test_sync_fear_greed_index_fetches_latest_only_when_today_missing(
+    monkeypatch, TestingSessionLocal
+):
+    from backend.app.services import fear_greed as service_module
+    from backend.app.services.dao import FearGreedRepo, MetaRepo
+    from backend.app.core.settings import settings
+
+    monkeypatch.setattr(settings, "REFRESH_GRANULARITY", "24h")
+
+    now = dt.datetime(2024, 7, 1, 12, tzinfo=dt.timezone.utc)
+
+    session = TestingSessionLocal()
+    repo = FearGreedRepo(session)
+    meta_repo = MetaRepo(session)
+
+    repo.upsert_many(
+        [
+            {
+                "timestamp": now - dt.timedelta(days=800),
+                "value": 20,
+                "classification": "Extreme Fear",
+                "ingested_at": now - dt.timedelta(days=800),
+            },
+            {
+                "timestamp": now - dt.timedelta(days=300),
+                "value": 40,
+                "classification": "Fear",
+                "ingested_at": now - dt.timedelta(days=300),
+            },
+            {
+                "timestamp": dt.datetime(
+                    2024, 6, 30, tzinfo=dt.timezone.utc
+                ),
+                "value": 55,
+                "classification": "Greed",
+                "ingested_at": now - dt.timedelta(days=1),
+            },
+        ]
+    )
+    meta_repo.set(
+        "fear_greed_last_refresh",
+        (now - dt.timedelta(days=3)).isoformat(),
+    )
+    session.commit()
+
+    class StubClient:
+        def __init__(self) -> None:
+            self.latest_calls = 0
+
+        def get_historical(self, **_: object):  # pragma: no cover - should skip
+            raise AssertionError("history fetch should be skipped when multi-year data exists")
+
+        def get_latest(self, **_: object):
+            self.latest_calls += 1
+            return {
+                "timestamp": "2024-07-01T00:00:00Z",
+                "score": 65,
+                "label": "Greed",
+            }
+
+    try:
+        processed = service_module.sync_fear_greed_index(
+            session=session, client=StubClient(), now=now
+        )
+        latest = repo.get_latest()
+        meta_value = meta_repo.get("fear_greed_last_refresh")
+    finally:
+        session.close()
+
+    assert processed == 1
+    assert latest is not None
+    assert latest.timestamp.date() == now.date()
+    assert latest.value == 65
+    assert meta_value == now.isoformat()
+
+
+def test_sync_fear_greed_index_fetches_history_when_span_insufficient(
+    monkeypatch, TestingSessionLocal
+):
+    from backend.app.services import fear_greed as service_module
+    from backend.app.services.dao import FearGreedRepo, MetaRepo
+    from backend.app.core.settings import settings
+
+    monkeypatch.setattr(settings, "REFRESH_GRANULARITY", "24h")
+
+    now = dt.datetime(2024, 7, 1, 12, tzinfo=dt.timezone.utc)
+
+    session = TestingSessionLocal()
+    repo = FearGreedRepo(session)
+    meta_repo = MetaRepo(session)
+
+    repo.upsert_many(
+        [
+            {
+                "timestamp": now - dt.timedelta(days=120),
+                "value": 35,
+                "classification": "Fear",
+                "ingested_at": now - dt.timedelta(days=120),
+            }
+        ]
+    )
+    meta_repo.set(
+        "fear_greed_last_refresh",
+        (now - dt.timedelta(days=3)).isoformat(),
+    )
+    session.commit()
+
+    class StubClient:
+        def __init__(self) -> None:
+            self.history_calls = 0
+            self.latest_calls = 0
+
+        def get_historical(self, **_: object):
+            self.history_calls += 1
+            return [
+                {
+                    "timestamp": "2024-06-29T00:00:00Z",
+                    "score": 45,
+                    "label": "Neutral",
+                },
+                {
+                    "timestamp": "2024-06-30T00:00:00Z",
+                    "score": 55,
+                    "label": "Greed",
+                },
+            ]
+
+        def get_latest(self, **_: object):
+            self.latest_calls += 1
+            return {
+                "timestamp": "2024-07-01T00:00:00Z",
+                "score": 60,
+                "label": "Greed",
+            }
+
+    stub = StubClient()
+
+    try:
+        processed = service_module.sync_fear_greed_index(
+            session=session, client=stub, now=now
+        )
+        count = repo.count()
+        latest = repo.get_latest()
+        meta_value = meta_repo.get("fear_greed_last_refresh")
+    finally:
+        session.close()
+
+    assert stub.history_calls == 1
+    assert stub.latest_calls == 1
+    assert processed == 3
+    assert count == 4
+    assert latest is not None and latest.value == 60
+    assert meta_value == now.isoformat()
+
+
 def test_sync_fear_greed_index_updates_without_seed(TestingSessionLocal):
     class StubClient:
         def get_historical(self, limit=None):

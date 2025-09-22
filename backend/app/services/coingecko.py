@@ -106,10 +106,7 @@ class CoinGeckoClient:
                     }
                 )
             )
-            if (
-                resp.status_code == 429
-                and attempt < max_attempts - 1
-            ):
+            if resp.status_code == 429 and attempt < max_attempts - 1:
                 self._schedule_next(self.throttle_seconds * (attempt + 1))
                 continue
             if (

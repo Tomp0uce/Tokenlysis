@@ -240,17 +240,13 @@ class CoinsRepo:
             result[cid] = (names, ids, links, ts)
         return result
 
-    def get_categories_with_timestamp(
-        self, coin_id: str
-    ) -> CategoryDetails:
+    def get_categories_with_timestamp(self, coin_id: str) -> CategoryDetails:
         stmt = select(
             Coin.category_names,
             Coin.category_ids,
             Coin.social_links,
             Coin.updated_at,
-        ).where(
-            Coin.id == coin_id
-        )
+        ).where(Coin.id == coin_id)
         try:
             row = self.session.execute(stmt).first()
         except OperationalError as exc:
@@ -342,7 +338,11 @@ class MetaRepo:
 
     def get(self, key: str) -> str | None:
         stmt = select(Meta.value).where(Meta.key == key)
-        return self.session.scalar(stmt)
+        try:
+            return self.session.scalar(stmt)
+        except OperationalError as exc:
+            logger.warning("schema out-of-date: %s", exc)
+            return None
 
     def set(self, key: str, value: str) -> None:
         stmt = _upsert(self.session, Meta, [{"key": key, "value": value}])
@@ -368,24 +368,47 @@ class FearGreedRepo:
 
     def count(self) -> int:
         stmt = select(func.count()).select_from(FearGreed)
-        return int(self.session.scalar(stmt) or 0)
+        try:
+            return int(self.session.scalar(stmt) or 0)
+        except OperationalError as exc:
+            logger.warning("schema out-of-date: %s", exc)
+            return 0
 
     def get_latest(self) -> FearGreed | None:
         stmt = select(FearGreed).order_by(FearGreed.timestamp.desc()).limit(1)
-        row = self.session.scalar(stmt)
+        try:
+            row = self.session.scalar(stmt)
+        except OperationalError as exc:
+            logger.warning("schema out-of-date: %s", exc)
+            return None
         return self._ensure_utc(row)
 
-    def get_history(
-        self, since: dt.datetime | None = None
-    ) -> list[FearGreed]:
+    def get_history(self, since: dt.datetime | None = None) -> list[FearGreed]:
         stmt = select(FearGreed)
         if since is not None:
             stmt = stmt.where(FearGreed.timestamp >= since)
         stmt = stmt.order_by(FearGreed.timestamp)
-        rows = list(self.session.scalars(stmt))
+        try:
+            rows = list(self.session.scalars(stmt))
+        except OperationalError as exc:
+            logger.warning("schema out-of-date: %s", exc)
+            return []
         for row in rows:
             self._ensure_utc(row)
         return rows
+
+    def get_timespan(self) -> tuple[dt.datetime | None, dt.datetime | None]:
+        stmt = select(func.min(FearGreed.timestamp), func.max(FearGreed.timestamp))
+        try:
+            first, last = self.session.execute(stmt).one()
+        except OperationalError as exc:
+            logger.warning("schema out-of-date: %s", exc)
+            return None, None
+        if isinstance(first, dt.datetime) and first.tzinfo is None:
+            first = first.replace(tzinfo=dt.timezone.utc)
+        if isinstance(last, dt.datetime) and last.tzinfo is None:
+            last = last.replace(tzinfo=dt.timezone.utc)
+        return first, last
 
     def upsert_many(self, rows: Iterable[dict]) -> None:
         buffered = list(rows)

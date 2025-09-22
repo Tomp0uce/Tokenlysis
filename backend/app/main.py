@@ -112,9 +112,7 @@ def _parse_fng_timestamp(raw: object) -> dt.datetime:
             except ValueError:
                 pass
             else:
-                normalized = parsed.replace(
-                    tzinfo=parsed.tzinfo or dt.timezone.utc
-                )
+                normalized = parsed.replace(tzinfo=parsed.tzinfo or dt.timezone.utc)
                 return normalized.astimezone(dt.timezone.utc)
     return dt.datetime.min.replace(tzinfo=dt.timezone.utc)
 
@@ -180,6 +178,7 @@ def _serialize_fng_row(row: FearGreed | None) -> dict[str, object] | None:
         "score": int(value),
         "label": classification,
     }
+
 
 @app.get("/api/markets/top")
 def markets_top(
@@ -579,9 +578,7 @@ def last_refresh(session: Session = Depends(get_session)) -> dict:
 
 def refresh_interval_seconds(value: str | None = None) -> int:
     """Convert refresh granularity hints to seconds with a 12h fallback."""
-    return refresh_granularity_to_seconds(
-        value, default=settings.REFRESH_GRANULARITY
-    )
+    return refresh_granularity_to_seconds(value, default=settings.REFRESH_GRANULARITY)
 
 
 async def run_etl_async(*, budget: CallBudget | None) -> int:
