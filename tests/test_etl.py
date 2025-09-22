@@ -22,6 +22,57 @@ class DummyClient:
         raise AssertionError("network call should be skipped")
 
 
+def test_run_etl_skips_when_refresh_recent(monkeypatch, tmp_path):
+    engine = create_engine(
+        f"sqlite:///{tmp_path/'fresh.db'}", connect_args={"check_same_thread": False}
+    )
+    TestingSessionLocal = sessionmaker(
+        bind=engine, autoflush=False, autocommit=False, expire_on_commit=False
+    )
+    Base.metadata.create_all(bind=engine)
+    monkeypatch.setattr(run_module, "SessionLocal", TestingSessionLocal)
+    monkeypatch.setattr(settings, "REFRESH_GRANULARITY", "6h")
+
+    now = dt.datetime.now(dt.timezone.utc)
+
+    session = TestingSessionLocal()
+    prices_repo = PricesRepo(session)
+    meta_repo = MetaRepo(session)
+    prices_repo.upsert_latest(
+        [
+            {
+                "coin_id": "bitcoin",
+                "vs_currency": "usd",
+                "price": 100.0,
+                "market_cap": 200.0,
+                "fully_diluted_market_cap": 210.0,
+                "volume_24h": 50.0,
+                "rank": 1,
+                "pct_change_24h": 0.0,
+                "pct_change_7d": 0.0,
+                "pct_change_30d": 0.0,
+                "snapshot_at": now - dt.timedelta(minutes=5),
+            }
+        ]
+    )
+    meta_repo.set("last_refresh_at", (now - dt.timedelta(minutes=10)).isoformat())
+    session.commit()
+    session.close()
+
+    class StubClient:
+        def get_markets(self, *, vs, per_page, page):  # pragma: no cover - should skip
+            raise AssertionError("markets should not be fetched when cache is fresh")
+
+        def get_categories_list(self):  # pragma: no cover - should skip
+            raise AssertionError("categories list should not be fetched on skip")
+
+        def get_coin_profile(self, coin_id: str):  # pragma: no cover - should skip
+            raise AssertionError("coin profiles should not be fetched on skip")
+
+    rows = run_module.run_etl(client=StubClient(), budget=None)
+    assert rows == 0
+
+
 def test_run_etl_skips_when_budget_exceeded(monkeypatch, tmp_path, caplog):
     from backend.app.etl.run import run_etl, DataUnavailable
 
@@ -137,6 +188,9 @@ def test_run_etl_tracks_actual_calls(monkeypatch, tmp_path, caplog):
         def insert_snapshot(self, rows) -> None:  # pragma: no cover - trivial
             pass
 
+        def get_top(self, vs: str, limit: int):  # pragma: no cover - trivial
+            return []
+
     class DummyMetaRepo:
         last_instance = None
 
@@ -146,6 +200,9 @@ def test_run_etl_tracks_actual_calls(monkeypatch, tmp_path, caplog):
 
         def set(self, key: str, value: str) -> None:
             self.data[key] = value
+
+        def get(self, key: str) -> str | None:
+            return self.data.get(key)
 
     class DummyCoinsRepo:
         def __init__(self, session) -> None:  # pragma: no cover - trivial
@@ -240,6 +297,9 @@ def test_run_etl_downgrades_per_page_on_4xx(monkeypatch, tmp_path, caplog):
         def insert_snapshot(self, rows) -> None:  # pragma: no cover - trivial
             pass
 
+        def get_top(self, vs: str, limit: int):  # pragma: no cover - trivial
+            return []
+
     class DummyMetaRepo:
         last_instance = None
 
@@ -249,6 +309,9 @@ def test_run_etl_downgrades_per_page_on_4xx(monkeypatch, tmp_path, caplog):
 
         def set(self, key: str, value: str) -> None:
             self.data[key] = value
+
+        def get(self, key: str) -> str | None:
+            return self.data.get(key)
 
     class DummyCoinsRepo:
         def __init__(self, session) -> None:  # pragma: no cover - trivial
@@ -336,6 +399,9 @@ def test_run_etl_stops_when_budget_exhausted(monkeypatch, tmp_path):
         def insert_snapshot(self, rows) -> None:  # pragma: no cover - trivial
             pass
 
+        def get_top(self, vs: str, limit: int):  # pragma: no cover - trivial
+            return []
+
     class DummyMetaRepo:
         last_instance = None
 
@@ -345,6 +411,9 @@ def test_run_etl_stops_when_budget_exhausted(monkeypatch, tmp_path):
 
         def set(self, key: str, value: str) -> None:
             self.data[key] = value
+
+        def get(self, key: str) -> str | None:
+            return self.data.get(key)
 
     class DummyCoinsRepo:
         def __init__(self, session) -> None:  # pragma: no cover - trivial
@@ -387,7 +456,8 @@ def test_run_etl_stops_when_budget_exhausted(monkeypatch, tmp_path):
 
     assert budget.monthly_call_count == 3
     assert len(client.calls) == 3
-    assert DummyMetaRepo.last_instance is None
+    assert DummyMetaRepo.last_instance is not None
+    assert DummyMetaRepo.last_instance.data == {}
 
 
 def test_run_etl_backfills_missing_categories(monkeypatch, tmp_path):

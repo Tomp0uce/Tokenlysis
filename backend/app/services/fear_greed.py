@@ -12,6 +12,8 @@ from ..clients.cmc_fng import (
     CoinMarketCapFearGreedClient,
     build_default_client,
 )
+from ..core.scheduling import refresh_granularity_to_timedelta
+from ..core.settings import settings
 from ..db import SessionLocal
 from .dao import FearGreedRepo, MetaRepo
 
@@ -106,32 +108,53 @@ def sync_fear_greed_index(
     if session is None:
         session = SessionLocal()
         managed_session = True
-    repo = FearGreedRepo(session)
-    meta_repo = MetaRepo(session)
-    client = client or build_default_client()
-    timestamp_now = now or dt.datetime.now(dt.timezone.utc)
-    processed = 0
     try:
+        repo = FearGreedRepo(session)
+        meta_repo = MetaRepo(session)
+        timestamp_now = now or dt.datetime.now(dt.timezone.utc)
+        guard_interval = refresh_granularity_to_timedelta(
+            settings.REFRESH_GRANULARITY
+        )
+        interval_seconds = max(int(guard_interval.total_seconds()), 1)
+        last_refresh = _parse_timestamp(meta_repo.get("fear_greed_last_refresh"))
+        existing_points = repo.count()
+        if (
+            existing_points > 0
+            and last_refresh is not None
+            and (timestamp_now - last_refresh) < guard_interval
+        ):
+            logger.info(
+                "fear & greed sync skipped: refresh cadence not reached",
+                extra={
+                    "last_refresh_at": last_refresh.isoformat(),
+                    "interval_seconds": interval_seconds,
+                },
+            )
+            return 0
+
+        client = client or build_default_client()
+        processed = 0
         try:
-            history = client.get_historical()
-            processed += _ingest_history(repo, history, timestamp_now)
-        except requests.RequestException as exc:
-            logger.warning("fear & greed history fetch failed: %s", exc)
-        try:
-            latest = client.get_latest()
-            if latest:
-                processed += _ingest_history(repo, [latest], timestamp_now)
-        except requests.RequestException as exc:
-            logger.warning("fear & greed latest fetch failed: %s", exc)
-        if processed:
-            meta_repo.set("fear_greed_last_refresh", timestamp_now.isoformat())
-        session.commit()
-    except Exception:
-        session.rollback()
-        raise
+            try:
+                history = client.get_historical()
+                processed += _ingest_history(repo, history, timestamp_now)
+            except requests.RequestException as exc:
+                logger.warning("fear & greed history fetch failed: %s", exc)
+            try:
+                latest = client.get_latest()
+                if latest:
+                    processed += _ingest_history(repo, [latest], timestamp_now)
+            except requests.RequestException as exc:
+                logger.warning("fear & greed latest fetch failed: %s", exc)
+            if processed:
+                meta_repo.set("fear_greed_last_refresh", timestamp_now.isoformat())
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        return processed
     finally:
         if managed_session:
             session.close()
-    return processed
 
 __all__ = ["sync_fear_greed_index", "DEFAULT_CLASSIFICATION"]

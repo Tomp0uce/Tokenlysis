@@ -24,6 +24,7 @@ from .clients.cmc_fng import (
     build_default_client as build_fng_client,
 )
 from .core.settings import effective_coingecko_base_url, settings
+from .core.scheduling import refresh_granularity_to_seconds
 from .core.version import get_version
 from .db import Base, engine, get_session
 from .etl.run import DataUnavailable, load_seed, run_etl
@@ -458,13 +459,9 @@ def last_refresh(session: Session = Depends(get_session)) -> dict:
 
 def refresh_interval_seconds(value: str | None = None) -> int:
     """Convert refresh granularity hints to seconds with a 12h fallback."""
-    granularity = value or settings.REFRESH_GRANULARITY
-    try:
-        if granularity.endswith("h"):
-            return int(float(granularity[:-1]) * 60 * 60)
-    except Exception:  # pragma: no cover - defensive
-        pass
-    return 12 * 60 * 60
+    return refresh_granularity_to_seconds(
+        value, default=settings.REFRESH_GRANULARITY
+    )
 
 
 async def run_etl_async(*, budget: CallBudget | None) -> int:
