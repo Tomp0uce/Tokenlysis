@@ -1,11 +1,11 @@
 # Functional Specifications
 
 ## 1. Project Overview
-Tokenlysis is a public web platform that ranks a configurable top ``N`` cryptocurrencies using CoinGecko market data. The proof of concept focuses on the top 50 assets, computes **Liquidity**, **Opportunity** and a derived **Global** score, and refreshes data every 12 hours through a background ETL loop. An interactive bundle built with vanilla JavaScript and ApexCharts consumes the public API to render market overview, coin detail and sentiment dashboards enriched with category badges and freshness indicators.
+Tokenlysis is a public web platform that ranks a configurable top ``N`` cryptocurrencies using CoinGecko market data. The proof of concept focuses on the top 1000 assets by default, computes **Liquidity**, **Opportunity** and a derived **Global** score, and refreshes data every 12 hours through a background ETL loop. An interactive bundle built with vanilla JavaScript and ApexCharts consumes the public API to render market overview, coin detail and sentiment dashboards enriched with category badges and freshness indicators.
 
 ## 2. Current Functional Scope
 ### 2.1 Asset Universe & Data Freshness
-- Configurable universe controlled by `CG_TOP_N` (default 50) sourced from CoinGecko.
+- Configurable universe controlled by `CG_TOP_N` (default 1000) sourced from CoinGecko.
 - Background ETL fetches markets on startup and then at the cadence defined by `REFRESH_GRANULARITY` (default 12 h).
 - Fallback to bundled seed data when the live fetch fails and `USE_SEED_ON_FAILURE` is enabled.
 - Coin metadata (name, symbol, logo URL) is cached alongside category payloads to enrich API responses and dashboards.
@@ -35,7 +35,7 @@ Tokenlysis is a public web platform that ranks a configurable top ``N`` cryptocu
 
 ### 2.5 Frontend Experience
 - Modular vanilla JavaScript bundle served by FastAPI under `/` with ApexCharts powering dashboard, coin and sentiment pages.
-- Dashboard fetches `/api/markets/top?limit=20&vs=usd`, renders hero summary cards (market cap & volume with 24h/7d deltas) and a top-market chart controlled by range selectors.
+- Dashboard fetches `/api/markets/top?limit=1000&vs=usd`, renders hero summary cards (market cap & volume with 24h/7d deltas) and a top-market chart controlled by range selectors.
 - The sortable ranking table displays coin logos, category badges with overflow counters and links each asset to its dedicated detail view.
 - Coin detail pages merge `/api/price/{coin_id}` and `/api/price/{coin_id}/history` to show metrics plus price/market cap/volume charts with `24h` → `max` ranges and empty-state handling.
 - The sentiment page consumes the Fear & Greed endpoints to draw a gauge, snapshots for today/yesterday/week/month and a history chart for `30d`, `90d`, `1y` or full-range windows.

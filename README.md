@@ -1,6 +1,6 @@
 # Tokenlysis
 
-Tokenlysis is a FastAPI-based cryptocurrency ranking proof of concept. It ingests a configurable top ``N`` assets (50 by default) from CoinGecko, stores the latest snapshots, multi-range historical prices and sentiment metrics in SQLite, and serves an interactive multi-page dashboard written in vanilla JavaScript with ApexCharts. Operators can monitor market breadth, open detailed asset views and track the Crypto Fear & Greed index without leaving the bundle.
+Tokenlysis is a FastAPI-based cryptocurrency ranking proof of concept. It ingests a configurable top ``N`` assets (1000 by default) from CoinGecko, stores the latest snapshots, multi-range historical prices and sentiment metrics in SQLite, and serves an interactive multi-page dashboard written in vanilla JavaScript with ApexCharts. Operators can monitor market breadth, open detailed asset views and track the Crypto Fear & Greed index without leaving the bundle.
 
 > ⚠️ **Proprietary Notice**  
 > This project is the proprietary software of **Tokenlysis**.  
@@ -12,7 +12,7 @@ The long-term roadmap is to analyse more than 1,000 assets with additional thema
 
 ## Current Capabilities
 
-- **Universe** – configurable top ``N`` assets (default 50) fetched from CoinGecko with logos and slugged categories cached server-side.
+- **Universe** – configurable top ``N`` assets (default 1000) fetched from CoinGecko with logos and slugged categories cached server-side.
 - **Scores & analytics** – Liquidity, Opportunity and a derived Global score computed from CoinGecko market data, persisted for historical comparisons and surfaced through dashboard gauges.
 - **Historical prices** – `/api/price/{coin_id}/history` exposes 24h, 7d, 1m, 3m, 1y, 2y, 5y and full-range series that feed coin detail charts and the market overview.
 - **Market overview** – aggregated market capitalisation and volume cards with 24h/7d deltas plus a top-market chart rendered from cached history.
@@ -42,7 +42,7 @@ The long-term roadmap is to analyse more than 1,000 assets with additional thema
 ### Frontend Dashboard
 
 - Multi-page static bundle served from ``/`` by FastAPI (dashboard, coin detail and sentiment views) written in modular vanilla JavaScript with ApexCharts.
-- Dashboard fetches `/api/markets/top?limit=20&vs=usd`, renders hero summary cards (market cap & volume with 24h/7d deltas), a top-market chart with range selector and a sortable table enriched with coin logos.
+- Dashboard fetches `/api/markets/top?limit=1000&vs=usd`, renders hero summary cards (market cap & volume with 24h/7d deltas), a top-market chart with range selector and a sortable table enriched with coin logos.
 - Category badges include overflow counters beyond three entries and link to dedicated asset pages (`coin.html?coin_id=...`).
 - Coin detail view merges `/api/price/{coin_id}` and `/api/price/{coin_id}/history` to display price, market cap and volume charts with accessible `24h` → `max` range selectors and empty-state messaging.
 - Fear & Greed view combines the latest/history endpoints, draws the gauge, renders snapshots for today/yesterday/week/month and plots sentiment history over `30d`, `90d`, `1y` or the full range.
@@ -203,7 +203,7 @@ Copy `.env.example` to `.env` and adjust the values as needed. The file contains
 Runtime behaviour can be tweaked with environment variables:
 
 - `CORS_ORIGINS` – comma-separated list of allowed origins (default: `http://localhost`).
-- `CG_TOP_N` – number of assets fetched from CoinGecko (default: `50`).
+- `CG_TOP_N` – number of assets fetched from CoinGecko (default: `1000`).
 - `CG_DAYS` – number of days of history to retrieve (default: `14`).
 - `CG_MONTHLY_QUOTA` – maximum CoinGecko API calls per month (default: `10000`).
 - `CG_PER_PAGE_MAX` – preferred page size for `/coins/markets` calls (default: `250`).
