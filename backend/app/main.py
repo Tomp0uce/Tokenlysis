@@ -8,6 +8,8 @@ import logging
 import math
 import os
 import threading
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -577,7 +579,6 @@ def version() -> VersionResponse:
     return VersionResponse(version=get_version())
 
 
-@app.on_event("startup")
 async def startup() -> None:
     """Configure logging, bootstrap persistence, run initial ETL and spawn the loop."""
     logging.basicConfig(
@@ -652,7 +653,6 @@ async def startup() -> None:
     app.state.etl_task = task if isinstance(task, asyncio.Task) else None
 
 
-@app.on_event("shutdown")
 async def shutdown() -> None:
     """Signal the ETL loop to stop without hanging on slow iterations."""
 
@@ -698,6 +698,18 @@ async def shutdown() -> None:
 STATIC_DIRECTORY = _static_directory()
 
 app.mount("/", StaticFiles(directory=str(STATIC_DIRECTORY), html=True), name="static")
+
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    await startup()
+    try:
+        yield
+    finally:
+        await shutdown()
+
+
+app.router.lifespan_context = _lifespan
 
 
 __all__ = [
