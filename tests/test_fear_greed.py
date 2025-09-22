@@ -698,6 +698,62 @@ def test_sync_fear_greed_index_skips_when_cmc_budget_exhausted(
     assert stub.latest_calls == 0
 
 
+def test_sync_fear_greed_index_charges_history_budget_once_on_failure(
+    monkeypatch, TestingSessionLocal, tmp_path
+):
+    from backend.app.services import fear_greed as service_module
+    from backend.app.services.dao import FearGreedRepo, MetaRepo
+    from backend.app.core.settings import settings
+
+    monkeypatch.setattr(settings, "REFRESH_GRANULARITY", "24h")
+
+    now = dt.datetime(2024, 7, 1, 12, tzinfo=dt.timezone.utc)
+
+    session = TestingSessionLocal()
+    repo = FearGreedRepo(session)
+    meta_repo = MetaRepo(session)
+
+    repo.upsert_many(
+        [
+            {
+                "timestamp": dt.datetime(
+                    now.year, now.month, now.day, tzinfo=dt.timezone.utc
+                ),
+                "value": 55,
+                "classification": "Greed",
+                "ingested_at": now - dt.timedelta(hours=1),
+            }
+        ]
+    )
+    meta_repo.set(
+        "fear_greed_last_refresh",
+        (now - dt.timedelta(days=3)).isoformat(),
+    )
+    session.commit()
+
+    class StubClient:
+        def get_historical(self, **_: object) -> list[dict]:
+            raise requests.RequestException("history down")
+
+        def get_latest(self) -> dict:  # pragma: no cover - guarded by has_today_value
+            raise AssertionError(
+                "latest fetch should be skipped when today's value is cached"
+            )
+
+    budget = CallBudget(tmp_path / "cmc_budget.json", quota=5)
+
+    try:
+        processed = service_module.sync_fear_greed_index(
+            session=session, client=StubClient(), now=now, budget=budget
+        )
+    finally:
+        session.close()
+
+    assert processed == 0
+    assert budget.monthly_call_count == 1
+    assert budget.category_counts == {"cmc_history": 1}
+
+
 def test_sync_fear_greed_index_fetches_latest_only_when_today_missing(
     monkeypatch, TestingSessionLocal
 ):

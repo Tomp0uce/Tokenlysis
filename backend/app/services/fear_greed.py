@@ -198,12 +198,14 @@ def sync_fear_greed_index(
                 budget.reset_if_needed()
 
             if should_fetch_history and _budget_allows(budget, "cmc_history"):
+                history_call_charged = False
                 try:
                     history = client.get_historical()
                 except requests.RequestException as exc:
                     logger.warning("fear & greed history fetch failed: %s", exc)
                     if budget is not None:
                         budget.spend(1, category="cmc_history")
+                        history_call_charged = True
                 else:
                     ingested = _ingest_history(repo, history, timestamp_now)
                     processed += ingested
@@ -218,7 +220,8 @@ def sync_fear_greed_index(
                             latest_timestamp is not None
                             and latest_timestamp.date() == timestamp_now.date()
                         )
-                    if budget is not None:
+                finally:
+                    if budget is not None and not history_call_charged:
                         budget.spend(1, category="cmc_history")
 
             if should_fetch_latest and not has_today_value and _budget_allows(
