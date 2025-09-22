@@ -1,28 +1,33 @@
 # backend/alembic/env.py
 from __future__ import annotations
 
-import os
 import sys
-from pathlib import Path
 from logging.config import fileConfig
-
-# /app/backend/alembic/env.py -> parents[2] == "/app"
-ROOT = Path(__file__).resolve().parents[2]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
+from pathlib import Path
+from typing import Any
 
 from alembic import context
 from sqlalchemy import engine_from_config, pool
+from sqlalchemy.schema import MetaData
 
-# --- Assure que /app est dans le PYTHONPATH pour importer 'backend' ---
-BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-if BASE_DIR not in sys.path:
-    sys.path.insert(0, BASE_DIR)
 
-# Imports projet
-from backend.app.core.settings import settings
-from backend.app.db import Base
+def _load_backend_context() -> tuple[Any, MetaData]:
+    """Ensure the repository is on ``sys.path`` and return backend metadata."""
+
+    repo_root = Path(__file__).resolve().parents[2]
+    backend_root = repo_root / "backend"
+    for candidate in (repo_root, backend_root):
+        str_candidate = str(candidate)
+        if str_candidate not in sys.path:
+            sys.path.insert(0, str_candidate)
+
+    from backend.app.core.settings import settings as loaded_settings
+    from backend.app.db import Base
+
+    return loaded_settings, Base.metadata
+
+
+settings, target_metadata = _load_backend_context()
 
 # Alembic Config
 config = context.config
@@ -34,8 +39,6 @@ if settings.DATABASE_URL:
 # Logging Alembic (si alembic.ini le définit)
 if config.config_file_name is not None:  # pragma: no cover - effet de bord Alembic
     fileConfig(config.config_file_name)
-
-target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:

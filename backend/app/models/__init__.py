@@ -79,7 +79,10 @@ class FearGreed(Base):
     )
     value: Mapped[int] = mapped_column(Integer, nullable=False)
     classification: Mapped[str] = mapped_column(String(64), nullable=False)
-    ingested_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    ingested_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
 
     __table_args__ = (Index("ix_fear_greed_timestamp", "timestamp"),)
 

@@ -41,7 +41,11 @@ def serialize_price(
     symbol = raw_symbol.strip() if isinstance(raw_symbol, str) else ""
 
     raw_logo = details.get("logo_url") if isinstance(details, Mapping) else None
-    logo_url = raw_logo.strip() if isinstance(raw_logo, str) and raw_logo.strip() else None
+    logo_url: str | None = None
+    if isinstance(raw_logo, str):
+        candidate = raw_logo.strip()
+        if candidate:
+            logo_url = candidate
 
     raw_links = details.get("social_links") if isinstance(details, Mapping) else {}
     social_links: dict[str, str] = {}

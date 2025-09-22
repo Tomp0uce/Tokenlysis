@@ -227,7 +227,8 @@ class CoinGeckoClient:
                 if cleaned:
                     links["website"] = cleaned
                     break
-        twitter_url = self._clean_url(self._build_twitter_url(payload.get("twitter_screen_name")))
+        twitter_handle = payload.get("twitter_screen_name")
+        twitter_url = self._clean_url(self._build_twitter_url(twitter_handle))
         if twitter_url:
             links["twitter"] = twitter_url
         reddit_url = self._clean_url(payload.get("subreddit_url"))
@@ -246,9 +247,12 @@ class CoinGeckoClient:
         chat_candidates = chat_urls if isinstance(chat_urls, list) else []
         for candidate in chat_candidates:
             cleaned = self._clean_url(candidate)
-            if cleaned and "discord" in cleaned.lower():
+            if not cleaned:
+                continue
+            lowered = cleaned.lower()
+            if "discord" in lowered:
                 links.setdefault("discord", cleaned)
-            if cleaned and any(host in cleaned.lower() for host in ("t.me", "telegram.", "telegram.me")):
+            if any(host in lowered for host in ("t.me", "telegram.", "telegram.me")):
                 links.setdefault("telegram", cleaned)
         if "telegram" not in links:
             identifier = payload.get("telegram_channel_identifier")
@@ -272,8 +276,15 @@ class CoinGeckoClient:
         try:
             data = self._request(f"/coins/{coin_id.lower()}", params=params).json()
             cats = data.get("categories", [])
-            categories = [c for c in cats if isinstance(c, str)] if isinstance(cats, list) else []
-            links_payload = data.get("links") if isinstance(data.get("links"), dict) else {}
+            if isinstance(cats, list):
+                categories = [c for c in cats if isinstance(c, str)]
+            else:
+                categories = []
+            links_payload_raw = data.get("links")
+            if isinstance(links_payload_raw, dict):
+                links_payload = links_payload_raw
+            else:
+                links_payload = {}
             links = self._extract_links(links_payload)
             return {"categories": categories, "links": links}
         except requests.HTTPError as exc:  # pragma: no cover - defensive

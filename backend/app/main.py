@@ -1,6 +1,6 @@
-from __future__ import annotations
-
 """FastAPI entrypoint exposing Tokenlysis endpoints and background ETL."""
+
+from __future__ import annotations
 
 import asyncio
 import datetime as dt
@@ -11,7 +11,6 @@ import threading
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from urllib.parse import urlparse
 
 import requests
 from fastapi import Depends, FastAPI, HTTPException, Query
@@ -110,9 +109,10 @@ def _parse_fng_timestamp(raw: object) -> dt.datetime:
             except ValueError:
                 pass
             else:
-                return parsed.replace(tzinfo=parsed.tzinfo or dt.timezone.utc).astimezone(
-                    dt.timezone.utc
+                normalized = parsed.replace(
+                    tzinfo=parsed.tzinfo or dt.timezone.utc
                 )
+                return normalized.astimezone(dt.timezone.utc)
     return dt.datetime.min.replace(tzinfo=dt.timezone.utc)
 
 
@@ -140,7 +140,7 @@ def markets_top(
     vs: str = "usd",
     session: Session = Depends(get_session),
 ):
-    """Return the top market snapshots, clamp the limit and emit HTTP 400 for unsupported vs."""
+    """Return market snapshots, clamp limit and raise HTTP 400 for unsupported vs."""
     vs = vs.lower()
     if vs != "usd":
         raise HTTPException(status_code=400, detail="unsupported vs")
@@ -303,7 +303,10 @@ def fng_history(
         try:
             limit = int(days)
         except (TypeError, ValueError):
-            raise HTTPException(status_code=400, detail="invalid days parameter") from None
+            raise HTTPException(
+                status_code=400,
+                detail="invalid days parameter",
+            ) from None
         if limit <= 0:
             raise HTTPException(status_code=400, detail="days must be positive")
 
@@ -328,9 +331,15 @@ def fng_history(
         cached_points = [_serialize_fng_row(row) for row in rows]
         ordered = [point for point in cached_points if point is not None]
         if ordered:
-            logger.info("fear & greed history served from database cache", extra={"count": len(ordered)})
+            logger.info(
+                "fear & greed history served from database cache",
+                extra={"count": len(ordered)},
+            )
     if not ordered and fetch_error is not None:
-        raise HTTPException(status_code=502, detail="fear & greed history unavailable") from fetch_error
+        raise HTTPException(
+            status_code=502,
+            detail="fear & greed history unavailable",
+        ) from fetch_error
     return {"days": limit, "points": ordered}
 
 

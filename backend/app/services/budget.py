@@ -63,7 +63,10 @@ class CallBudget:
             if isinstance(raw, dict):
                 data = self._default_payload()
                 month = raw.get("month")
-                data["month"] = month if isinstance(month, str) and month else self._current_month()
+                if isinstance(month, str) and month.strip():
+                    data["month"] = month
+                else:
+                    data["month"] = self._current_month()
                 data["monthly_call_count"] = self._normalise_calls(
                     raw.get("monthly_call_count")
                 )
