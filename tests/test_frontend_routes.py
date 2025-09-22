@@ -3,8 +3,9 @@ from pathlib import Path
 
 def test_frontend_fetches_markets_top():
     js = Path("frontend/main.js").read_text()
-    assert "/markets/top?limit=20&vs=usd" in js
-    assert "/markets?" not in js.replace("/markets/top?limit=20&vs=usd", "")
+    needle = "/markets/top?limit=${MARKETS_TOP_FETCH_LIMIT}&vs=${MARKETS_TOP_VS}"
+    assert needle in js
+    assert "/markets?" not in js.replace(needle, "")
 
 
 def test_frontend_no_ranking_call():
