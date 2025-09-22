@@ -94,54 +94,29 @@ function setupDom() {
   return dom;
 }
 
-function mockCoinGeckoFetch(
-  pagesOrCoins,
-  { diagPlan = 'pro', version, failPages, failStatus = 500, shouldFail } = {},
+function mockApiFetch(
+  items,
+  {
+    diagPlan = 'pro',
+    version,
+    lastRefreshAt = '2024-01-01T00:00:00Z',
+    dataSource = 'CoinGecko API',
+    failMarkets = false,
+    marketsStatus = 500,
+  } = {},
 ) {
-  const pages = new Map();
-  if (pagesOrCoins instanceof Map) {
-    pagesOrCoins.forEach((value, key) => {
-      pages.set(Number(key), Array.isArray(value) ? value : []);
-    });
-  } else if (Array.isArray(pagesOrCoins)) {
-    pages.set(1, pagesOrCoins);
-  } else if (pagesOrCoins && typeof pagesOrCoins === 'object') {
-    if (Array.isArray(pagesOrCoins.pages)) {
-      pagesOrCoins.pages.forEach((value, index) => {
-        if (Array.isArray(value)) {
-          pages.set(index + 1, value);
-        }
-      });
-    } else if (pagesOrCoins.pages instanceof Map) {
-      pagesOrCoins.pages.forEach((value, key) => {
-        pages.set(Number(key), Array.isArray(value) ? value : []);
-      });
-    }
-  }
-
-  const failSet = new Set();
-  if (typeof failPages === 'number') {
-    failSet.add(failPages);
-  } else if (Array.isArray(failPages)) {
-    failPages.forEach((page) => {
-      if (Number.isFinite(Number(page))) {
-        failSet.add(Number(page));
-      }
-    });
-  }
-  const shouldFailFn =
-    typeof shouldFail === 'function'
-      ? shouldFail
-      : (page) => failSet.has(page);
+  const payload = {
+    items: Array.isArray(items) ? items : [],
+    last_refresh_at: lastRefreshAt,
+    data_source: dataSource,
+    stale: false,
+  };
 
   return async (url) => {
-    if (url.startsWith('https://api.coingecko.com/api/v3/coins/markets')) {
-      const parsed = new URL(url);
-      const page = Number(parsed.searchParams.get('page') || '1');
-      if (shouldFailFn(page)) {
-        return new Response('error', { status: failStatus });
+    if (url.startsWith('https://example.test/api/markets/top')) {
+      if (failMarkets) {
+        return new Response('error', { status: marketsStatus });
       }
-      const payload = pages.get(page) || [];
       return new Response(JSON.stringify(payload), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
@@ -160,21 +135,22 @@ function mockCoinGeckoFetch(
   };
 }
 
-function buildCoin(index, overrides = {}) {
+function buildMarketItem(index, overrides = {}) {
   const rank = index + 1;
   return {
-    id: `coin-${rank}`,
+    coin_id: `coin-${rank}`,
     name: `Coin ${rank}`,
     symbol: `c${rank}`,
-    image: `https://img.test/coin-${rank}.png`,
-    market_cap_rank: rank,
-    current_price: 1000 - rank,
+    logo_url: `https://img.test/coin-${rank}.png`,
+    rank,
+    price: 1000 - rank,
     market_cap: 1_000_000 - rank * 10,
-    fully_diluted_valuation: 1_500_000 - rank * 20,
-    total_volume: 500_000 - rank * 5,
-    price_change_percentage_24h: (rank % 5) - 2,
-    price_change_percentage_7d_in_currency: (rank % 7) - 3,
-    price_change_percentage_30d_in_currency: (rank % 9) - 4,
+    fully_diluted_market_cap: 1_500_000 - rank * 20,
+    volume_24h: 500_000 - rank * 5,
+    pct_change_24h: (rank % 5) - 2,
+    pct_change_7d: (rank % 7) - 3,
+    pct_change_30d: (rank % 9) - 4,
+    category_names: [],
     ...overrides,
   };
 }
@@ -191,52 +167,58 @@ test('loadCryptos renders table and last update with categories', async (t) => {
   const { loadCryptos, loadVersion } = await import('../frontend/main.js');
   const coins = [
     {
-      id: 'bitcoin',
+      coin_id: 'bitcoin',
       name: 'Bitcoin',
       symbol: 'btc',
-      image: 'https://img.test/bitcoin.png',
-      market_cap_rank: 1,
-      current_price: 1,
+      logo_url: 'https://img.test/bitcoin.png',
+      rank: 1,
+      price: 1,
       market_cap: 2,
-      fully_diluted_valuation: 3,
-      total_volume: 3,
-      price_change_percentage_24h: 4,
-      price_change_percentage_7d_in_currency: 5,
-      price_change_percentage_30d_in_currency: 6,
-      categories: ['Layer 1', 'DeFi', 'NFT', 'Payments'],
+      fully_diluted_market_cap: 3,
+      volume_24h: 3,
+      pct_change_24h: 4,
+      pct_change_7d: 5,
+      pct_change_30d: 6,
+      category_names: ['Layer 1', 'DeFi', 'NFT', 'Payments'],
     },
     {
-      id: 'nocat',
+      coin_id: 'nocat',
       name: '',
       symbol: 'nct',
-      image: null,
-      market_cap_rank: 2,
-      current_price: 0.5,
+      logo_url: null,
+      rank: 2,
+      price: 0.5,
       market_cap: 1,
-      fully_diluted_valuation: 1.5,
-      total_volume: 1,
-      price_change_percentage_24h: -2,
-      price_change_percentage_7d_in_currency: -3.25,
-      price_change_percentage_30d_in_currency: -10,
-      categories: [],
+      fully_diluted_market_cap: 1.5,
+      volume_24h: 1,
+      pct_change_24h: -2,
+      pct_change_7d: -3.25,
+      pct_change_30d: -10,
+      category_names: [],
     },
     {
-      id: 'flat',
+      coin_id: 'flat',
       name: 'Flat Coin',
       symbol: 'flt',
-      image: 'https://img.test/flat.png',
-      market_cap_rank: 3,
-      current_price: 2,
+      logo_url: 'https://img.test/flat.png',
+      rank: 3,
+      price: 2,
       market_cap: 2,
-      fully_diluted_valuation: null,
-      total_volume: 0,
-      price_change_percentage_24h: 0,
-      price_change_percentage_7d_in_currency: null,
-      price_change_percentage_30d_in_currency: 0,
-      categories: ['Utility'],
+      fully_diluted_market_cap: null,
+      volume_24h: 0,
+      pct_change_24h: 0,
+      pct_change_7d: null,
+      pct_change_30d: 0,
+      category_names: ['Utility'],
     },
   ];
-  global.fetch = mockCoinGeckoFetch(coins, { diagPlan: 'demo', version: '1.0.0' });
+  const lastRefreshAt = '2024-02-20T10:00:00Z';
+  global.fetch = mockApiFetch(coins, {
+    diagPlan: 'demo',
+    version: '1.0.0',
+    lastRefreshAt,
+    dataSource: 'CoinGecko API',
+  });
   await loadVersion();
   await loadCryptos();
   const table = document.getElementById('cryptos');
@@ -323,7 +305,10 @@ test('loadCryptos renders table and last update with categories', async (t) => {
   );
   assert.equal(document.getElementById('demo-banner').style.display, 'block');
   const lastUpdateText = document.getElementById('last-update').textContent;
-  assert.match(lastUpdateText, /^Dernière mise à jour : .+ \(source : CoinGecko API\)$/);
+  assert.equal(
+    lastUpdateText,
+    `Dernière mise à jour : ${lastRefreshAt} (source: CoinGecko API)`,
+  );
   assert.equal(document.getElementById('summary-market-cap').textContent, '5 $');
   assert.equal(document.getElementById('summary-market-cap-change-24h').textContent, '1.20%');
   assert.equal(
@@ -375,8 +360,8 @@ test('loadCryptos paginates large result sets and navigates across pages', async
     delete global.fetch;
   });
   const { loadCryptos } = await import('../frontend/main.js');
-  const coins = Array.from({ length: 55 }, (_, index) => buildCoin(index));
-  global.fetch = mockCoinGeckoFetch(coins, { diagPlan: 'pro' });
+  const coins = Array.from({ length: 55 }, (_, index) => buildMarketItem(index));
+  global.fetch = mockApiFetch(coins, { diagPlan: 'pro' });
   await loadCryptos();
 
   const getNames = () =>
@@ -441,7 +426,7 @@ test('loadCryptos hides demo banner when plan is not demo', async (t) => {
     delete global.fetch;
   });
   const { loadCryptos } = await import('../frontend/main.js');
-  global.fetch = mockCoinGeckoFetch([], { diagPlan: 'pro' });
+  global.fetch = mockApiFetch([], { diagPlan: 'pro' });
   await loadCryptos();
   assert.equal(document.getElementById('demo-banner').style.display, 'none');
 });
@@ -456,7 +441,7 @@ test('loadCryptos handles failure', async (t) => {
     delete global.fetch;
   });
   const { loadCryptos } = await import('../frontend/main.js');
-  global.fetch = mockCoinGeckoFetch([], { diagPlan: 'pro', failPages: 1 });
+  global.fetch = mockApiFetch([], { diagPlan: 'pro', failMarkets: true });
   await loadCryptos();
 
   const statusEl = document.getElementById('status');
@@ -487,43 +472,43 @@ test('clicking rank header toggles ascending then descending order', async (t) =
   const { loadCryptos } = await import('../frontend/main.js');
   const coins = [
     {
-      id: 'beta',
+      coin_id: 'beta',
       name: 'Beta',
-      market_cap_rank: 2,
-      current_price: 10,
+      rank: 2,
+      price: 10,
       market_cap: 3,
-      fully_diluted_valuation: 4,
-      total_volume: 5,
-      price_change_percentage_24h: -1,
-      price_change_percentage_7d_in_currency: -2,
-      price_change_percentage_30d_in_currency: -3,
+      fully_diluted_market_cap: 4,
+      volume_24h: 5,
+      pct_change_24h: -1,
+      pct_change_7d: -2,
+      pct_change_30d: -3,
     },
     {
-      id: 'delta',
+      coin_id: 'delta',
       name: 'Delta',
-      market_cap_rank: 4,
-      current_price: 20,
+      rank: 4,
+      price: 20,
       market_cap: 2,
-      fully_diluted_valuation: 3,
-      total_volume: 4,
-      price_change_percentage_24h: 6,
-      price_change_percentage_7d_in_currency: 7,
-      price_change_percentage_30d_in_currency: 8,
+      fully_diluted_market_cap: 3,
+      volume_24h: 4,
+      pct_change_24h: 6,
+      pct_change_7d: 7,
+      pct_change_30d: 8,
     },
     {
-      id: 'alpha',
+      coin_id: 'alpha',
       name: 'Alpha',
-      market_cap_rank: 1,
-      current_price: 30,
+      rank: 1,
+      price: 30,
       market_cap: 1,
-      fully_diluted_valuation: 2,
-      total_volume: 3,
-      price_change_percentage_24h: 9,
-      price_change_percentage_7d_in_currency: 10,
-      price_change_percentage_30d_in_currency: 11,
+      fully_diluted_market_cap: 2,
+      volume_24h: 3,
+      pct_change_24h: 9,
+      pct_change_7d: 10,
+      pct_change_30d: 11,
     },
   ];
-  global.fetch = mockCoinGeckoFetch(coins, { diagPlan: 'pro' });
+  global.fetch = mockApiFetch(coins, { diagPlan: 'pro' });
   await loadCryptos();
 
   const ranks = () =>
@@ -555,43 +540,43 @@ test('sorting numeric columns keeps null values at the end', async (t) => {
   const { loadCryptos } = await import('../frontend/main.js');
   const coins = [
     {
-      id: 'null-price',
+      coin_id: 'null-price',
       name: 'Null price',
-      market_cap_rank: 1,
-      current_price: null,
+      rank: 1,
+      price: null,
       market_cap: 3,
-      fully_diluted_valuation: 5,
-      total_volume: 7,
-      price_change_percentage_24h: null,
-      price_change_percentage_7d_in_currency: 2,
-      price_change_percentage_30d_in_currency: 3,
+      fully_diluted_market_cap: 5,
+      volume_24h: 7,
+      pct_change_24h: null,
+      pct_change_7d: 2,
+      pct_change_30d: 3,
     },
     {
-      id: 'negative',
+      coin_id: 'negative',
       name: '',
-      market_cap_rank: 2,
-      current_price: -3,
+      rank: 2,
+      price: -3,
       market_cap: 2,
-      fully_diluted_valuation: null,
-      total_volume: 5,
-      price_change_percentage_24h: -5,
-      price_change_percentage_7d_in_currency: -1,
-      price_change_percentage_30d_in_currency: -2,
+      fully_diluted_market_cap: null,
+      volume_24h: 5,
+      pct_change_24h: -5,
+      pct_change_7d: -1,
+      pct_change_30d: -2,
     },
     {
-      id: 'positive',
+      coin_id: 'positive',
       name: 'Positive',
-      market_cap_rank: 3,
-      current_price: 15,
+      rank: 3,
+      price: 15,
       market_cap: 1,
-      fully_diluted_valuation: 2,
-      total_volume: null,
-      price_change_percentage_24h: 4,
-      price_change_percentage_7d_in_currency: 6,
-      price_change_percentage_30d_in_currency: 8,
+      fully_diluted_market_cap: 2,
+      volume_24h: null,
+      pct_change_24h: 4,
+      pct_change_7d: 6,
+      pct_change_30d: 8,
     },
   ];
-  global.fetch = mockCoinGeckoFetch(coins, { diagPlan: 'pro' });
+  global.fetch = mockApiFetch(coins, { diagPlan: 'pro' });
   await loadCryptos();
 
   const priceHeader = document.querySelectorAll('#cryptos thead th')[3];

@@ -1,5 +1,5 @@
 import { getAppVersion } from './version.js';
-import { resolveVersion } from './utils.js';
+import { extractItems, resolveVersion } from './utils.js';
 import {
   createAreaChart,
   refreshChartsTheme,
@@ -38,6 +38,8 @@ const COINGECKO_MARKETS_ENDPOINT = `${COINGECKO_BASE_URL}/coins/markets`;
 const COINGECKO_DEFAULT_LIMIT = 1000;
 const COINGECKO_MAX_PER_PAGE = 250;
 const DEFAULT_ROWS_PER_PAGE = 20;
+const MARKETS_TOP_FETCH_LIMIT = COINGECKO_DEFAULT_LIMIT;
+const MARKETS_TOP_VS = 'usd';
 
 const SORTABLE_COLUMN_ACCESSORS = new Map([
   [2, (item) => item.rank],
@@ -1008,12 +1010,16 @@ export async function loadCryptos() {
   paginationState.page = 1;
   paginationState.perPage = DEFAULT_ROWS_PER_PAGE;
   initializeSorting();
+  const prefix = API_BASE ? `${API_BASE}` : '';
+  const url = `${prefix}/markets/top?limit=${MARKETS_TOP_FETCH_LIMIT}&vs=${MARKETS_TOP_VS}`;
   try {
-    const rawItems = await fetchCoinGeckoMarkets({
-      limit: COINGECKO_DEFAULT_LIMIT,
-      perPage: COINGECKO_MAX_PER_PAGE,
-    });
-    marketItems = mapCoinGeckoItems(rawItems);
+    const response = await fetch(url);
+    if (!response?.ok) {
+      throw new Error(`HTTP ${response?.status ?? 'unknown'}`);
+    }
+    const payload = await response.json();
+    const items = extractItems(payload);
+    marketItems = Array.isArray(items) ? items : [];
     updateSummary(marketItems);
     await renderMarketOverview(marketItems);
     renderSortedItems();
@@ -1025,7 +1031,12 @@ export async function loadCryptos() {
     }
     const lastEl = document.getElementById('last-update');
     if (lastEl) {
-      lastEl.textContent = `Dernière mise à jour : ${new Date().toISOString()} (source : CoinGecko API)`;
+      if (payload?.last_refresh_at) {
+        const source = payload?.data_source ? payload.data_source : 'unknown';
+        lastEl.textContent = `Dernière mise à jour : ${payload.last_refresh_at} (source: ${source})`;
+      } else {
+        lastEl.textContent = 'Dernière mise à jour : inconnue';
+      }
     }
     if (API_URL) {
       try {
