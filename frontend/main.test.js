@@ -14,6 +14,146 @@ async function loadTestExports({
   return import('./main.js').then((module) => module.__test__);
 }
 
+function buildDashboardHtml() {
+  return `<!doctype html><html><head><meta name="api-url" content="https://example.test/api"></head><body>
+    <main>
+      <div id="status"></div>
+      <p id="last-update"></p>
+      <div id="demo-banner" style="display:none;"></div>
+      <section class="panel table-panel">
+        <div id="market-pagination" class="pagination-controls" data-pagination hidden>
+          <p class="pagination-info" data-role="pagination-info"></p>
+          <div class="pagination-actions">
+            <button type="button" data-role="pagination-prev">Précédent</button>
+            <div class="pagination-pages" data-role="pagination-pages"></div>
+            <button type="button" data-role="pagination-next">Suivant</button>
+          </div>
+        </div>
+        <div class="table-wrapper">
+          <table id="cryptos" style="display:none;">
+            <thead>
+              <tr>
+                <th>Actif</th>
+                <th>Catégories</th>
+                <th>Rank</th>
+                <th>Prix ($)</th>
+                <th>Market Cap</th>
+                <th>Fully Diluted Market Cap</th>
+                <th>Volume 24h</th>
+                <th>Change 24h</th>
+                <th>Change 7j</th>
+                <th>Change 30j</th>
+                <th>Détails</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+      <div id="market-overview-chart"></div>
+    </main>
+  </body></html>`;
+}
+
+function buildCoin(index) {
+  const rank = index + 1;
+  return {
+    id: `coin-${rank}`,
+    symbol: `c${rank}`,
+    name: `Coin ${rank}`,
+    image: `https://cdn.example.test/coin-${rank}.png`,
+    current_price: 5000 - rank,
+    market_cap: 1000000 - rank * 10,
+    fully_diluted_valuation: 2000000 - rank * 10,
+    total_volume: 500000 - rank * 5,
+    market_cap_rank: rank,
+    price_change_percentage_24h: rank * 0.01,
+    price_change_percentage_7d_in_currency: rank * 0.02,
+    price_change_percentage_30d_in_currency: rank * 0.03,
+  };
+}
+
+function createCoinPages(total = 1000, perPage = 250) {
+  const map = new Map();
+  const pageCount = Math.ceil(total / perPage);
+  for (let page = 1; page <= pageCount; page += 1) {
+    const items = [];
+    const start = (page - 1) * perPage;
+    for (let i = start; i < Math.min(total, start + perPage); i += 1) {
+      items.push(buildCoin(i));
+    }
+    map.set(page, items);
+  }
+  return map;
+}
+
+function installApexChartsStub(t) {
+  if (global.window.ApexCharts) {
+    return global.window.ApexCharts;
+  }
+  class ApexChartsStub {
+    constructor(element, options) {
+      this.element = element;
+      this.options = options;
+      this.rendered = false;
+      this.updateOptionsCalls = [];
+      this.updateSeriesCalls = [];
+      ApexChartsStub.instances.push(this);
+    }
+    render() {
+      this.rendered = true;
+      return Promise.resolve();
+    }
+    updateOptions(options) {
+      this.updateOptionsCalls.push(options);
+      return Promise.resolve();
+    }
+    updateSeries(series) {
+      this.updateSeriesCalls.push(series);
+      return Promise.resolve();
+    }
+  }
+  ApexChartsStub.instances = [];
+  global.window.ApexCharts = ApexChartsStub;
+  t.after(() => {
+    delete global.window.ApexCharts;
+  });
+  return ApexChartsStub;
+}
+
+function stubCoinGecko(t, {
+  total = 1000,
+  perPage = 250,
+  extraHandlers = {},
+} = {}) {
+  const pages = createCoinPages(total, perPage);
+  const calls = [];
+  installApexChartsStub(t);
+  global.fetch = async (url) => {
+    if (typeof extraHandlers[url] === 'function') {
+      return extraHandlers[url](url);
+    }
+    if (url.startsWith('https://api.coingecko.com/api/v3/coins/markets')) {
+      const parsed = new URL(url);
+      const page = Number(parsed.searchParams.get('page')) || 1;
+      calls.push(page);
+      const payload = pages.get(page) || [];
+      return new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    if (url === 'https://example.test/api/diag') {
+      return new Response(JSON.stringify({ plan: 'pro' }), { status: 200 });
+    }
+    return new Response('{}', { status: 200 });
+  };
+  t.after(() => {
+    delete global.fetch;
+  });
+  return { calls, pages };
+}
+
 test('computeTopMarketCapSeries sorts and filters invalid entries', async () => {
   const { computeTopMarketCapSeries } = await loadTestExports();
   const items = [
@@ -223,4 +363,100 @@ test('loadFearGreedWidget met à jour la jauge et les étiquettes', async (t) =>
   const month = getValue('month');
   assert.equal(month.textContent, '22');
   assert.equal(month.dataset.band, 'extreme-fear');
+});
+
+test('loadCryptos récupère 1000 actifs CoinGecko et initialise la pagination', async (t) => {
+  const html = buildDashboardHtml();
+  const exports = await loadTestExports({ html });
+  const { calls } = stubCoinGecko(t);
+
+  await exports.loadCryptos();
+
+  assert.deepEqual(calls, [1, 2, 3, 4]);
+  const table = document.getElementById('cryptos');
+  assert.equal(table.style.display, 'table');
+  const rows = document.querySelectorAll('#cryptos tbody tr');
+  assert.equal(rows.length, 20);
+  assert.equal(rows[0].querySelector('.coin-name').textContent, 'Coin 1');
+  const info = document.querySelector('[data-role="pagination-info"]');
+  assert.ok(info);
+  assert.equal(info.textContent.trim(), 'Afficher les résultats de 1 à 20 sur 1000');
+  const pagesNav = document.querySelector('[data-role="pagination-pages"]');
+  assert.ok(pagesNav.querySelector('button[data-page="1"]'));
+  assert.ok(pagesNav.querySelector('button[data-page="2"]'));
+  assert.equal(document.getElementById('market-pagination').hasAttribute('hidden'), false);
+  assert.equal(document.getElementById('status').textContent.trim(), '');
+});
+
+test('pagination permet de naviguer vers les actifs suivants', async (t) => {
+  const html = buildDashboardHtml();
+  const exports = await loadTestExports({ html });
+  stubCoinGecko(t);
+
+  await exports.loadCryptos();
+
+  const pageThree = document.querySelector('[data-role="pagination-pages"] button[data-page="3"]');
+  assert.ok(pageThree);
+  pageThree.click();
+  const rows = document.querySelectorAll('#cryptos tbody tr');
+  assert.equal(rows.length, 20);
+  assert.equal(rows[0].querySelector('.coin-name').textContent, 'Coin 41');
+  const info = document.querySelector('[data-role="pagination-info"]');
+  assert.equal(info.textContent.trim(), 'Afficher les résultats de 41 à 60 sur 1000');
+});
+
+test('un tri réinitialise la pagination sur la première page', async (t) => {
+  const html = buildDashboardHtml();
+  const exports = await loadTestExports({ html });
+  stubCoinGecko(t);
+
+  await exports.loadCryptos();
+
+  const pageTwo = document.querySelector('[data-role="pagination-pages"] button[data-page="2"]');
+  assert.ok(pageTwo);
+  pageTwo.click();
+  const priceHeader = document.querySelectorAll('#cryptos thead th')[3];
+  priceHeader.click();
+  const info = document.querySelector('[data-role="pagination-info"]');
+  assert.equal(info.textContent.trim(), 'Afficher les résultats de 1 à 20 sur 1000');
+  const firstName = document.querySelector('#cryptos tbody tr .coin-name').textContent;
+  assert.equal(firstName, 'Coin 1000');
+});
+
+test('loadCryptos affiche une erreur lorsqu’une requête échoue', async (t) => {
+  const html = buildDashboardHtml();
+  const exports = await loadTestExports({ html });
+  global.fetch = async (url) => {
+    if (url.startsWith('https://api.coingecko.com/api/v3/coins/markets')) {
+      return new Response('oops', { status: 500 });
+    }
+    return new Response('{}', { status: 200 });
+  };
+  t.after(() => {
+    delete global.fetch;
+  });
+
+  await exports.loadCryptos();
+
+  const status = document.getElementById('status');
+  assert.ok(status.innerHTML.includes('Erreur'));
+  const retry = document.getElementById('retry');
+  assert.ok(retry);
+  assert.equal(document.getElementById('cryptos').style.display, 'none');
+});
+
+test('loadCryptos gère un univers plus petit que la taille de page', async (t) => {
+  const html = buildDashboardHtml();
+  const exports = await loadTestExports({ html });
+  const { calls } = stubCoinGecko(t, { total: 10 });
+
+  await exports.loadCryptos();
+
+  assert.deepEqual(calls, [1]);
+  const rows = document.querySelectorAll('#cryptos tbody tr');
+  assert.equal(rows.length, 10);
+  const info = document.querySelector('[data-role="pagination-info"]');
+  assert.equal(info.textContent.trim(), 'Afficher les résultats de 1 à 10 sur 10');
+  const pageTwo = document.querySelector('[data-role="pagination-pages"] button[data-page="2"]');
+  assert.equal(pageTwo, null);
 });
