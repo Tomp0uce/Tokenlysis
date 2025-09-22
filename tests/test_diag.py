@@ -41,6 +41,7 @@ def test_diag_returns_debug(monkeypatch, tmp_path):
 
     main_module.app.dependency_overrides[get_session] = lambda: TestingSessionLocal()
     main_module.app.state.budget = budget
+    main_module.app.state.cmc_budget = None
 
     client = TestClient(main_module.app)
     resp = client.get("/api/diag")
@@ -61,6 +62,8 @@ def test_diag_returns_debug(monkeypatch, tmp_path):
     assert data["top_n"] == settings.CG_TOP_N
     assert data["fear_greed_last_refresh"] is None
     assert data["fear_greed_count"] == 0
+    assert data["cmc_monthly_call_count"] == 0
+    assert data["cmc_monthly_call_categories"] == {}
 
 
 def test_diag_uses_budget_over_meta(monkeypatch, tmp_path):
@@ -77,6 +80,7 @@ def test_diag_uses_budget_over_meta(monkeypatch, tmp_path):
 
     main_module.app.dependency_overrides[get_session] = lambda: TestingSessionLocal()
     main_module.app.state.budget = budget
+    main_module.app.state.cmc_budget = None
 
     client = TestClient(main_module.app)
     resp = client.get("/api/diag")
@@ -91,6 +95,7 @@ def test_diag_no_budget(monkeypatch, tmp_path):
 
     main_module.app.dependency_overrides[get_session] = lambda: TestingSessionLocal()
     main_module.app.state.budget = None
+    main_module.app.state.cmc_budget = None
 
     client = TestClient(main_module.app)
     resp = client.get("/api/diag")
@@ -115,6 +120,7 @@ def test_diag_handles_invalid_last_etl_items(monkeypatch, tmp_path):
 
     main_module.app.dependency_overrides[get_session] = lambda: TestingSessionLocal()
     main_module.app.state.budget = None
+    main_module.app.state.cmc_budget = None
 
     client = TestClient(main_module.app)
     resp = client.get("/api/diag")
@@ -153,6 +159,7 @@ def test_diag_reports_fear_greed_metrics(monkeypatch, tmp_path):
 
     main_module.app.dependency_overrides[get_session] = lambda: TestingSessionLocal()
     main_module.app.state.budget = None
+    main_module.app.state.cmc_budget = None
 
     client = TestClient(main_module.app)
     resp = client.get("/api/diag")
@@ -169,8 +176,35 @@ def test_diag_uses_configurable_granularity(monkeypatch, tmp_path):
     monkeypatch.setattr(main_module.settings, "REFRESH_GRANULARITY", "1h")
     main_module.app.dependency_overrides[get_session] = lambda: TestingSessionLocal()
     main_module.app.state.budget = None
+    main_module.app.state.cmc_budget = None
+
+
+def test_diag_reports_cmc_budget(monkeypatch, tmp_path):
+    TestingSessionLocal = _setup_test_session(tmp_path)
+    import backend.app.main as main_module
+    from backend.app.core.settings import settings
+
+    cmc_budget = CallBudget(tmp_path / "cmc_budget.json", quota=5)
+    cmc_budget.spend(2, category="cmc_history")
+    cmc_budget.spend(1, category="cmc_latest")
+
+    monkeypatch.setattr(settings, "CMC_MONTHLY_QUOTA", 5)
+    monkeypatch.setattr(settings, "CMC_ALERT_THRESHOLD", 0.8)
+    main_module.app.dependency_overrides[get_session] = lambda: TestingSessionLocal()
+    main_module.app.state.budget = None
+    main_module.app.state.cmc_budget = cmc_budget
 
     client = TestClient(main_module.app)
     resp = client.get("/api/diag")
+    assert resp.status_code == 200
     data = resp.json()
-    assert data["granularity"] == "1h"
+    assert data["cmc_monthly_call_count"] == 3
+    assert data["cmc_monthly_call_categories"] == {
+        "cmc_history": 2,
+        "cmc_latest": 1,
+    }
+    assert data["cmc_quota"] == 5
+    assert data["cmc_alert_threshold"] == 0.8
+
+    main_module.app.state.cmc_budget = None
+

@@ -178,3 +178,27 @@ def test_cmc_throttle_parsing(monkeypatch):
     monkeypatch.setenv("CMC_THROTTLE_MS", "2000")
     cfg = settings_module.Settings()
     assert cfg.CMC_THROTTLE_MS == 2000
+
+
+def test_cmc_monthly_quota_parsing(monkeypatch):
+    monkeypatch.setenv("CMC_MONTHLY_QUOTA", "4321")
+    cfg = settings_module.Settings()
+    assert cfg.CMC_MONTHLY_QUOTA == 4321
+
+
+def test_cmc_monthly_quota_ignores_blank(monkeypatch):
+    monkeypatch.setenv("CMC_MONTHLY_QUOTA", "")
+    cfg = settings_module.Settings()
+    assert cfg.CMC_MONTHLY_QUOTA == 3000
+
+
+def test_cmc_alert_threshold_default(monkeypatch):
+    monkeypatch.delenv("CMC_ALERT_THRESHOLD", raising=False)
+    cfg = settings_module.Settings()
+    assert cfg.CMC_ALERT_THRESHOLD == 0.7
+
+
+def test_cmc_alert_threshold_override(monkeypatch):
+    monkeypatch.setenv("CMC_ALERT_THRESHOLD", "0.85")
+    cfg = settings_module.Settings()
+    assert cfg.CMC_ALERT_THRESHOLD == pytest.approx(0.85)

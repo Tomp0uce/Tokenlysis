@@ -6,6 +6,8 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from backend.app.services.budget import CallBudget
+
 
 @pytest.fixture()
 def TestingSessionLocal(tmp_path):
@@ -109,6 +111,7 @@ def test_api_fng_latest_success(monkeypatch, TestingSessionLocal):
 
     main_module.app.dependency_overrides[main_module.get_session] = override_session
     main_module.app.dependency_overrides[main_module.get_fng_client] = lambda: stub
+    main_module.app.state.cmc_budget = None
 
     client = TestClient(main_module.app)
     resp = client.get("/api/fng/latest")
@@ -172,6 +175,7 @@ def test_api_fng_latest_falls_back_to_history(monkeypatch, TestingSessionLocal):
 
     main_module.app.dependency_overrides[main_module.get_session] = override_session
     main_module.app.dependency_overrides[main_module.get_fng_client] = lambda: stub
+    main_module.app.state.cmc_budget = None
 
     client = TestClient(main_module.app)
     resp = client.get("/api/fng/latest")
@@ -224,6 +228,7 @@ def test_api_fng_latest_uses_database_fallback(monkeypatch, TestingSessionLocal)
 
     main_module.app.dependency_overrides[main_module.get_session] = override_session
     main_module.app.dependency_overrides[main_module.get_fng_client] = lambda: StubClient()
+    main_module.app.state.cmc_budget = None
 
     client = TestClient(main_module.app)
     resp = client.get("/api/fng/latest")
@@ -319,6 +324,7 @@ def test_api_fng_latest_propagates_errors(monkeypatch, TestingSessionLocal):
 
     main_module.app.dependency_overrides[main_module.get_session] = override_session
     main_module.app.dependency_overrides[main_module.get_fng_client] = lambda: stub
+    main_module.app.state.cmc_budget = None
 
     client = TestClient(main_module.app)
     resp = client.get("/api/fng/latest")
@@ -331,7 +337,7 @@ def test_api_fng_latest_propagates_errors(monkeypatch, TestingSessionLocal):
     session.close()
 
 
-def test_api_fng_history_orders_points(monkeypatch):
+def test_api_fng_history_orders_points(monkeypatch, TestingSessionLocal):
     import backend.app.main as main_module
 
     class StubClient:
@@ -363,7 +369,17 @@ def test_api_fng_history_orders_points(monkeypatch):
             ]
 
     stub = StubClient()
+    session = TestingSessionLocal()
+
+    def override_session():
+        try:
+            yield session
+        finally:
+            pass
+
+    main_module.app.dependency_overrides[main_module.get_session] = override_session
     main_module.app.dependency_overrides[main_module.get_fng_client] = lambda: stub
+    main_module.app.state.cmc_budget = None
 
     client = TestClient(main_module.app)
     resp = client.get("/api/fng/history?days=5")
@@ -376,6 +392,8 @@ def test_api_fng_history_orders_points(monkeypatch):
     ]
 
     main_module.app.dependency_overrides.pop(main_module.get_fng_client, None)
+    main_module.app.dependency_overrides.pop(main_module.get_session, None)
+    session.close()
 
 
 def test_api_fng_history_uses_database_fallback(monkeypatch, TestingSessionLocal):
@@ -644,6 +662,42 @@ def test_sync_fear_greed_index_skips_history_when_multi_year_today_present(
     assert processed == 0
 
 
+def test_sync_fear_greed_index_skips_when_cmc_budget_exhausted(
+    TestingSessionLocal, tmp_path
+):
+    from backend.app.services import fear_greed as service_module
+    now = dt.datetime(2024, 7, 1, 12, tzinfo=dt.timezone.utc)
+    session = TestingSessionLocal()
+
+    budget = CallBudget(tmp_path / "cmc_budget.json", quota=1)
+    budget.spend(1, category="cmc_history")
+
+    class StubClient:
+        def __init__(self) -> None:
+            self.history_calls = 0
+            self.latest_calls = 0
+
+        def get_historical(self, **_: object) -> list[dict]:
+            self.history_calls += 1
+            return []
+
+        def get_latest(self) -> dict | None:
+            self.latest_calls += 1
+            return None
+
+    stub = StubClient()
+    try:
+        processed = service_module.sync_fear_greed_index(
+            session=session, client=stub, now=now, budget=budget
+        )
+    finally:
+        session.close()
+
+    assert processed == 0
+    assert stub.history_calls == 0
+    assert stub.latest_calls == 0
+
+
 def test_sync_fear_greed_index_fetches_latest_only_when_today_missing(
     monkeypatch, TestingSessionLocal
 ):
@@ -718,6 +772,57 @@ def test_sync_fear_greed_index_fetches_latest_only_when_today_missing(
     assert latest.timestamp.date() == now.date()
     assert latest.value == 65
     assert meta_value == now.isoformat()
+
+
+def test_sync_fear_greed_index_spends_budget_on_calls(
+    TestingSessionLocal, tmp_path
+):
+    from backend.app.services import fear_greed as service_module
+
+    now = dt.datetime(2024, 8, 1, 10, tzinfo=dt.timezone.utc)
+    session = TestingSessionLocal()
+
+    budget = CallBudget(tmp_path / "cmc_budget.json", quota=10)
+
+    class StubClient:
+        def __init__(self) -> None:
+            self.history_calls = 0
+            self.latest_calls = 0
+
+        def get_historical(self, **_: object) -> list[dict]:
+            self.history_calls += 1
+            return [
+                {
+                    "timestamp": "2024-07-30T00:00:00Z",
+                    "value": 40,
+                    "value_classification": "Fear",
+                }
+            ]
+
+        def get_latest(self) -> dict | None:
+            self.latest_calls += 1
+            return {
+                "timestamp": "2024-08-01T00:00:00Z",
+                "score": 55,
+                "label": "Greed",
+            }
+
+    stub = StubClient()
+    try:
+        processed = service_module.sync_fear_greed_index(
+            session=session, client=stub, now=now, budget=budget
+        )
+    finally:
+        session.close()
+
+    assert processed == 2
+    assert stub.history_calls == 1
+    assert stub.latest_calls == 1
+    assert budget.monthly_call_count == 2
+    assert budget.category_counts == {
+        "cmc_history": 1,
+        "cmc_latest": 1,
+    }
 
 
 def test_sync_fear_greed_index_fetches_history_when_span_insufficient(

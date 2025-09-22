@@ -394,6 +394,7 @@ def test_startup_creates_budget_dir(monkeypatch, tmp_path):
     assert path.parent.exists()
     assert main_module.app.state.budget is not None
     assert main_module.app.state.budget.path == path
+    assert main_module.app.state.cmc_budget is None
 
 
 def test_startup_handles_unwritable_budget_file(monkeypatch, tmp_path, caplog):
