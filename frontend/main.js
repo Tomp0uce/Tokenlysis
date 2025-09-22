@@ -1,5 +1,5 @@
 import { getAppVersion } from './version.js';
-import { extractItems, resolveVersion } from './utils.js';
+import { resolveVersion } from './utils.js';
 import {
   createAreaChart,
   refreshChartsTheme,
@@ -33,6 +33,12 @@ const RANGE_DESCRIPTIONS = new Map([
 let appVersion = 'unknown';
 export const selectedCategories = [];
 
+const COINGECKO_BASE_URL = 'https://api.coingecko.com/api/v3';
+const COINGECKO_MARKETS_ENDPOINT = `${COINGECKO_BASE_URL}/coins/markets`;
+const COINGECKO_DEFAULT_LIMIT = 1000;
+const COINGECKO_MAX_PER_PAGE = 250;
+const DEFAULT_ROWS_PER_PAGE = 20;
+
 const SORTABLE_COLUMN_ACCESSORS = new Map([
   [2, (item) => item.rank],
   [3, (item) => item.price],
@@ -59,6 +65,8 @@ const DATA_LABELS = {
 };
 
 let marketItems = [];
+let paginationState = { page: 1, perPage: DEFAULT_ROWS_PER_PAGE };
+let paginationElements = null;
 const boundSortableHeaders = new WeakSet();
 let sortState = { columnIndex: 2, direction: 'asc' };
 let marketOverviewChart = null;
@@ -169,6 +177,98 @@ function weightedAverage(items, weightSelector, valueSelector) {
     return null;
   }
   return weightedSum / weightTotal;
+}
+
+function pickFirstValidNumber(...values) {
+  for (const value of values) {
+    const numeric = normalizeNumericValue(value);
+    if (numeric !== null) {
+      return numeric;
+    }
+  }
+  return null;
+}
+
+function mapCoinGeckoItem(raw, fallbackRank) {
+  const safeObject = raw && typeof raw === 'object' ? raw : {};
+  const categories = Array.isArray(safeObject.categories)
+    ? safeObject.categories
+        .map((item) => (typeof item === 'string' ? item.trim() : ''))
+        .filter((item) => item)
+    : [];
+  const rankValue = normalizeNumericValue(safeObject.market_cap_rank);
+  return {
+    coin_id: typeof safeObject.id === 'string' ? safeObject.id : '',
+    name: typeof safeObject.name === 'string' ? safeObject.name : '',
+    symbol: typeof safeObject.symbol === 'string' ? safeObject.symbol : '',
+    logo_url: typeof safeObject.image === 'string' ? safeObject.image : '',
+    rank: rankValue !== null ? rankValue : fallbackRank,
+    price: normalizeNumericValue(safeObject.current_price),
+    market_cap: normalizeNumericValue(safeObject.market_cap),
+    fully_diluted_market_cap: normalizeNumericValue(safeObject.fully_diluted_valuation),
+    volume_24h: normalizeNumericValue(safeObject.total_volume),
+    pct_change_24h: pickFirstValidNumber(
+      safeObject.price_change_percentage_24h,
+      safeObject.price_change_percentage_24h_in_currency,
+    ),
+    pct_change_7d: pickFirstValidNumber(
+      safeObject.price_change_percentage_7d_in_currency,
+      safeObject.price_change_percentage_7d,
+    ),
+    pct_change_30d: pickFirstValidNumber(
+      safeObject.price_change_percentage_30d_in_currency,
+      safeObject.price_change_percentage_30d,
+    ),
+    category_names: categories,
+  };
+}
+
+function mapCoinGeckoItems(items) {
+  if (!Array.isArray(items)) {
+    return [];
+  }
+  return items.map((item, index) => mapCoinGeckoItem(item, index + 1));
+}
+
+async function fetchCoinGeckoMarkets({
+  limit = COINGECKO_DEFAULT_LIMIT,
+  perPage = COINGECKO_MAX_PER_PAGE,
+  vs = 'usd',
+  fetchImpl,
+} = {}) {
+  const fetcher = typeof fetchImpl === 'function' ? fetchImpl : typeof fetch === 'function' ? fetch : null;
+  if (!fetcher) {
+    throw new Error('fetch is not available in this environment');
+  }
+  const requestedLimit = Math.max(1, Number(limit) || COINGECKO_DEFAULT_LIMIT);
+  const pageSize = Math.max(1, Math.min(Number(perPage) || COINGECKO_MAX_PER_PAGE, COINGECKO_MAX_PER_PAGE));
+  const totalPages = Math.ceil(requestedLimit / pageSize);
+  const aggregated = [];
+  for (let page = 1; page <= totalPages; page += 1) {
+    const url = new URL(COINGECKO_MARKETS_ENDPOINT);
+    url.searchParams.set('vs_currency', vs);
+    url.searchParams.set('order', 'market_cap_desc');
+    url.searchParams.set('per_page', String(pageSize));
+    url.searchParams.set('page', String(page));
+    url.searchParams.set('sparkline', 'false');
+    url.searchParams.set('price_change_percentage', '24h,7d,30d');
+    const response = await fetcher(url.toString());
+    if (!response?.ok) {
+      throw new Error(`CoinGecko request failed with status ${response?.status ?? 'unknown'}`);
+    }
+    const data = await response.json();
+    if (!Array.isArray(data)) {
+      throw new Error('Invalid CoinGecko response schema');
+    }
+    aggregated.push(...data);
+    if (aggregated.length >= requestedLimit) {
+      break;
+    }
+    if (data.length < pageSize) {
+      break;
+    }
+  }
+  return aggregated.slice(0, requestedLimit);
 }
 
 export function computeTopMarketCapSeries(items, limit = 5) {
@@ -672,6 +772,151 @@ function renderRows(items) {
   tbody.appendChild(fragment);
 }
 
+function getPaginationElements() {
+  if (
+    paginationElements?.container &&
+    paginationElements.container.isConnected &&
+    paginationElements.container.ownerDocument === document
+  ) {
+    return paginationElements;
+  }
+  const container =
+    document.querySelector('[data-pagination]') || document.getElementById('market-pagination');
+  if (!container) {
+    paginationElements = null;
+    return null;
+  }
+  paginationElements = {
+    container,
+    info: container.querySelector('[data-role="pagination-info"]'),
+    pages: container.querySelector('[data-role="pagination-pages"]'),
+    prev: container.querySelector('[data-role="pagination-prev"]'),
+    next: container.querySelector('[data-role="pagination-next"]'),
+  };
+  return paginationElements;
+}
+
+function computePageCount(total, perPage) {
+  const size = Math.max(1, Number(perPage) || DEFAULT_ROWS_PER_PAGE);
+  return total > 0 ? Math.ceil(total / size) : 0;
+}
+
+function buildPaginationSequence(totalPages, currentPage) {
+  if (totalPages <= 0) {
+    return [];
+  }
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, index) => index + 1);
+  }
+  const pages = new Set([1, totalPages, currentPage]);
+  pages.add(currentPage - 1);
+  pages.add(currentPage + 1);
+  if (currentPage <= 3) {
+    for (let page = 2; page <= Math.min(5, totalPages - 1); page += 1) {
+      pages.add(page);
+    }
+  } else if (currentPage >= totalPages - 2) {
+    for (let page = Math.max(2, totalPages - 4); page < totalPages; page += 1) {
+      pages.add(page);
+    }
+  }
+  const sorted = Array.from(pages)
+    .filter((page) => page >= 1 && page <= totalPages)
+    .sort((a, b) => a - b);
+  const sequence = [];
+  let previous = null;
+  sorted.forEach((page) => {
+    if (previous !== null && page - previous > 1) {
+      sequence.push('ellipsis');
+    }
+    sequence.push(page);
+    previous = page;
+  });
+  return sequence;
+}
+
+function setCurrentPage(page) {
+  const perPage = Math.max(1, Number(paginationState.perPage) || DEFAULT_ROWS_PER_PAGE);
+  const totalPages = computePageCount(marketItems.length, perPage);
+  const numeric = Number(page);
+  const target = Number.isFinite(numeric) ? Math.floor(numeric) : 1;
+  const clamped = totalPages > 0 ? Math.min(Math.max(target, 1), totalPages) : 1;
+  if (clamped === paginationState.page) {
+    return;
+  }
+  paginationState.page = clamped;
+  renderSortedItems();
+}
+
+function updatePaginationControls(total, currentPage, perPage, totalPages) {
+  const elements = getPaginationElements();
+  if (!elements?.container) {
+    return;
+  }
+  const { container, info, pages, prev, next } = elements;
+  if (total <= 0) {
+    container.hidden = true;
+    if (info) {
+      info.textContent = 'Aucun résultat';
+    }
+    if (pages) {
+      pages.innerHTML = '';
+    }
+    if (prev) {
+      prev.disabled = true;
+      prev.onclick = null;
+    }
+    if (next) {
+      next.disabled = true;
+      next.onclick = null;
+    }
+    return;
+  }
+
+  container.hidden = false;
+  const safePerPage = Math.max(1, Number(perPage) || DEFAULT_ROWS_PER_PAGE);
+  const startIndex = (currentPage - 1) * safePerPage + 1;
+  const endIndex = Math.min(total, startIndex + safePerPage - 1);
+  if (info) {
+    info.textContent = `Afficher les résultats de ${startIndex} à ${endIndex} sur ${total}`;
+  }
+  if (prev) {
+    prev.disabled = currentPage <= 1;
+    prev.onclick = currentPage > 1 ? () => setCurrentPage(currentPage - 1) : null;
+  }
+  if (next) {
+    next.disabled = currentPage >= totalPages;
+    next.onclick = currentPage < totalPages ? () => setCurrentPage(currentPage + 1) : null;
+  }
+  if (pages) {
+    pages.innerHTML = '';
+    const sequence = buildPaginationSequence(totalPages, currentPage);
+    sequence.forEach((entry) => {
+      if (entry === 'ellipsis') {
+        const span = document.createElement('span');
+        span.className = 'pagination-ellipsis';
+        span.textContent = '…';
+        pages.appendChild(span);
+        return;
+      }
+      const pageNumber = Number(entry);
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.dataset.page = String(pageNumber);
+      button.textContent = String(pageNumber);
+      button.className = 'pagination-button';
+      if (pageNumber === currentPage) {
+        button.disabled = true;
+        button.setAttribute('aria-current', 'page');
+      }
+      button.addEventListener('click', () => {
+        setCurrentPage(pageNumber);
+      });
+      pages.appendChild(button);
+    });
+  }
+}
+
 // ===== sorting helpers =====
 function clearSortIndicators() {
   document.querySelectorAll('#cryptos thead th').forEach((th) => {
@@ -691,17 +936,34 @@ function applySortIndicators(columnIndex, direction) {
 function renderSortedItems() {
   const hasSort =
     sortState.columnIndex !== null && SORTABLE_COLUMN_ACCESSORS.has(sortState.columnIndex);
-  const itemsToRender = [...marketItems];
+  const sortedItems = [...marketItems];
   if (hasSort) {
     const accessor = SORTABLE_COLUMN_ACCESSORS.get(sortState.columnIndex);
-    itemsToRender.sort((a, b) =>
+    sortedItems.sort((a, b) =>
       compareNumericValues(accessor?.(a), accessor?.(b), sortState.direction),
     );
     applySortIndicators(sortState.columnIndex, sortState.direction);
   } else {
     clearSortIndicators();
   }
-  renderRows(itemsToRender);
+  const perPage = Math.max(1, Number(paginationState.perPage) || DEFAULT_ROWS_PER_PAGE);
+  const total = sortedItems.length;
+  const totalPages = computePageCount(total, perPage);
+  let currentPage = paginationState.page;
+  if (totalPages === 0) {
+    currentPage = 1;
+  } else if (currentPage > totalPages) {
+    currentPage = totalPages;
+  } else if (currentPage < 1) {
+    currentPage = 1;
+  }
+  if (currentPage !== paginationState.page) {
+    paginationState.page = currentPage;
+  }
+  const startIndex = total > 0 ? (currentPage - 1) * perPage : 0;
+  const pageItems = total > 0 ? sortedItems.slice(startIndex, startIndex + perPage) : [];
+  updatePaginationControls(total, currentPage, perPage, totalPages);
+  renderRows(pageItems);
 }
 
 function initializeSorting() {
@@ -717,6 +979,7 @@ function initializeSorting() {
           ? 'desc'
           : 'asc';
       sortState = { columnIndex: index, direction };
+      paginationState.page = 1;
       if (marketItems.length) {
         renderSortedItems();
       }
@@ -727,36 +990,66 @@ function initializeSorting() {
 
 export async function loadCryptos() {
   const statusEl = document.getElementById('status');
-  statusEl.textContent = 'Chargement...';
-  document.getElementById('cryptos').style.display = 'none';
+  if (statusEl) {
+    statusEl.textContent = 'Chargement...';
+  }
+  const tableEl = document.getElementById('cryptos');
+  if (tableEl) {
+    tableEl.style.display = 'none';
+  }
   const tbody = document.querySelector('#cryptos tbody');
-  tbody.innerHTML = '';
+  if (tbody) {
+    tbody.innerHTML = '';
+  }
+  const pagination = getPaginationElements();
+  if (pagination?.container) {
+    pagination.container.hidden = true;
+  }
+  paginationState.page = 1;
+  paginationState.perPage = DEFAULT_ROWS_PER_PAGE;
   initializeSorting();
-  const url = `${API_URL}/markets/top?limit=20&vs=usd`;
   try {
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const json = await res.json();
-    const items = extractItems(json);
-    const lastEl = document.getElementById('last-update');
-    lastEl.textContent = json.last_refresh_at
-      ? `Dernière mise à jour : ${json.last_refresh_at} (source: ${json.data_source || 'unknown'})`
-      : 'Dernière mise à jour : inconnue';
-    marketItems = [...items];
+    const rawItems = await fetchCoinGeckoMarkets({
+      limit: COINGECKO_DEFAULT_LIMIT,
+      perPage: COINGECKO_MAX_PER_PAGE,
+    });
+    marketItems = mapCoinGeckoItems(rawItems);
     updateSummary(marketItems);
     await renderMarketOverview(marketItems);
     renderSortedItems();
-    document.getElementById('cryptos').style.display = 'table';
-    statusEl.textContent = '';
-    try {
-      const diag = await fetch(`${API_URL}/diag`).then((r) => (r.ok ? r.json() : null));
-      if (diag?.plan === 'demo') {
-        document.getElementById('demo-banner').style.display = 'block';
+    if (tableEl) {
+      tableEl.style.display = 'table';
+    }
+    if (statusEl) {
+      statusEl.textContent = '';
+    }
+    const lastEl = document.getElementById('last-update');
+    if (lastEl) {
+      lastEl.textContent = `Dernière mise à jour : ${new Date().toISOString()} (source : CoinGecko API)`;
+    }
+    if (API_URL) {
+      try {
+        const diag = await fetch(`${API_URL}/diag`).then((r) => (r.ok ? r.json() : null));
+        if (diag?.plan === 'demo') {
+          const banner = document.getElementById('demo-banner');
+          if (banner) {
+            banner.style.display = 'block';
+          }
+        }
+      } catch (error) {
+        console.error(error);
       }
-    } catch {}
+    }
   } catch (err) {
-    statusEl.innerHTML = `Erreur lors de la récupération des données <button id="retry">Réessayer</button>`;
-    document.getElementById('retry').onclick = loadCryptos;
+    marketItems = [];
+    renderSortedItems();
+    if (statusEl) {
+      statusEl.innerHTML = `Erreur lors de la récupération des données <button id="retry">Réessayer</button>`;
+      const retry = document.getElementById('retry');
+      if (retry) {
+        retry.onclick = loadCryptos;
+      }
+    }
     console.error(err);
   }
 }
@@ -804,4 +1097,5 @@ export const __test__ = {
   combineMarketHistories,
   fetchAggregatedTopMarketHistory,
   loadFearGreedWidget,
+  loadCryptos,
 };
