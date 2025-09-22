@@ -110,7 +110,10 @@ class MarketsCache:
         payload = self._build_snapshot(session, vs)
         expires_at = self._now() + dt.timedelta(seconds=self._ttl_seconds)
         with self._lock:
-            self._cache[vs.lower()] = _CacheEntry(payload=payload, expires_at=expires_at)
+            self._cache[vs.lower()] = _CacheEntry(
+                payload=payload,
+                expires_at=expires_at,
+            )
         return payload
 
     def get_top(self, session: Session, vs: str, limit: int) -> dict[str, object]:

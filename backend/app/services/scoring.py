@@ -3,7 +3,7 @@ from typing import List, Optional
 
 
 def _percentile(values: List[float], p: float) -> float:
-    """Return the percentile value using linear interpolation for non-integer indexes."""
+    """Return the percentile via linear interpolation for non-integer indexes."""
     if not values:
         return 0.0
     vals = sorted(values)
@@ -18,7 +18,7 @@ def _percentile(values: List[float], p: float) -> float:
 
 
 def _normalize(values: List[float], log: bool = False) -> List[int]:
-    """Normalise values on a 0–100 scale with optional log10 transform for heavy tails."""
+    """Normalise values on a 0–100 scale with optional log10 transform."""
     if log:
         vals = [math.log10(max(v, 1e-12)) for v in values]
     else:
@@ -47,7 +47,7 @@ def score_liquidite(
 
 
 def score_opportunite(rsi: List[float], vol_change: List[float]) -> List[int]:
-    """Score opportunity by combining RSI reversal logic with normalised volume spikes."""
+    """Score opportunity by combining RSI reversal logic with volume spikes."""
     s_rsi = [max(0.0, min((70 - v) / 40.0, 1.0)) for v in rsi]
     s_vol = [x / 100 for x in _normalize(vol_change, log=False)]
     return [round(100 * (0.60 * r + 0.40 * v)) for r, v in zip(s_rsi, s_vol)]

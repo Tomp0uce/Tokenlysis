@@ -18,6 +18,8 @@ from ..models import Coin, LatestPrice, Meta, Price, FearGreed
 
 logger = logging.getLogger(__name__)
 
+CategoryDetails = tuple[list[str], list[str], dict[str, str], dt.datetime | None]
+
 
 def _detect_dialect(session: Session) -> str:
     """Return the current session dialect name in lowercase."""
@@ -126,7 +128,9 @@ class CoinsRepo:
         details["category_names"] = (
             json.loads(row.category_names) if row.category_names else []
         )
-        details["category_ids"] = json.loads(row.category_ids) if row.category_ids else []
+        details["category_ids"] = (
+            json.loads(row.category_ids) if row.category_ids else []
+        )
         details["name"] = row.name or ""
         details["symbol"] = row.symbol or ""
         details["logo_url"] = row.logo_url
@@ -201,7 +205,7 @@ class CoinsRepo:
 
     def get_categories_with_timestamps(
         self, coin_ids: list[str]
-    ) -> dict[str, tuple[list[str], list[str], dict[str, str], dt.datetime | None]]:
+    ) -> dict[str, CategoryDetails]:
         if not coin_ids:
             return {}
         stmt = select(
@@ -216,7 +220,7 @@ class CoinsRepo:
         except OperationalError as exc:
             logger.warning("schema out-of-date: %s", exc)
             return {cid: ([], [], {}, None) for cid in coin_ids}
-        result: dict[str, tuple[list[str], list[str], dict[str, str], dt.datetime | None]] = {}
+        result: dict[str, CategoryDetails] = {}
         for cid, names_raw, ids_raw, links_raw, ts in rows:
             names = json.loads(names_raw) if names_raw else []
             ids = json.loads(ids_raw) if ids_raw else []
@@ -238,7 +242,7 @@ class CoinsRepo:
 
     def get_categories_with_timestamp(
         self, coin_id: str
-    ) -> tuple[list[str], list[str], dict[str, str], dt.datetime | None]:
+    ) -> CategoryDetails:
         stmt = select(
             Coin.category_names,
             Coin.category_ids,
@@ -354,7 +358,11 @@ class FearGreedRepo:
 
     @staticmethod
     def _ensure_utc(row: FearGreed | None) -> FearGreed | None:
-        if row is not None and row.timestamp is not None and row.timestamp.tzinfo is None:
+        if (
+            row is not None
+            and row.timestamp is not None
+            and row.timestamp.tzinfo is None
+        ):
             row.timestamp = row.timestamp.replace(tzinfo=dt.timezone.utc)
         return row
 
