@@ -101,6 +101,10 @@ def get_fng_client() -> CoinMarketCapFearGreedClient:
     return build_fng_client()
 
 
+def _get_cmc_budget() -> CallBudget | None:
+    return getattr(app.state, "cmc_budget", None)
+
+
 def _parse_fng_timestamp(raw: object) -> dt.datetime:
     if isinstance(raw, str):
         candidate = raw.strip()
@@ -311,6 +315,7 @@ def fng_latest(
     )
 
     refresh_error: Exception | None = None
+    cmc_budget = _get_cmc_budget()
     if not should_refresh and has_cache:
         cached = _serialize_fng_row(cached_row)
         if cached is not None:
@@ -319,7 +324,9 @@ def fng_latest(
 
     if should_refresh:
         try:
-            sync_fear_greed_index(session=session, client=client, now=now)
+            sync_fear_greed_index(
+                session=session, client=client, now=now, budget=cmc_budget
+            )
         except Exception as exc:  # pragma: no cover - defensive logging
             logger.warning("fear & greed sync failed during latest fetch: %s", exc)
             refresh_error = exc
@@ -337,25 +344,49 @@ def fng_latest(
         return cached
 
     latest_error: requests.RequestException | None = None
-    try:
-        latest = client.get_latest()
-    except requests.RequestException as exc:
-        logger.warning("fear & greed latest fetch failed: %s", exc)
-        latest_error = exc
-        latest = None
+    latest: dict[str, object] | None = None
+    if cmc_budget is None or cmc_budget.can_spend(1):
+        try:
+            latest = client.get_latest()
+        except requests.RequestException as exc:
+            logger.warning("fear & greed latest fetch failed: %s", exc)
+            latest_error = exc
+        finally:
+            if cmc_budget is not None:
+                cmc_budget.spend(1, category="cmc_latest")
+    else:
+        logger.warning(
+            "fear & greed latest fetch skipped: CMC quota exceeded",
+            extra={
+                "monthly_call_count": cmc_budget.monthly_call_count,
+                "quota": settings.CMC_MONTHLY_QUOTA,
+            },
+        )
     if latest:
         return latest
 
     history_error: requests.RequestException | None = None
     fallback_point: dict[str, object] | None = None
-    try:
-        history = client.get_historical(limit=1)
-    except requests.RequestException as exc:
-        logger.error("fear & greed fallback fetch failed: %s", exc)
-        history_error = exc
+    if cmc_budget is None or cmc_budget.can_spend(1):
+        try:
+            history = client.get_historical(limit=1)
+        except requests.RequestException as exc:
+            logger.error("fear & greed fallback fetch failed: %s", exc)
+            history_error = exc
+        else:
+            if history:
+                fallback_point = history[-1]
+        finally:
+            if cmc_budget is not None:
+                cmc_budget.spend(1, category="cmc_history")
     else:
-        if history:
-            fallback_point = history[-1]
+        logger.warning(
+            "fear & greed history fallback skipped: CMC quota exceeded",
+            extra={
+                "monthly_call_count": cmc_budget.monthly_call_count,
+                "quota": settings.CMC_MONTHLY_QUOTA,
+            },
+        )
     if fallback_point:
         return fallback_point
 
@@ -398,9 +429,12 @@ def fng_history(
     )
 
     refresh_error: Exception | None = None
+    cmc_budget = _get_cmc_budget()
     if should_refresh:
         try:
-            sync_fear_greed_index(session=session, client=client, now=now)
+            sync_fear_greed_index(
+                session=session, client=client, now=now, budget=cmc_budget
+            )
         except Exception as exc:  # pragma: no cover - defensive logging
             logger.warning("fear & greed sync failed during history fetch: %s", exc)
             refresh_error = exc
@@ -430,12 +464,25 @@ def fng_history(
         return {"days": limit, "points": ordered}
 
     fetch_error: requests.RequestException | None = None
-    try:
-        points = client.get_historical(limit=limit)
-    except requests.RequestException as exc:
-        logger.error("fear & greed history fetch failed: %s", exc)
-        fetch_error = exc
-        points = []
+    points: list[dict] = []
+    if cmc_budget is None or cmc_budget.can_spend(1):
+        try:
+            points = client.get_historical(limit=limit)
+        except requests.RequestException as exc:
+            logger.error("fear & greed history fetch failed: %s", exc)
+            fetch_error = exc
+            points = []
+        finally:
+            if cmc_budget is not None:
+                cmc_budget.spend(1, category="cmc_history")
+    else:
+        logger.warning(
+            "fear & greed history fetch skipped: CMC quota exceeded",
+            extra={
+                "monthly_call_count": cmc_budget.monthly_call_count,
+                "quota": settings.CMC_MONTHLY_QUOTA,
+            },
+        )
     filtered = [point for point in points if isinstance(point, dict)]
     if filtered:
         ordered = sorted(
@@ -550,6 +597,11 @@ def diag(session: Session = Depends(get_session)) -> dict:
     budget: CallBudget | None = getattr(app.state, "budget", None)
     monthly_call_count = budget.monthly_call_count if budget else 0
     monthly_call_categories = budget.category_counts if budget else {}
+    cmc_budget = _get_cmc_budget()
+    cmc_monthly_call_count = cmc_budget.monthly_call_count if cmc_budget else 0
+    cmc_monthly_call_categories = (
+        cmc_budget.category_counts if cmc_budget else {}
+    )
     fear_greed_count = fear_greed_repo.count()
 
     return {
@@ -561,6 +613,10 @@ def diag(session: Session = Depends(get_session)) -> dict:
         "monthly_call_count": monthly_call_count,
         "monthly_call_categories": monthly_call_categories,
         "quota": settings.CG_MONTHLY_QUOTA,
+        "cmc_monthly_call_count": cmc_monthly_call_count,
+        "cmc_monthly_call_categories": cmc_monthly_call_categories,
+        "cmc_quota": settings.CMC_MONTHLY_QUOTA,
+        "cmc_alert_threshold": settings.CMC_ALERT_THRESHOLD,
         "data_source": data_source,
         "top_n": settings.CG_TOP_N,
         "fear_greed_last_refresh": fear_greed_last_refresh,
@@ -624,7 +680,8 @@ async def run_etl_async(*, budget: CallBudget | None) -> int:
 async def sync_fear_greed_async() -> int:
     """Synchronise the Fear & Greed index without blocking the event loop."""
 
-    return await asyncio.to_thread(sync_fear_greed_index)
+    budget = _get_cmc_budget()
+    return await asyncio.to_thread(sync_fear_greed_index, budget=budget)
 
 
 async def etl_loop(stop_event: asyncio.Event) -> None:
@@ -716,6 +773,22 @@ async def startup() -> None:
             logging.getLogger().warning("budget file unavailable at %s: %s", path, exc)
             budget = None
     app.state.budget = budget
+
+    cmc_budget = None
+    cmc_budget_path = settings.CMC_BUDGET_FILE
+    if cmc_budget_path and settings.CMC_MONTHLY_QUOTA > 0:
+        cmc_path = Path(cmc_budget_path)
+        try:
+            cmc_path.parent.mkdir(parents=True, exist_ok=True)
+            cmc_path.touch(exist_ok=True)
+            cmc_budget = CallBudget(cmc_path, settings.CMC_MONTHLY_QUOTA)
+        except OSError as exc:
+            logger.warning("CMC budget file unavailable at %s: %s", cmc_path, exc)
+            logging.getLogger().warning(
+                "CMC budget file unavailable at %s: %s", cmc_path, exc
+            )
+            cmc_budget = None
+    app.state.cmc_budget = cmc_budget
 
     session = next(get_session())
     meta_repo = MetaRepo(session)

@@ -310,11 +310,13 @@ def run_etl(
         session.close()
 
     cache = markets_cache
+    main_module = None
     if cache is None:
         try:
             from .. import main as main_module  # type: ignore
         except Exception:  # pragma: no cover - defensive
             cache = None
+            main_module = None
         else:
             cache = getattr(main_module.app.state, "markets_cache", None)
     if cache is not None:
@@ -323,9 +325,18 @@ def run_etl(
         except Exception:  # pragma: no cover - defensive
             logger.warning("markets cache invalidation failed", exc_info=True)
 
+    cmc_budget = None
+    if main_module is None:
+        try:
+            from .. import main as main_module  # type: ignore
+        except Exception:  # pragma: no cover - defensive
+            main_module = None
+    if main_module is not None:
+        cmc_budget = getattr(main_module.app.state, "cmc_budget", None)
+
     fear_greed_rows = 0
     try:
-        fear_greed_rows = sync_fear_greed_index()
+        fear_greed_rows = sync_fear_greed_index(budget=cmc_budget)
     except Exception as exc:  # pragma: no cover - defensive logging
         logger.warning("fear & greed sync skipped: %s", exc)
 

@@ -15,6 +15,7 @@ from ..clients.cmc_fng import (
 from ..core.scheduling import refresh_granularity_to_timedelta
 from ..core.settings import settings
 from ..db import Base, SessionLocal
+from .budget import CallBudget
 from .dao import FearGreedRepo, MetaRepo
 
 DEFAULT_CLASSIFICATION = "Indéterminé"
@@ -99,11 +100,29 @@ def _ingest_history(
     return len(buffered)
 
 
+def _budget_allows(budget: CallBudget | None, category: str) -> bool:
+    if budget is None:
+        return True
+    if budget.can_spend(1):
+        return True
+    logger.warning(
+        "fear & greed %s fetch skipped: CMC quota exceeded",
+        category,
+        extra={
+            "category": category,
+            "monthly_call_count": budget.monthly_call_count,
+            "quota": settings.CMC_MONTHLY_QUOTA,
+        },
+    )
+    return False
+
+
 def sync_fear_greed_index(
     *,
     session=None,
     client: CoinMarketCapFearGreedClient | None = None,
     now: dt.datetime | None = None,
+    budget: CallBudget | None = None,
 ) -> int:
     """Seed the database and fetch the latest values from CoinMarketCap."""
 
@@ -175,11 +194,16 @@ def sync_fear_greed_index(
         client = client or build_default_client()
         processed = 0
         try:
-            if should_fetch_history:
+            if budget is not None:
+                budget.reset_if_needed()
+
+            if should_fetch_history and _budget_allows(budget, "cmc_history"):
                 try:
                     history = client.get_historical()
                 except requests.RequestException as exc:
                     logger.warning("fear & greed history fetch failed: %s", exc)
+                    if budget is not None:
+                        budget.spend(1, category="cmc_history")
                 else:
                     ingested = _ingest_history(repo, history, timestamp_now)
                     processed += ingested
@@ -194,17 +218,28 @@ def sync_fear_greed_index(
                             latest_timestamp is not None
                             and latest_timestamp.date() == timestamp_now.date()
                         )
-            if should_fetch_latest and not has_today_value:
+                    if budget is not None:
+                        budget.spend(1, category="cmc_history")
+
+            if should_fetch_latest and not has_today_value and _budget_allows(
+                budget, "cmc_latest"
+            ):
                 try:
                     latest = client.get_latest()
                 except requests.RequestException as exc:
                     logger.warning("fear & greed latest fetch failed: %s", exc)
                 else:
                     if latest:
-                        ingested_latest = _ingest_history(repo, [latest], timestamp_now)
+                        ingested_latest = _ingest_history(
+                            repo, [latest], timestamp_now
+                        )
                         processed += ingested_latest
                         if ingested_latest:
                             has_today_value = True
+                finally:
+                    if budget is not None:
+                        budget.spend(1, category="cmc_latest")
+
             if processed:
                 meta_repo.set("fear_greed_last_refresh", timestamp_now.isoformat())
             session.commit()

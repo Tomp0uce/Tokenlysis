@@ -84,6 +84,9 @@ class Settings(BaseSettings):
     CMC_API_KEY: str | None = None
     CMC_BASE_URL: str | None = None
     CMC_THROTTLE_MS: int = 1000
+    CMC_MONTHLY_QUOTA: int = 3000
+    CMC_ALERT_THRESHOLD: float = 0.7
+    CMC_BUDGET_FILE: str | None = None
     use_seed_on_failure: bool = Field(
         default=True, description="Use seed data when ETL fails"
     )
@@ -115,6 +118,7 @@ class Settings(BaseSettings):
         "CG_MONTHLY_QUOTA",
         "CG_PER_PAGE_MAX",
         "CMC_THROTTLE_MS",
+        "CMC_MONTHLY_QUOTA",
         mode="before",
     )
     @classmethod

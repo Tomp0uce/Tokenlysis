@@ -216,6 +216,9 @@ Runtime behaviour can be tweaked with environment variables:
 - `CMC_API_KEY` – CoinMarketCap API key used to refresh the Crypto Fear & Greed index (optional).
 - `CMC_BASE_URL` – override for the CoinMarketCap API endpoint (default: `https://pro-api.coinmarketcap.com`).
 - `CMC_THROTTLE_MS` – minimum delay in milliseconds between CoinMarketCap requests (default: `1000`).
+- `CMC_MONTHLY_QUOTA` – maximum CoinMarketCap Fear & Greed API calls per month (default: `3000`).
+- `CMC_ALERT_THRESHOLD` – fraction of the CoinMarketCap quota that triggers an alert (default: `0.7`).
+- `CMC_BUDGET_FILE` – path to the persisted CoinMarketCap call budget JSON file.
 - `BUDGET_FILE` – path to the persisted CoinGecko call budget JSON file.
 - `DATABASE_URL` – SQLAlchemy database URL (defaults to `sqlite:///./tokenlysis.db`).
 - `USE_SEED_ON_FAILURE` – fall back to the bundled seed data when live ETL fails (default: `true`).

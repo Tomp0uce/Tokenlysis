@@ -15,6 +15,7 @@ async def _assert_etl_loop_async(monkeypatch):
 
     # Ensure the application has a budget attribute even if unused in the test.
     main_module.app.state.budget = None
+    main_module.app.state.cmc_budget = None
 
     run_started = threading.Event()
     release_run = threading.Event()
@@ -118,6 +119,7 @@ async def _assert_run_etl_async_daemon_async(monkeypatch):
     import backend.app.main as main_module
 
     main_module.app.state.budget = None
+    main_module.app.state.cmc_budget = None
 
     run_started = threading.Event()
     release_run = threading.Event()
@@ -150,6 +152,7 @@ async def _assert_shutdown_async(monkeypatch):
     import backend.app.main as main_module
 
     main_module.app.state.budget = None
+    main_module.app.state.cmc_budget = None
 
     run_started = threading.Event()
     release_run = threading.Event()
