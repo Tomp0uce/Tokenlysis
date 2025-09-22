@@ -71,7 +71,7 @@ def test_fear_greed_repo_upsert_and_history(TestingSessionLocal):
     session.close()
 
 
-def test_api_fng_latest_success(monkeypatch):
+def test_api_fng_latest_success(monkeypatch, TestingSessionLocal):
     import backend.app.main as main_module
 
     class StubClient:
@@ -98,6 +98,16 @@ def test_api_fng_latest_success(monkeypatch):
             return []
 
     stub = StubClient()
+
+    session = TestingSessionLocal()
+
+    def override_session():
+        try:
+            yield session
+        finally:
+            pass
+
+    main_module.app.dependency_overrides[main_module.get_session] = override_session
     main_module.app.dependency_overrides[main_module.get_fng_client] = lambda: stub
 
     client = TestClient(main_module.app)
@@ -110,12 +120,16 @@ def test_api_fng_latest_success(monkeypatch):
         "label": "Greed",
     }
     assert stub.latest_calls == 1
-    assert stub.history_calls == []
+    assert stub.history_calls == [
+        {"limit": None, "time_start": None, "time_end": None}
+    ]
 
+    main_module.app.dependency_overrides.pop(main_module.get_session, None)
     main_module.app.dependency_overrides.pop(main_module.get_fng_client, None)
+    session.close()
 
 
-def test_api_fng_latest_falls_back_to_history(monkeypatch):
+def test_api_fng_latest_falls_back_to_history(monkeypatch, TestingSessionLocal):
     import backend.app.main as main_module
 
     class StubClient:
@@ -147,6 +161,16 @@ def test_api_fng_latest_falls_back_to_history(monkeypatch):
             ]
 
     stub = StubClient()
+
+    session = TestingSessionLocal()
+
+    def override_session():
+        try:
+            yield session
+        finally:
+            pass
+
+    main_module.app.dependency_overrides[main_module.get_session] = override_session
     main_module.app.dependency_overrides[main_module.get_fng_client] = lambda: stub
 
     client = TestClient(main_module.app)
@@ -157,10 +181,12 @@ def test_api_fng_latest_falls_back_to_history(monkeypatch):
     assert payload["label"] == "Neutral"
     assert payload["timestamp"].startswith("2024-03-11")
     assert stub.history_calls == [
-        {"limit": 1, "time_start": None, "time_end": None}
+        {"limit": None, "time_start": None, "time_end": None}
     ]
 
+    main_module.app.dependency_overrides.pop(main_module.get_session, None)
     main_module.app.dependency_overrides.pop(main_module.get_fng_client, None)
+    session.close()
 
 
 def test_api_fng_latest_uses_database_fallback(monkeypatch, TestingSessionLocal):
@@ -212,7 +238,66 @@ def test_api_fng_latest_uses_database_fallback(monkeypatch, TestingSessionLocal)
     session.close()
 
 
-def test_api_fng_latest_propagates_errors(monkeypatch):
+def test_api_fng_latest_uses_cache_when_refresh_recent(
+    monkeypatch, TestingSessionLocal
+):
+    import backend.app.main as main_module
+    from backend.app.core.settings import settings
+    from backend.app.services.dao import FearGreedRepo, MetaRepo
+
+    monkeypatch.setattr(settings, "REFRESH_GRANULARITY", "48h")
+
+    session = TestingSessionLocal()
+    repo = FearGreedRepo(session)
+    meta_repo = MetaRepo(session)
+
+    timestamp = dt.datetime(2024, 5, 5, 12, 0, tzinfo=dt.timezone.utc)
+    repo.upsert_many(
+        [
+            {
+                "timestamp": timestamp,
+                "value": 62,
+                "classification": "Greed",
+                "ingested_at": timestamp,
+            }
+        ]
+    )
+    meta_repo.set(
+        "fear_greed_last_refresh",
+        (dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=30)).isoformat(),
+    )
+    session.commit()
+
+    def override_session():
+        try:
+            yield session
+        finally:
+            pass
+
+    class StubClient:
+        def get_latest(self, *args, **kwargs):  # pragma: no cover - should not run
+            raise AssertionError("latest fetch should not execute when fresh")
+
+        def get_historical(self, *args, **kwargs):  # pragma: no cover - should not run
+            raise AssertionError("history fetch should not execute when fresh")
+
+    main_module.app.dependency_overrides[main_module.get_session] = override_session
+    main_module.app.dependency_overrides[main_module.get_fng_client] = lambda: StubClient()
+
+    client = TestClient(main_module.app)
+    resp = client.get("/api/fng/latest")
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["score"] == 62
+    assert payload["label"] == "Greed"
+    assert payload["timestamp"].startswith("2024-05-05T12:00:00")
+
+    main_module.app.dependency_overrides.pop(main_module.get_session, None)
+    main_module.app.dependency_overrides.pop(main_module.get_fng_client, None)
+    session.close()
+
+
+def test_api_fng_latest_propagates_errors(monkeypatch, TestingSessionLocal):
     import backend.app.main as main_module
 
     class StubClient:
@@ -223,6 +308,16 @@ def test_api_fng_latest_propagates_errors(monkeypatch):
             raise requests.RequestException("fail history")
 
     stub = StubClient()
+
+    session = TestingSessionLocal()
+
+    def override_session():
+        try:
+            yield session
+        finally:
+            pass
+
+    main_module.app.dependency_overrides[main_module.get_session] = override_session
     main_module.app.dependency_overrides[main_module.get_fng_client] = lambda: stub
 
     client = TestClient(main_module.app)
@@ -231,7 +326,9 @@ def test_api_fng_latest_propagates_errors(monkeypatch):
     payload = resp.json()
     assert "fear & greed" in payload.get("detail", "").lower()
 
+    main_module.app.dependency_overrides.pop(main_module.get_session, None)
     main_module.app.dependency_overrides.pop(main_module.get_fng_client, None)
+    session.close()
 
 
 def test_api_fng_history_orders_points(monkeypatch):
@@ -241,8 +338,8 @@ def test_api_fng_history_orders_points(monkeypatch):
         def __init__(self) -> None:
             self.calls: list[dict[str, object]] = []
 
-        def get_latest(self) -> dict:
-            raise AssertionError("should not fetch latest")
+        def get_latest(self) -> dict | None:
+            return None
 
         def get_historical(
             self, *, limit: int | None = None, time_start: str | None = None, time_end: str | None = None
@@ -275,7 +372,7 @@ def test_api_fng_history_orders_points(monkeypatch):
     assert payload["days"] == 5
     assert [point["score"] for point in payload["points"]] == [25, 55]
     assert stub.calls == [
-        {"limit": 5, "time_start": None, "time_end": None}
+        {"limit": None, "time_start": None, "time_end": None}
     ]
 
     main_module.app.dependency_overrides.pop(main_module.get_fng_client, None)
@@ -288,8 +385,8 @@ def test_api_fng_history_uses_database_fallback(monkeypatch, TestingSessionLocal
         def get_historical(self, **_: object) -> list[dict]:
             raise requests.RequestException("history offline")
 
-        def get_latest(self) -> dict:
-            raise AssertionError("should not call latest")
+        def get_latest(self) -> dict | None:
+            return None
 
     session = TestingSessionLocal()
     from backend.app.services.dao import FearGreedRepo
@@ -364,6 +461,79 @@ def test_api_fng_history_rejects_invalid_days(monkeypatch):
     assert resp.status_code == 400
 
     main_module.app.dependency_overrides.pop(main_module.get_fng_client, None)
+
+
+def test_api_fng_history_uses_cache_when_refresh_recent(
+    monkeypatch, TestingSessionLocal
+):
+    import backend.app.main as main_module
+    from backend.app.core.settings import settings
+    from backend.app.services.dao import FearGreedRepo, MetaRepo
+
+    monkeypatch.setattr(settings, "REFRESH_GRANULARITY", "72h")
+
+    session = TestingSessionLocal()
+    repo = FearGreedRepo(session)
+    meta_repo = MetaRepo(session)
+
+    base = dt.datetime(2024, 5, 1, tzinfo=dt.timezone.utc)
+    repo.upsert_many(
+        [
+            {
+                "timestamp": base,
+                "value": 15,
+                "classification": "Fear",
+                "ingested_at": base,
+            },
+            {
+                "timestamp": base + dt.timedelta(days=1),
+                "value": 45,
+                "classification": "Neutral",
+                "ingested_at": base + dt.timedelta(days=1),
+            },
+            {
+                "timestamp": base + dt.timedelta(days=2),
+                "value": 70,
+                "classification": "Greed",
+                "ingested_at": base + dt.timedelta(days=2),
+            },
+        ]
+    )
+    meta_repo.set(
+        "fear_greed_last_refresh",
+        (dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=10)).isoformat(),
+    )
+    session.commit()
+
+    def override_session():
+        try:
+            yield session
+        finally:
+            pass
+
+    class StubClient:
+        def get_latest(self, *args, **kwargs):  # pragma: no cover - should not run
+            raise AssertionError("latest fetch should not execute when fresh")
+
+        def get_historical(self, *args, **kwargs):  # pragma: no cover - should not run
+            raise AssertionError("history fetch should not execute when fresh")
+
+    main_module.app.dependency_overrides[main_module.get_session] = override_session
+    main_module.app.dependency_overrides[main_module.get_fng_client] = lambda: StubClient()
+
+    client = TestClient(main_module.app)
+    resp = client.get("/api/fng/history?days=3")
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["days"] == 3
+    scores = [point["score"] for point in payload["points"]]
+    assert scores == [15, 45, 70]
+    labels = [point["label"] for point in payload["points"]]
+    assert labels == ["Fear", "Neutral", "Greed"]
+
+    main_module.app.dependency_overrides.pop(main_module.get_session, None)
+    main_module.app.dependency_overrides.pop(main_module.get_fng_client, None)
+    session.close()
 
 
 def test_sync_fear_greed_index_skips_when_fresh(monkeypatch, TestingSessionLocal):
