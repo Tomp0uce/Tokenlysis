@@ -366,6 +366,52 @@ def test_api_fng_history_rejects_invalid_days(monkeypatch):
     main_module.app.dependency_overrides.pop(main_module.get_fng_client, None)
 
 
+def test_sync_fear_greed_index_skips_when_fresh(monkeypatch, TestingSessionLocal):
+    from backend.app.services import fear_greed as service_module
+    from backend.app.services.dao import MetaRepo, FearGreedRepo
+    from backend.app.core.settings import settings
+
+    monkeypatch.setattr(settings, "REFRESH_GRANULARITY", "6h")
+
+    now = dt.datetime(2024, 1, 10, 12, 0, tzinfo=dt.timezone.utc)
+    session = TestingSessionLocal()
+    meta_repo = MetaRepo(session)
+    repo = FearGreedRepo(session)
+    repo.upsert_many(
+        [
+            {
+                "timestamp": dt.datetime(2024, 1, 9, tzinfo=dt.timezone.utc),
+                "value": 42,
+                "classification": "Greed",
+                "ingested_at": now - dt.timedelta(days=1),
+            }
+        ]
+    )
+    meta_repo.set(
+        "fear_greed_last_refresh",
+        (now - dt.timedelta(minutes=5)).isoformat(),
+    )
+    session.commit()
+    session.close()
+
+    class StubClient:
+        def get_historical(self, **_: object):  # pragma: no cover - should skip
+            raise AssertionError("history fetch should be skipped when fresh")
+
+        def get_latest(self):  # pragma: no cover - should skip
+            raise AssertionError("latest fetch should be skipped when fresh")
+
+    new_session = TestingSessionLocal()
+    try:
+        processed = service_module.sync_fear_greed_index(
+            session=new_session, client=StubClient(), now=now
+        )
+    finally:
+        new_session.close()
+
+    assert processed == 0
+
+
 def test_sync_fear_greed_index_updates_without_seed(TestingSessionLocal):
     class StubClient:
         def get_historical(self, limit=None):
