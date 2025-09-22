@@ -25,7 +25,10 @@ from .clients.cmc_fng import (
     build_default_client as build_fng_client,
 )
 from .core.settings import effective_coingecko_base_url, settings
-from .core.scheduling import refresh_granularity_to_seconds
+from .core.scheduling import (
+    refresh_granularity_to_seconds,
+    refresh_granularity_to_timedelta,
+)
 from .core.version import get_version
 from .db import Base, engine, get_session
 from .etl.run import DataUnavailable, load_seed, run_etl
@@ -114,6 +117,50 @@ def _parse_fng_timestamp(raw: object) -> dt.datetime:
                 )
                 return normalized.astimezone(dt.timezone.utc)
     return dt.datetime.min.replace(tzinfo=dt.timezone.utc)
+
+
+def _parse_meta_timestamp(raw: object) -> dt.datetime | None:
+    if isinstance(raw, dt.datetime):
+        return (
+            raw.replace(tzinfo=dt.timezone.utc)
+            if raw.tzinfo is None
+            else raw.astimezone(dt.timezone.utc)
+        )
+    if isinstance(raw, str):
+        candidate = raw.strip()
+        if not candidate:
+            return None
+        if candidate.endswith("Z"):
+            candidate = f"{candidate[:-1]}+00:00"
+        try:
+            parsed = dt.datetime.fromisoformat(candidate)
+        except ValueError:
+            try:
+                parsed = dt.datetime.strptime(candidate, "%Y-%m-%d")
+            except ValueError:
+                return None
+            parsed = parsed.replace(tzinfo=dt.timezone.utc)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=dt.timezone.utc)
+        return parsed.astimezone(dt.timezone.utc)
+    return None
+
+
+def _should_refresh_fng(
+    *,
+    last_refresh: dt.datetime | None,
+    now: dt.datetime,
+    guard: dt.timedelta,
+    has_cache: bool,
+) -> bool:
+    if not has_cache:
+        return True
+    if last_refresh is None:
+        return True
+    normalized_last = last_refresh.astimezone(dt.timezone.utc)
+    if normalized_last > now:
+        return True
+    return (now - normalized_last) >= guard
 
 
 def _serialize_fng_row(row: FearGreed | None) -> dict[str, object] | None:
@@ -253,6 +300,43 @@ def fng_latest(
 ) -> dict:
     """Return the latest Fear & Greed datapoint with graceful degradation."""
 
+    repo = FearGreedRepo(session)
+    meta_repo = MetaRepo(session)
+    now = dt.datetime.now(dt.timezone.utc)
+    guard = refresh_granularity_to_timedelta(settings.REFRESH_GRANULARITY)
+    last_refresh = _parse_meta_timestamp(meta_repo.get("fear_greed_last_refresh"))
+    cached_row = repo.get_latest()
+    has_cache = cached_row is not None
+    should_refresh = _should_refresh_fng(
+        last_refresh=last_refresh, now=now, guard=guard, has_cache=has_cache
+    )
+
+    refresh_error: Exception | None = None
+    if not should_refresh and has_cache:
+        cached = _serialize_fng_row(cached_row)
+        if cached is not None:
+            return cached
+        should_refresh = True
+
+    if should_refresh:
+        try:
+            sync_fear_greed_index(session=session, client=client, now=now)
+        except Exception as exc:  # pragma: no cover - defensive logging
+            logger.warning("fear & greed sync failed during latest fetch: %s", exc)
+            refresh_error = exc
+
+    cached = _serialize_fng_row(repo.get_latest())
+    if cached is not None:
+        if refresh_error is not None:
+            logger.warning(
+                "fear & greed latest served from stale cache after refresh failure"
+            )
+        elif should_refresh:
+            logger.info("fear & greed latest served from refreshed cache")
+        else:
+            logger.info("fear & greed latest served from database cache")
+        return cached
+
     latest_error: requests.RequestException | None = None
     try:
         latest = client.get_latest()
@@ -275,12 +359,6 @@ def fng_latest(
             fallback_point = history[-1]
     if fallback_point:
         return fallback_point
-
-    repo = FearGreedRepo(session)
-    cached = _serialize_fng_row(repo.get_latest())
-    if cached is not None:
-        logger.info("fear & greed latest served from database cache")
-        return cached
 
     detail = "fear & greed data unavailable"
     if history_error is not None:
@@ -310,8 +388,49 @@ def fng_history(
         if limit <= 0:
             raise HTTPException(status_code=400, detail="days must be positive")
 
+    repo = FearGreedRepo(session)
+    meta_repo = MetaRepo(session)
+    now = dt.datetime.now(dt.timezone.utc)
+    guard = refresh_granularity_to_timedelta(settings.REFRESH_GRANULARITY)
+    last_refresh = _parse_meta_timestamp(meta_repo.get("fear_greed_last_refresh"))
+    has_cache = repo.count() > 0
+    should_refresh = _should_refresh_fng(
+        last_refresh=last_refresh, now=now, guard=guard, has_cache=has_cache
+    )
+
+    refresh_error: Exception | None = None
+    if should_refresh:
+        try:
+            sync_fear_greed_index(session=session, client=client, now=now)
+        except Exception as exc:  # pragma: no cover - defensive logging
+            logger.warning("fear & greed sync failed during history fetch: %s", exc)
+            refresh_error = exc
+
+    rows = repo.get_history()
+    if limit is not None and limit > 0:
+        rows = rows[-limit:]
+    cached_points = [_serialize_fng_row(row) for row in rows]
+    ordered = [point for point in cached_points if point is not None]
+    if ordered:
+        extra = {"count": len(ordered)}
+        if refresh_error is not None:
+            logger.warning(
+                "fear & greed history served from stale cache after refresh failure",
+                extra=extra,
+            )
+        elif should_refresh:
+            logger.info(
+                "fear & greed history served from refreshed cache",
+                extra=extra,
+            )
+        else:
+            logger.info(
+                "fear & greed history served from database cache",
+                extra=extra,
+            )
+        return {"days": limit, "points": ordered}
+
     fetch_error: requests.RequestException | None = None
-    ordered: list[dict[str, object]] = []
     try:
         points = client.get_historical(limit=limit)
     except requests.RequestException as exc:
@@ -323,24 +442,14 @@ def fng_history(
         ordered = sorted(
             filtered, key=lambda item: _parse_fng_timestamp(item.get("timestamp"))
         )
-    if not ordered:
-        repo = FearGreedRepo(session)
-        rows = repo.get_history()
-        if limit is not None and limit > 0:
-            rows = rows[-limit:]
-        cached_points = [_serialize_fng_row(row) for row in rows]
-        ordered = [point for point in cached_points if point is not None]
         if ordered:
-            logger.info(
-                "fear & greed history served from database cache",
-                extra={"count": len(ordered)},
-            )
-    if not ordered and fetch_error is not None:
+            return {"days": limit, "points": ordered}
+    if fetch_error is not None:
         raise HTTPException(
             status_code=502,
             detail="fear & greed history unavailable",
         ) from fetch_error
-    return {"days": limit, "points": ordered}
+    return {"days": limit, "points": []}
 
 
 @app.get("/api/debug/history-gaps")
