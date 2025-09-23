@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+import math
 from typing import Iterable
 
 import requests
@@ -33,6 +34,10 @@ def _ensure_timezone(ts: dt.datetime) -> dt.datetime:
 def _parse_timestamp(raw: object) -> dt.datetime | None:
     if isinstance(raw, dt.datetime):
         return _ensure_timezone(raw)
+    if isinstance(raw, (int, float)):
+        if not math.isfinite(raw):
+            return None
+        return dt.datetime.fromtimestamp(float(raw), tz=dt.timezone.utc)
     if isinstance(raw, str):
         candidate = raw.strip()
         if not candidate:
@@ -42,6 +47,12 @@ def _parse_timestamp(raw: object) -> dt.datetime | None:
         try:
             return _ensure_timezone(dt.datetime.fromisoformat(candidate))
         except ValueError:
+            try:
+                numeric = float(candidate)
+            except ValueError:
+                numeric = None
+            if numeric is not None and math.isfinite(numeric):
+                return dt.datetime.fromtimestamp(numeric, tz=dt.timezone.utc)
             try:
                 return dt.datetime.strptime(candidate, "%Y-%m-%d").replace(
                     tzinfo=dt.timezone.utc

@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import logging
+import math
 import time
 from typing import Any
 
@@ -28,6 +29,11 @@ def _ensure_timezone(ts: dt.datetime) -> dt.datetime:
 
 
 def _parse_timestamp(raw: object) -> tuple[str, dt.datetime] | None:
+    if isinstance(raw, (int, float)):
+        if not math.isfinite(raw):
+            return None
+        parsed = dt.datetime.fromtimestamp(float(raw), tz=dt.timezone.utc)
+        return parsed.isoformat(), parsed
     if isinstance(raw, str):
         candidate = raw.strip()
         if not candidate:
@@ -37,7 +43,13 @@ def _parse_timestamp(raw: object) -> tuple[str, dt.datetime] | None:
         try:
             parsed = dt.datetime.fromisoformat(candidate)
         except ValueError:
-            return None
+            try:
+                numeric = float(candidate)
+            except ValueError:
+                return None
+            if not math.isfinite(numeric):
+                return None
+            parsed = dt.datetime.fromtimestamp(numeric, tz=dt.timezone.utc)
         normalized = _ensure_timezone(parsed)
         return normalized.isoformat(), normalized
     return None
