@@ -1,3 +1,4 @@
+import datetime as dt
 from typing import Any
 
 import requests
@@ -165,3 +166,31 @@ def test_get_historical_returns_empty_for_invalid_data() -> None:
 
     history = client.get_historical()
     assert history == []
+
+
+def test_get_latest_accepts_unix_timestamp() -> None:
+    epoch = dt.datetime(2024, 9, 21, tzinfo=dt.timezone.utc)
+    responses = [
+        DummyResponse(
+            {
+                "data": [
+                    {
+                        "timestamp": epoch.timestamp(),
+                        "score": 49.4,
+                        "value_classification": "Neutral",
+                    }
+                ]
+            }
+        )
+    ]
+    session = DummySession(responses)
+    client = CoinMarketCapFearGreedClient(
+        api_key=None, base_url="https://api.example.com", session=session, throttle_ms=0
+    )
+
+    latest = client.get_latest()
+    assert latest == {
+        "timestamp": epoch.isoformat(),
+        "score": 49,
+        "label": "Neutral",
+    }
