@@ -35,11 +35,13 @@ export const selectedCategories = [];
 
 const COINGECKO_BASE_URL = 'https://api.coingecko.com/api/v3';
 const COINGECKO_MARKETS_ENDPOINT = `${COINGECKO_BASE_URL}/coins/markets`;
+const COINGECKO_TRENDING_ENDPOINT = `${COINGECKO_BASE_URL}/search/trending`;
 const COINGECKO_DEFAULT_LIMIT = 1000;
 const COINGECKO_MAX_PER_PAGE = 250;
 const DEFAULT_ROWS_PER_PAGE = 20;
 const MARKETS_TOP_FETCH_LIMIT = COINGECKO_DEFAULT_LIMIT;
 const MARKETS_TOP_VS = 'usd';
+const TRENDING_LIMIT = 15;
 
 const SORTABLE_COLUMN_ACCESSORS = new Map([
   [2, (item) => item.rank],
@@ -67,6 +69,7 @@ const DATA_LABELS = {
 };
 
 let marketItems = [];
+let trendingItems = [];
 let paginationState = { page: 1, perPage: DEFAULT_ROWS_PER_PAGE };
 let paginationElements = null;
 const boundSortableHeaders = new WeakSet();
@@ -158,6 +161,135 @@ function compareNumericValues(a, b, direction) {
   if (bVal === null) return -1;
   if (direction === 'asc') return aVal - bVal;
   return bVal - aVal;
+}
+
+function parseTrendingNumber(value) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null;
+  }
+  if (typeof value === 'string') {
+    const sanitized = value.replace(/[^0-9.,-]+/g, '').replace(/,/g, '');
+    if (!sanitized || sanitized === '-' || sanitized === '.') {
+      return null;
+    }
+    const numeric = Number(sanitized);
+    return Number.isFinite(numeric) ? numeric : null;
+  }
+  return null;
+}
+
+function extractTrendingPercentage(raw) {
+  if (raw === null || raw === undefined) {
+    return null;
+  }
+  if (typeof raw === 'number' || typeof raw === 'string') {
+    return parseTrendingNumber(raw);
+  }
+  if (typeof raw === 'object') {
+    if (raw.usd !== undefined) {
+      const usdValue = parseTrendingNumber(raw.usd);
+      if (usdValue !== null) {
+        return usdValue;
+      }
+    }
+    for (const value of Object.values(raw)) {
+      const numeric = parseTrendingNumber(value);
+      if (numeric !== null) {
+        return numeric;
+      }
+    }
+  }
+  return null;
+}
+
+function pickTrendingImage(source) {
+  if (!source || typeof source !== 'object') {
+    return '';
+  }
+  const keys = ['large', 'small', 'thumb'];
+  for (const key of keys) {
+    const value = source[key];
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (trimmed) {
+        return trimmed;
+      }
+    }
+  }
+  return '';
+}
+
+function mapTrendingItem(raw, fallbackRank) {
+  const source = raw && typeof raw === 'object' ? (raw.item && typeof raw.item === 'object' ? raw.item : raw) : null;
+  if (!source) {
+    return null;
+  }
+  const coinId = typeof source.id === 'string' ? source.id.trim() : '';
+  if (!coinId) {
+    return null;
+  }
+  const data = source.data && typeof source.data === 'object' ? source.data : {};
+  const rankValue = normalizeNumericValue(source.market_cap_rank);
+  const resolvedRank = rankValue !== null && rankValue > 0 ? rankValue : fallbackRank;
+  return {
+    coin_id: coinId,
+    name: typeof source.name === 'string' ? source.name : '',
+    symbol: typeof source.symbol === 'string' ? source.symbol : '',
+    logo_url: pickTrendingImage(source),
+    rank: resolvedRank,
+    price: parseTrendingNumber(data.price),
+    market_cap: parseTrendingNumber(data.market_cap),
+    fully_diluted_market_cap: parseTrendingNumber(
+      data.fully_diluted_market_cap ?? data.fully_diluted_valuation ?? data.fully_diluted_value ?? null,
+    ),
+    volume_24h: parseTrendingNumber(data.total_volume),
+    pct_change_24h: extractTrendingPercentage(data.price_change_percentage_24h),
+    pct_change_7d: extractTrendingPercentage(data.price_change_percentage_7d),
+    pct_change_30d: extractTrendingPercentage(data.price_change_percentage_30d),
+    category_names: [],
+  };
+}
+
+function mapTrendingResponse(payload) {
+  const coins = Array.isArray(payload?.coins) ? payload.coins : [];
+  const mapped = [];
+  coins.forEach((entry, index) => {
+    const normalized = mapTrendingItem(entry, index + 1);
+    if (normalized) {
+      mapped.push(normalized);
+    }
+  });
+  return mapped;
+}
+
+function mergeTrendingWithMarketData(trending = []) {
+  const marketMap = new Map();
+  marketItems.forEach((item) => {
+    if (item?.coin_id) {
+      marketMap.set(item.coin_id, item);
+    }
+  });
+  const merged = [];
+  const seen = new Set();
+  trending.forEach((entry) => {
+    const coinId = typeof entry?.coin_id === 'string' ? entry.coin_id : '';
+    if (!coinId || seen.has(coinId)) {
+      return;
+    }
+    if (marketMap.has(coinId)) {
+      merged.push(marketMap.get(coinId));
+    } else {
+      merged.push(entry);
+    }
+    seen.add(coinId);
+  });
+  if (merged.length > TRENDING_LIMIT) {
+    return merged.slice(0, TRENDING_LIMIT);
+  }
+  return merged;
 }
 
 function weightedAverage(items, weightSelector, valueSelector) {
@@ -702,76 +834,150 @@ function formatCurrencyCell(value) {
   return '—';
 }
 
-function renderRows(items) {
-  const tbody = document.querySelector('#cryptos tbody');
-  if (!tbody) return;
+function buildTableRow(item) {
+  const tr = document.createElement('tr');
+  const categories = Array.isArray(item?.category_names) ? item.category_names : [];
+  let badges = '';
+  categories.slice(0, 3).forEach((name) => {
+    if (typeof name === 'string' && name.trim()) {
+      badges += `<span class="badge" title="${name}">${name}</span> `;
+    }
+  });
+  if (categories.length > 3) {
+    const extra = categories.slice(3).filter((name) => typeof name === 'string' && name.trim());
+    if (extra.length) {
+      badges += `<span class="badge" title="${extra.join(', ')}">+${categories.length - 3}</span>`;
+    }
+  }
+  const coinId = typeof item?.coin_id === 'string' ? item.coin_id : '';
+  const displayName = formatDisplayName(item);
+  const priceDisplay = formatCurrencyCell(item?.price);
+  const marketCapDisplay = formatCurrencyCell(item?.market_cap);
+  const fdvDisplay = formatCurrencyCell(item?.fully_diluted_market_cap);
+  const volumeDisplay = formatCurrencyCell(item?.volume_24h);
+  tr.innerHTML = `<td data-label="${DATA_LABELS.asset}"></td>`
+    + `<td data-label="${DATA_LABELS.categories}">${badges.trim()}</td>`
+    + `<td data-label="${DATA_LABELS.rank}">${item?.rank ?? ''}</td>`
+    + `<td data-label="${DATA_LABELS.price}">${priceDisplay}</td>`
+    + `<td data-label="${DATA_LABELS.marketCap}">${marketCapDisplay}</td>`
+    + `<td data-label="${DATA_LABELS.fullyDiluted}">${fdvDisplay}</td>`
+    + `<td data-label="${DATA_LABELS.volume}">${volumeDisplay}</td>`
+    + `${renderChangeCell(item?.pct_change_24h, DATA_LABELS.change24h)}`
+    + `${renderChangeCell(item?.pct_change_7d, DATA_LABELS.change7d)}`
+    + `${renderChangeCell(item?.pct_change_30d, DATA_LABELS.change30d)}`;
+  const coinCell = tr.querySelector('td');
+  if (coinCell) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'coin-cell';
+    const logoUrl = typeof item?.logo_url === 'string' ? item.logo_url.trim() : '';
+    if (logoUrl) {
+      const img = document.createElement('img');
+      img.className = 'coin-logo';
+      img.src = logoUrl;
+      img.alt = displayName !== '—' ? displayName : coinId || 'Crypto';
+      img.loading = 'lazy';
+      img.width = 24;
+      img.height = 24;
+      wrapper.appendChild(img);
+    }
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'coin-name';
+    nameSpan.textContent = displayName !== '—' ? displayName : coinId || '—';
+    wrapper.appendChild(nameSpan);
+    coinCell.appendChild(wrapper);
+  }
+  const actionCell = document.createElement('td');
+  actionCell.setAttribute('data-label', DATA_LABELS.details);
+  if (coinId) {
+    const link = document.createElement('a');
+    link.className = 'details-link';
+    link.textContent = 'Détails';
+    link.href = `./coin.html?coin_id=${encodeURIComponent(coinId)}`;
+    const labelName = displayName !== '—' ? displayName : coinId || 'cet actif';
+    link.setAttribute('aria-label', `Voir les détails pour ${labelName}`);
+    actionCell.appendChild(link);
+  } else {
+    actionCell.textContent = '—';
+  }
+  tr.appendChild(actionCell);
+  return tr;
+}
+
+function renderTableRows(tbody, items = []) {
+  if (!tbody) {
+    return;
+  }
   tbody.innerHTML = '';
+  if (!Array.isArray(items) || items.length === 0) {
+    return;
+  }
   const fragment = document.createDocumentFragment();
   items.forEach((item) => {
-    const tr = document.createElement('tr');
-    const cats = item.category_names || [];
-    let badges = '';
-    cats.slice(0, 3).forEach((name) => {
-      badges += `<span class="badge" title="${name}">${name}</span> `;
-    });
-    if (cats.length > 3) {
-      const extra = cats.slice(3).join(', ');
-      badges += `<span class="badge" title="${extra}">+${cats.length - 3}</span>`;
-    }
-    const coinId = item.coin_id ?? '';
-    const displayName = formatDisplayName(item);
-    const priceDisplay = formatCurrencyCell(item.price);
-    const marketCapDisplay = formatCurrencyCell(item.market_cap);
-    const fdvDisplay = formatCurrencyCell(item.fully_diluted_market_cap);
-    const volumeDisplay = formatCurrencyCell(item.volume_24h);
-    tr.innerHTML = `<td data-label="${DATA_LABELS.asset}"></td>`
-      + `<td data-label="${DATA_LABELS.categories}">${badges.trim()}</td>`
-      + `<td data-label="${DATA_LABELS.rank}">${item.rank ?? ''}</td>`
-      + `<td data-label="${DATA_LABELS.price}">${priceDisplay}</td>`
-      + `<td data-label="${DATA_LABELS.marketCap}">${marketCapDisplay}</td>`
-      + `<td data-label="${DATA_LABELS.fullyDiluted}">${fdvDisplay}</td>`
-      + `<td data-label="${DATA_LABELS.volume}">${volumeDisplay}</td>`
-      + `${renderChangeCell(item.pct_change_24h, DATA_LABELS.change24h)}`
-      + `${renderChangeCell(item.pct_change_7d, DATA_LABELS.change7d)}`
-      + `${renderChangeCell(item.pct_change_30d, DATA_LABELS.change30d)}`;
-    const coinCell = tr.querySelector('td');
-    if (coinCell) {
-      const wrapper = document.createElement('div');
-      wrapper.className = 'coin-cell';
-      const logoUrl = typeof item.logo_url === 'string' ? item.logo_url.trim() : '';
-      if (logoUrl) {
-        const img = document.createElement('img');
-        img.className = 'coin-logo';
-        img.src = logoUrl;
-        img.alt = displayName !== '—' ? displayName : coinId || 'Crypto';
-        img.loading = 'lazy';
-        img.width = 24;
-        img.height = 24;
-        wrapper.appendChild(img);
-      }
-      const nameSpan = document.createElement('span');
-      nameSpan.className = 'coin-name';
-      nameSpan.textContent = displayName !== '—' ? displayName : coinId || '—';
-      wrapper.appendChild(nameSpan);
-      coinCell.appendChild(wrapper);
-    }
-    const actionCell = document.createElement('td');
-    actionCell.setAttribute('data-label', DATA_LABELS.details);
-    if (coinId) {
-      const link = document.createElement('a');
-      link.className = 'details-link';
-      link.textContent = 'Détails';
-      link.href = `./coin.html?coin_id=${encodeURIComponent(coinId)}`;
-      const labelName = displayName !== '—' ? displayName : coinId || 'cet actif';
-      link.setAttribute('aria-label', `Voir les détails pour ${labelName}`);
-      actionCell.appendChild(link);
-    } else {
-      actionCell.textContent = '—';
-    }
-    tr.appendChild(actionCell);
-    fragment.appendChild(tr);
+    const row = buildTableRow(item);
+    fragment.appendChild(row);
   });
   tbody.appendChild(fragment);
+}
+
+function renderRows(items) {
+  const tbody = document.querySelector('#cryptos tbody');
+  renderTableRows(tbody, items);
+}
+
+export async function loadTrendingCoins({ fetchImpl } = {}) {
+  const statusEl = document.getElementById('trending-status');
+  const tableEl = document.getElementById('trending-cryptos');
+  const tbody = tableEl?.querySelector('tbody') ?? null;
+  if (statusEl) {
+    statusEl.textContent = 'Chargement...';
+  }
+  if (tableEl) {
+    tableEl.style.display = 'none';
+  }
+  if (tbody) {
+    tbody.innerHTML = '';
+  }
+  const fetcher = typeof fetchImpl === 'function' ? fetchImpl : typeof fetch === 'function' ? fetch : null;
+  if (!fetcher) {
+    if (statusEl) {
+      statusEl.textContent = 'Tendances indisponibles';
+    }
+    trendingItems = [];
+    return [];
+  }
+  try {
+    const response = await fetcher(COINGECKO_TRENDING_ENDPOINT);
+    if (!response?.ok) {
+      throw new Error(`HTTP ${response?.status ?? 'error'}`);
+    }
+    const payload = await response.json();
+    const mapped = mapTrendingResponse(payload);
+    const merged = mergeTrendingWithMarketData(mapped);
+    trendingItems = merged;
+    if (tbody) {
+      renderTableRows(tbody, merged);
+    }
+    if (tableEl) {
+      tableEl.style.display = merged.length ? 'table' : 'none';
+    }
+    if (statusEl) {
+      statusEl.textContent = merged.length ? '' : 'Aucune tendance disponible';
+    }
+    return merged;
+  } catch (error) {
+    console.error(error);
+    trendingItems = [];
+    if (statusEl) {
+      statusEl.textContent = 'Tendances indisponibles';
+    }
+    if (tbody) {
+      tbody.innerHTML = '';
+    }
+    if (tableEl) {
+      tableEl.style.display = 'none';
+    }
+    return [];
+  }
 }
 
 function getPaginationElements() {
@@ -1091,6 +1297,11 @@ export async function init() {
   loadVersion();
   await loadCryptos();
   try {
+    await loadTrendingCoins();
+  } catch (error) {
+    console.error(error);
+  }
+  try {
     await loadFearGreedWidget();
   } catch (error) {
     console.error(error);
@@ -1109,4 +1320,5 @@ export const __test__ = {
   fetchAggregatedTopMarketHistory,
   loadFearGreedWidget,
   loadCryptos,
+  loadTrendingCoins,
 };

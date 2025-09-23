@@ -67,6 +67,8 @@ function setupDom() {
       </div>
     </div>
     <table id="cryptos" style="display:none"><thead><tr><th>Coin</th><th>Catégories</th><th>Rank</th><th>Price</th><th>Market Cap</th><th>Fully Diluted Market Cap</th><th>Volume 24h</th><th>Change 24h</th><th>Change 7j</th><th>Change 30j</th><th>Détails</th></tr></thead><tbody></tbody></table>
+    <div id="trending-status" class="status-banner"></div>
+    <table id="trending-cryptos" style="display:none"><thead><tr><th>Coin</th><th>Catégories</th><th>Rank</th><th>Prix ($)</th><th>Market Cap</th><th>Fully Diluted Market Cap</th><th>Volume 24h</th><th>Change 24h</th><th>Change 7j</th><th>Change 30j</th><th>Détails</th></tr></thead><tbody></tbody></table>
     <div id="market-overview-chart"></div>
     <div id="last-update"></div>
     <div id="version"></div>`,
@@ -103,6 +105,8 @@ function mockApiFetch(
     dataSource = 'CoinGecko API',
     failMarkets = false,
     marketsStatus = 500,
+    trendingPayload,
+    failTrending = false,
   } = {},
 ) {
   const payload = {
@@ -118,6 +122,19 @@ function mockApiFetch(
         return new Response('error', { status: marketsStatus });
       }
       return new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    if (url.startsWith('https://api.coingecko.com/api/v3/search/trending')) {
+      if (failTrending) {
+        return new Response('error', { status: 500 });
+      }
+      const body =
+        trendingPayload !== undefined
+          ? trendingPayload
+          : { coins: [], exchanges: [], categories: [], nfts: [] };
+      return new Response(JSON.stringify(body), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       });
@@ -152,6 +169,51 @@ function buildMarketItem(index, overrides = {}) {
     pct_change_30d: (rank % 9) - 4,
     category_names: [],
     ...overrides,
+  };
+}
+
+function buildTrendingItem(
+  id,
+  {
+    name = id.replace(/-/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/\b\w/g, (letter) => letter.toUpperCase()) || id,
+    symbol = id.slice(0, 3),
+    rank,
+    price = '1',
+    marketCap = '1000',
+    volume = '100',
+    change24h = 0,
+    change7d = 0,
+    change30d = 0,
+    image = `https://img.test/${id}.png`,
+    dataOverrides,
+    itemOverrides,
+  } = {},
+) {
+  const baseData = {
+    price,
+    market_cap: marketCap,
+    total_volume: volume,
+    price_change_percentage_24h: { usd: change24h },
+    price_change_percentage_7d: { usd: change7d },
+    price_change_percentage_30d: { usd: change30d },
+  };
+  const data =
+    dataOverrides === null
+      ? {}
+      : { ...baseData, ...(typeof dataOverrides === 'object' ? dataOverrides : {}) };
+  return {
+    item: {
+      id,
+      name,
+      symbol,
+      market_cap_rank: rank,
+      large: image,
+      data,
+      ...(typeof itemOverrides === 'object' ? itemOverrides : {}),
+    },
   };
 }
 
@@ -458,6 +520,212 @@ test('loadCryptos handles failure', async (t) => {
   assert.equal(pagination.hidden, true);
   const info = document.querySelector('[data-role="pagination-info"]');
   assert.equal(info.textContent.trim(), 'Aucun résultat');
+});
+
+test(
+  'loadTrendingCoins réutilise les données marché disponibles et complète les tendances',
+  async (t) => {
+    const dom = setupDom();
+    t.after(() => {
+      dom.window.close();
+      delete global.window;
+      delete global.document;
+      delete global.localStorage;
+      delete global.fetch;
+    });
+    const { loadCryptos, loadTrendingCoins } = await import('../frontend/main.js');
+    const coins = [
+      buildMarketItem(0, {
+        coin_id: 'bitcoin',
+        name: 'Bitcoin',
+        symbol: 'btc',
+        logo_url: 'https://img.test/bitcoin.png',
+        category_names: ['Layer 1'],
+        price: 123,
+        market_cap: 456_000,
+        fully_diluted_market_cap: 789_000,
+        volume_24h: 321_000,
+        pct_change_24h: 1.23,
+        pct_change_7d: -0.5,
+        pct_change_30d: 10,
+      }),
+      buildMarketItem(1, {
+        coin_id: 'solana',
+        name: 'Solana',
+        price: 55,
+      }),
+    ];
+    const trendingPayload = {
+      coins: [
+        buildTrendingItem('bitcoin', {
+          rank: 1,
+          price: '$99999',
+          marketCap: '$999,999',
+          volume: '$321,000',
+          change24h: 9.99,
+          change7d: 5.55,
+          change30d: 1.11,
+        }),
+        buildTrendingItem('newcoin', {
+          name: 'New Coin',
+          symbol: 'new',
+          rank: 42,
+          price: '$10.5',
+          marketCap: '1,200,000',
+          volume: '150,000',
+          change24h: -2.5,
+          change7d: 0,
+          change30d: 12.3456,
+          itemOverrides: { small: 'https://img.test/newcoin-small.png' },
+        }),
+        buildTrendingItem('missing', {
+          name: 'Missing',
+          symbol: 'msg',
+          rank: 0,
+          dataOverrides: null,
+        }),
+      ],
+    };
+    const fetchCalls = [];
+    const baseFetch = mockApiFetch(coins, { diagPlan: 'pro', trendingPayload });
+    global.fetch = async (url) => {
+      fetchCalls.push(url);
+      return baseFetch(url);
+    };
+
+    await loadCryptos();
+    const priceCallsBefore = fetchCalls.filter((url) => url.includes('/api/price/')).length;
+    await loadTrendingCoins();
+
+    const priceCallsAfter = fetchCalls.filter((url) => url.includes('/api/price/')).length;
+    assert.equal(priceCallsAfter, priceCallsBefore);
+
+    const status = document.getElementById('trending-status');
+    assert.equal(status.textContent.trim(), '');
+    const table = document.getElementById('trending-cryptos');
+    assert.equal(table.style.display, 'table');
+
+    const rows = [...document.querySelectorAll('#trending-cryptos tbody tr')];
+    assert.equal(rows.length, 3);
+    const normalizeCells = (row) =>
+      [...row.querySelectorAll('td')].map((cell) => cell.textContent.trim().replace(/\s+/g, ' '));
+
+    const first = normalizeCells(rows[0]);
+    assert.deepEqual(first, [
+      'Bitcoin',
+      'Layer 1',
+      '1',
+      '123 $',
+      '456 k$',
+      '789 k$',
+      '321 k$',
+      '1.23%',
+      '-0.50%',
+      '10.00%',
+      'Détails',
+    ]);
+    const firstLink = rows[0].querySelector('.details-link');
+    assert.equal(firstLink.getAttribute('href'), './coin.html?coin_id=bitcoin');
+    const firstImg = rows[0].querySelector('img');
+    assert.ok(firstImg);
+    assert.equal(firstImg.getAttribute('src'), 'https://img.test/bitcoin.png');
+
+    const second = normalizeCells(rows[1]);
+    assert.deepEqual(second, [
+      'New Coin',
+      '',
+      '42',
+      '10.5 $',
+      '1.2 M$',
+      '—',
+      '150 k$',
+      '-2.50%',
+      '0.00%',
+      '12.35%',
+      'Détails',
+    ]);
+    const secondLink = rows[1].querySelector('.details-link');
+    assert.equal(secondLink.getAttribute('href'), './coin.html?coin_id=newcoin');
+    const secondImg = rows[1].querySelector('img');
+    assert.ok(secondImg);
+    assert.equal(secondImg.getAttribute('src'), 'https://img.test/newcoin.png');
+
+    const third = normalizeCells(rows[2]);
+    assert.deepEqual(third, [
+      'Missing',
+      '',
+      '3',
+      '—',
+      '—',
+      '—',
+      '—',
+      '',
+      '',
+      '',
+      'Détails',
+    ]);
+  },
+);
+
+test("loadTrendingCoins limite l'affichage à 15 entrées uniques", async (t) => {
+  const dom = setupDom();
+  t.after(() => {
+    dom.window.close();
+    delete global.window;
+    delete global.document;
+    delete global.localStorage;
+    delete global.fetch;
+  });
+  const { loadCryptos, loadTrendingCoins } = await import('../frontend/main.js');
+  const trendingPayload = {
+    coins: Array.from({ length: 18 }, (_, index) =>
+      buildTrendingItem(`trend-${index}`, {
+        rank: index + 1,
+        price: String(index + 1),
+        marketCap: String((index + 1) * 1_000),
+        volume: String((index + 1) * 100),
+        change24h: index,
+      }),
+    ),
+  };
+  const baseFetch = mockApiFetch([], { diagPlan: 'pro', trendingPayload });
+  global.fetch = baseFetch;
+
+  await loadCryptos();
+  await loadTrendingCoins();
+
+  const rows = [...document.querySelectorAll('#trending-cryptos tbody tr')];
+  assert.equal(rows.length, 15);
+  const names = rows.map((row) => row.querySelector('.coin-name').textContent.trim());
+  assert.deepEqual(
+    names,
+    Array.from({ length: 15 }, (_, index) => `Trend ${index}`),
+  );
+  const lastLink = rows[rows.length - 1].querySelector('.details-link');
+  assert.equal(lastLink.getAttribute('href'), './coin.html?coin_id=trend-14');
+});
+
+test('loadTrendingCoins signale une erreur lorsque la requête échoue', async (t) => {
+  const dom = setupDom();
+  t.after(() => {
+    dom.window.close();
+    delete global.window;
+    delete global.document;
+    delete global.localStorage;
+    delete global.fetch;
+  });
+  const { loadCryptos, loadTrendingCoins } = await import('../frontend/main.js');
+  global.fetch = mockApiFetch([], { diagPlan: 'pro', failTrending: true });
+
+  await loadCryptos();
+  await loadTrendingCoins();
+
+  const status = document.getElementById('trending-status');
+  assert.match(status.textContent, /tendances indisponibles/i);
+  const table = document.getElementById('trending-cryptos');
+  assert.equal(table.style.display, 'none');
+  const rows = document.querySelectorAll('#trending-cryptos tbody tr');
+  assert.equal(rows.length, 0);
 });
 
 test('clicking rank header toggles ascending then descending order', async (t) => {
