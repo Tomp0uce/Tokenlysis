@@ -568,7 +568,7 @@ def test_sync_fear_greed_index_skips_when_fresh(monkeypatch, TestingSessionLocal
     repo.upsert_many(
         [
             {
-                "timestamp": dt.datetime(2024, 1, 9, tzinfo=dt.timezone.utc),
+                "timestamp": dt.datetime(2024, 1, 10, tzinfo=dt.timezone.utc),
                 "value": 42,
                 "classification": "Greed",
                 "ingested_at": now - dt.timedelta(days=1),
@@ -827,6 +827,85 @@ def test_sync_fear_greed_index_fetches_latest_only_when_today_missing(
     assert latest is not None
     assert latest.timestamp.date() == now.date()
     assert latest.value == 65
+    assert meta_value == now.isoformat()
+
+
+def test_sync_fear_greed_index_bypasses_guard_when_today_missing(
+    monkeypatch, TestingSessionLocal
+):
+    from backend.app.services import fear_greed as service_module
+    from backend.app.services.dao import FearGreedRepo, MetaRepo
+    from backend.app.core.settings import settings
+
+    monkeypatch.setattr(settings, "REFRESH_GRANULARITY", "12h")
+
+    now = dt.datetime(2024, 7, 3, 6, tzinfo=dt.timezone.utc)
+
+    session = TestingSessionLocal()
+    repo = FearGreedRepo(session)
+    meta_repo = MetaRepo(session)
+
+    repo.upsert_many(
+        [
+            {
+                "timestamp": now - dt.timedelta(days=800),
+                "value": 22,
+                "classification": "Extreme Fear",
+                "ingested_at": now - dt.timedelta(days=800),
+            },
+            {
+                "timestamp": dt.datetime(2024, 7, 1, tzinfo=dt.timezone.utc),
+                "value": 30,
+                "classification": "Fear",
+                "ingested_at": now - dt.timedelta(days=2),
+            },
+            {
+                "timestamp": dt.datetime(2024, 7, 2, tzinfo=dt.timezone.utc),
+                "value": 49,
+                "classification": "Neutral",
+                "ingested_at": now - dt.timedelta(days=1),
+            },
+        ]
+    )
+    meta_repo.set(
+        "fear_greed_last_refresh",
+        (now - dt.timedelta(hours=6)).isoformat(),
+    )
+    session.commit()
+
+    class StubClient:
+        def __init__(self) -> None:
+            self.latest_calls = 0
+
+        def get_historical(self, **_: object):  # pragma: no cover - should skip
+            raise AssertionError(
+                "history fetch should be skipped when guard bypasses for missing today"
+            )
+
+        def get_latest(self, **_: object):
+            self.latest_calls += 1
+            return {
+                "timestamp": "2024-07-03T00:00:00Z",
+                "score": 40,
+                "label": "Fear",
+            }
+
+    stub = StubClient()
+
+    try:
+        processed = service_module.sync_fear_greed_index(
+            session=session, client=stub, now=now
+        )
+        latest = repo.get_latest()
+        meta_value = meta_repo.get("fear_greed_last_refresh")
+    finally:
+        session.close()
+
+    assert stub.latest_calls == 1
+    assert processed == 1
+    assert latest is not None
+    assert latest.timestamp.date() == now.date()
+    assert latest.value == 40
     assert meta_value == now.isoformat()
 
 
