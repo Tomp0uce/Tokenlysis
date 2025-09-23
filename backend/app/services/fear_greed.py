@@ -152,17 +152,28 @@ def sync_fear_greed_index(
         guard_interval = refresh_granularity_to_timedelta(settings.REFRESH_GRANULARITY)
         interval_seconds = max(int(guard_interval.total_seconds()), 1)
         last_refresh = _parse_timestamp(meta_repo.get("fear_greed_last_refresh"))
+
+        latest_row = repo.get_latest()
+        latest_timestamp = (
+            _ensure_timezone(latest_row.timestamp) if latest_row else None
+        )
+        has_today_value = (
+            latest_timestamp is not None
+            and latest_timestamp.date() == timestamp_now.date()
+        )
         existing_points = repo.count()
         if (
             existing_points > 0
             and last_refresh is not None
             and (timestamp_now - last_refresh) < guard_interval
+            and has_today_value
         ):
             logger.info(
                 "fear & greed sync skipped: refresh cadence not reached",
                 extra={
                     "last_refresh_at": last_refresh.isoformat(),
                     "interval_seconds": interval_seconds,
+                    "has_today_value": has_today_value,
                 },
             )
             return 0
@@ -174,14 +185,6 @@ def sync_fear_greed_index(
             latest_norm = _ensure_timezone(latest_ts)
             history_span = latest_norm - earliest_norm
 
-        latest_row = repo.get_latest()
-        latest_timestamp = (
-            _ensure_timezone(latest_row.timestamp) if latest_row else None
-        )
-        has_today_value = (
-            latest_timestamp is not None
-            and latest_timestamp.date() == timestamp_now.date()
-        )
         has_multi_year_history = (
             history_span is not None and history_span >= _MIN_HISTORY_SPAN
         )
