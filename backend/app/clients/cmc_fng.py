@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import logging
+import math
 import time
 from typing import Any
 
@@ -27,7 +28,33 @@ def _ensure_timezone(ts: dt.datetime) -> dt.datetime:
     return ts.astimezone(dt.timezone.utc)
 
 
+def _coerce_unix_timestamp(raw: object) -> dt.datetime | None:
+    try:
+        numeric = float(raw)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(numeric):
+        return None
+    seconds = float(numeric)
+    for _ in range(2):
+        if abs(seconds) < 1e11:
+            break
+        seconds /= 1000.0
+    if abs(seconds) >= 1e11:
+        return None
+    try:
+        return dt.datetime.fromtimestamp(seconds, tz=dt.timezone.utc)
+    except (OverflowError, OSError, ValueError):
+        return None
+
+
 def _parse_timestamp(raw: object) -> tuple[str, dt.datetime] | None:
+    if isinstance(raw, (int, float)):
+        parsed = _coerce_unix_timestamp(raw)
+        if parsed is None:
+            return None
+        normalized = _ensure_timezone(parsed)
+        return normalized.isoformat(), normalized
     if isinstance(raw, str):
         candidate = raw.strip()
         if not candidate:
@@ -37,7 +64,9 @@ def _parse_timestamp(raw: object) -> tuple[str, dt.datetime] | None:
         try:
             parsed = dt.datetime.fromisoformat(candidate)
         except ValueError:
-            return None
+            parsed = _coerce_unix_timestamp(candidate)
+            if parsed is None:
+                return None
         normalized = _ensure_timezone(parsed)
         return normalized.isoformat(), normalized
     return None

@@ -830,6 +830,131 @@ def test_sync_fear_greed_index_fetches_latest_only_when_today_missing(
     assert meta_value == now.isoformat()
 
 
+def test_sync_fear_greed_index_ingests_unix_timestamps(
+    monkeypatch, TestingSessionLocal
+):
+    from backend.app.services import fear_greed as service_module
+    from backend.app.services.dao import FearGreedRepo, MetaRepo
+    from backend.app.core.settings import settings
+
+    monkeypatch.setattr(settings, "REFRESH_GRANULARITY", "24h")
+
+    now = dt.datetime(2024, 9, 23, 12, tzinfo=dt.timezone.utc)
+    latest_timestamp = dt.datetime(2024, 9, 23, tzinfo=dt.timezone.utc)
+    history_timestamp = dt.datetime(2024, 9, 21, tzinfo=dt.timezone.utc)
+
+    session = TestingSessionLocal()
+    repo = FearGreedRepo(session)
+    meta_repo = MetaRepo(session)
+
+    class StubClient:
+        def __init__(self) -> None:
+            self.history_calls = 0
+
+        def get_historical(self, **_: object) -> list[dict]:
+            self.history_calls += 1
+            return [
+                {
+                    "timestamp": history_timestamp.timestamp(),
+                    "score": 30,
+                    "label": "Fear",
+                },
+                {
+                    "timestamp": latest_timestamp.timestamp(),
+                    "score": 55.2,
+                    "label": "Greed",
+                },
+            ]
+
+        def get_latest(self) -> dict:  # pragma: no cover - should be skipped
+            raise AssertionError("latest fetch should be skipped once today is ingested")
+
+    stub = StubClient()
+
+    try:
+        processed = service_module.sync_fear_greed_index(
+            session=session, client=stub, now=now
+        )
+        assert processed == 2
+        assert stub.history_calls == 1
+
+        latest = repo.get_latest()
+        assert latest is not None
+        assert latest.timestamp == latest_timestamp
+        assert latest.value == 55
+        assert latest.classification == "Greed"
+
+        assert meta_repo.get("fear_greed_last_refresh") == now.isoformat()
+    finally:
+        session.close()
+
+
+def test_sync_fear_greed_index_ingests_millisecond_timestamps(
+    monkeypatch, TestingSessionLocal
+):
+    from backend.app.services import fear_greed as service_module
+    from backend.app.services.dao import FearGreedRepo, MetaRepo
+    from backend.app.core.settings import settings
+
+    monkeypatch.setattr(settings, "REFRESH_GRANULARITY", "24h")
+
+    now = dt.datetime(2024, 9, 23, 19, tzinfo=dt.timezone.utc)
+    older = dt.datetime(2024, 9, 22, tzinfo=dt.timezone.utc)
+    newer = dt.datetime(2024, 9, 23, 18, tzinfo=dt.timezone.utc)
+
+    session = TestingSessionLocal()
+    repo = FearGreedRepo(session)
+    meta_repo = MetaRepo(session)
+
+    class StubClient:
+        def __init__(self) -> None:
+            self.history_calls = 0
+
+        def get_historical(self, **_: object) -> list[dict]:
+            self.history_calls += 1
+            return [
+                {
+                    "timestamp": str(int(older.timestamp() * 1000)),
+                    "score": 25,
+                    "label": "Fear",
+                },
+                {
+                    "timestamp": int(newer.timestamp() * 1000),
+                    "score": "59.8",
+                    "label": "Greed",
+                },
+                {
+                    "timestamp": 9.9e18,
+                    "score": 80,
+                    "label": "Extreme Greed",
+                },
+            ]
+
+        def get_latest(self) -> dict:  # pragma: no cover - should be skipped
+            raise AssertionError("latest fetch should be skipped when ms history exists")
+
+    stub = StubClient()
+
+    try:
+        processed = service_module.sync_fear_greed_index(
+            session=session, client=stub, now=now
+        )
+        assert processed == 2
+        assert stub.history_calls == 1
+
+        latest = repo.get_latest()
+        assert latest is not None
+        assert latest.timestamp == newer
+        assert latest.value == 60
+        assert latest.classification == "Greed"
+
+        history = repo.get_history()
+        assert [row.timestamp for row in history] == [older, newer]
+        assert meta_repo.get("fear_greed_last_refresh") == now.isoformat()
+    finally:
+        session.close()
+
+
 def test_sync_fear_greed_index_spends_budget_on_calls(
     TestingSessionLocal, tmp_path
 ):

@@ -1,3 +1,4 @@
+import datetime as dt
 from typing import Any
 
 import requests
@@ -165,3 +166,65 @@ def test_get_historical_returns_empty_for_invalid_data() -> None:
 
     history = client.get_historical()
     assert history == []
+
+
+def test_get_latest_accepts_unix_timestamp() -> None:
+    epoch = dt.datetime(2024, 9, 21, tzinfo=dt.timezone.utc)
+    responses = [
+        DummyResponse(
+            {
+                "data": [
+                    {
+                        "timestamp": epoch.timestamp(),
+                        "score": 49.4,
+                        "value_classification": "Neutral",
+                    }
+                ]
+            }
+        )
+    ]
+    session = DummySession(responses)
+    client = CoinMarketCapFearGreedClient(
+        api_key=None, base_url="https://api.example.com", session=session, throttle_ms=0
+    )
+
+    latest = client.get_latest()
+    assert latest == {
+        "timestamp": epoch.isoformat(),
+        "score": 49,
+        "label": "Neutral",
+    }
+
+
+def test_get_latest_accepts_millisecond_timestamps() -> None:
+    older = dt.datetime(2024, 9, 22, tzinfo=dt.timezone.utc)
+    newer = dt.datetime(2024, 9, 23, 12, 30, tzinfo=dt.timezone.utc)
+    responses = [
+        DummyResponse(
+            {
+                "data": [
+                    {
+                        "timestamp": str(int(older.timestamp() * 1000)),
+                        "score": 41.7,
+                        "value_classification": "Fear",
+                    },
+                    {
+                        "timestamp": int(newer.timestamp() * 1000),
+                        "score": "60.2",
+                        "value_classification": "Greed",
+                    },
+                ]
+            }
+        )
+    ]
+    session = DummySession(responses)
+    client = CoinMarketCapFearGreedClient(
+        api_key=None, base_url="https://api.example.com", session=session, throttle_ms=0
+    )
+
+    latest = client.get_latest()
+    assert latest == {
+        "timestamp": newer.isoformat(),
+        "score": 60,
+        "label": "Greed",
+    }
