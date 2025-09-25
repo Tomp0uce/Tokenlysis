@@ -22,6 +22,17 @@ def _setup_test_session(tmp_path):
     return TestingSessionLocal
 
 
+def _patch_historical_import(monkeypatch, main_module, calls=None):
+    def _fake_import(session, *_args, **_kwargs):
+        if calls is not None:
+            calls.setdefault("count", 0)
+            calls["count"] += 1
+
+    monkeypatch.setattr(
+        main_module, "import_historical_data", _fake_import, raising=False
+    )
+
+
 def test_startup_runs_etl_when_not_bootstrapped(monkeypatch, tmp_path):
     TestingSessionLocal = _setup_test_session(tmp_path)
 
@@ -53,6 +64,7 @@ def test_startup_runs_etl_when_not_bootstrapped(monkeypatch, tmp_path):
     monkeypatch.setattr(main_module, "run_etl_async", fake_run_etl_async)
     monkeypatch.setattr(main_module, "sync_fear_greed_async", fake_sync_async)
     monkeypatch.setattr(main_module, "load_seed", fake_load_seed)
+    _patch_historical_import(monkeypatch, main_module)
 
     main_module.app.state.startup_path = None
     asyncio.run(main_module.startup())
@@ -109,6 +121,7 @@ def test_startup_skips_when_bootstrapped_and_has_data(monkeypatch, tmp_path):
     monkeypatch.setattr(main_module, "run_etl_async", fake_run_etl_async)
     monkeypatch.setattr(main_module, "sync_fear_greed_async", fake_sync_async)
     monkeypatch.setattr(main_module, "load_seed", fake_load_seed)
+    _patch_historical_import(monkeypatch, main_module)
 
     main_module.app.state.startup_path = None
     asyncio.run(main_module.startup())
@@ -153,6 +166,7 @@ def test_startup_handles_missing_seed_when_etl_fails(monkeypatch, tmp_path):
     monkeypatch.setattr(main_module, "sync_fear_greed_async", fake_sync_async)
     monkeypatch.setattr(main_module, "load_seed", fake_load_seed)
     monkeypatch.setattr(settings, "SEED_FILE", str(tmp_path / "missing.json"))
+    _patch_historical_import(monkeypatch, main_module)
 
     main_module.app.state.startup_path = None
     asyncio.run(main_module.startup())
@@ -200,6 +214,7 @@ def test_startup_bootstrapped_empty_table_runs_etl(monkeypatch, tmp_path):
     monkeypatch.setattr(main_module, "run_etl_async", fake_run_etl_async)
     monkeypatch.setattr(main_module, "sync_fear_greed_async", fake_sync_async)
     monkeypatch.setattr(main_module, "load_seed", fake_load_seed)
+    _patch_historical_import(monkeypatch, main_module)
 
     main_module.app.state.startup_path = None
     asyncio.run(main_module.startup())
@@ -247,6 +262,7 @@ def test_startup_bootstrapped_empty_table_etl_fails_uses_seed(
     monkeypatch.setattr(main_module, "run_etl_async", fake_run_etl_async)
     monkeypatch.setattr(main_module, "sync_fear_greed_async", fake_sync_async)
     monkeypatch.setattr(main_module, "load_seed", fake_load_seed)
+    _patch_historical_import(monkeypatch, main_module)
 
     main_module.app.state.startup_path = None
     asyncio.run(main_module.startup())
@@ -317,6 +333,7 @@ def test_scheduler_waits_between_runs(monkeypatch, tmp_path):
     monkeypatch.setattr(main_module, "load_seed", lambda: None)
     monkeypatch.setattr(main_module.asyncio, "wait_for", fake_wait_for)
     monkeypatch.setattr(main_module.asyncio, "create_task", fake_create_task)
+    _patch_historical_import(monkeypatch, main_module)
 
     asyncio.run(main_module.startup())
     assert len(tasks) == 1
@@ -385,6 +402,7 @@ def test_startup_creates_budget_dir(monkeypatch, tmp_path):
     monkeypatch.setattr(main_module, "sync_fear_greed_async", fake_sync_async)
     monkeypatch.setattr(main_module, "load_seed", lambda: None)
     monkeypatch.setattr(main_module.asyncio, "create_task", lambda coro: coro.close())
+    _patch_historical_import(monkeypatch, main_module)
 
     path = tmp_path / "meta" / "budget.json"
     monkeypatch.setattr(settings, "BUDGET_FILE", str(path))
@@ -425,6 +443,7 @@ def test_startup_handles_unwritable_budget_file(monkeypatch, tmp_path, caplog):
     monkeypatch.setattr(main_module, "sync_fear_greed_async", fake_sync_async)
     monkeypatch.setattr(main_module, "load_seed", lambda: None)
     monkeypatch.setattr(main_module.asyncio, "create_task", lambda coro: coro.close())
+    _patch_historical_import(monkeypatch, main_module)
 
     path = tmp_path / "deny" / "budget.json"
     monkeypatch.setattr(settings, "BUDGET_FILE", str(path))
@@ -442,3 +461,38 @@ def test_startup_handles_unwritable_budget_file(monkeypatch, tmp_path, caplog):
 
     assert getattr(main_module.app.state, "budget", None) is None
     assert any("budget file unavailable" in r.message for r in caplog.records)
+
+
+def test_startup_invokes_historical_import_once(monkeypatch, tmp_path):
+    TestingSessionLocal = _setup_test_session(tmp_path)
+
+    def _session_override():
+        session = TestingSessionLocal()
+        try:
+            yield session
+        finally:
+            session.close()
+
+    import backend.app.main as main_module
+
+    monkeypatch.setattr(main_module.settings, "log_level", "DEBUG")
+    monkeypatch.setattr(main_module.logging, "basicConfig", lambda **_k: None)
+    monkeypatch.setattr(main_module, "get_session", _session_override)
+    monkeypatch.setattr(main_module.asyncio, "create_task", lambda coro: coro.close())
+
+    calls = {"count": 0}
+    _patch_historical_import(monkeypatch, main_module, calls)
+
+    async def fake_run_etl_async(*_a, **_k):
+        return 0
+
+    async def fake_sync_async() -> int:
+        return 0
+
+    monkeypatch.setattr(main_module, "run_etl_async", fake_run_etl_async)
+    monkeypatch.setattr(main_module, "sync_fear_greed_async", fake_sync_async)
+    monkeypatch.setattr(main_module, "load_seed", lambda: None)
+
+    asyncio.run(main_module.startup())
+
+    assert calls["count"] == 1
