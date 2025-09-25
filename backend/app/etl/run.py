@@ -7,6 +7,7 @@ import json
 import logging
 import time
 from pathlib import Path
+from types import ModuleType
 from typing import TYPE_CHECKING
 
 import requests
@@ -30,6 +31,31 @@ _categories_cache: dict[str, str] = {}
 _categories_cache_ts: dt.datetime | None = None
 
 _PROFILE_STALE_AFTER = dt.timedelta(days=30)
+
+
+def _resolve_main_module(candidate: ModuleType | None = None) -> ModuleType | None:
+    if candidate is not None:
+        return candidate
+    try:
+        from .. import main as main_module  # type: ignore
+    except Exception:  # pragma: no cover - defensive
+        return None
+    return main_module
+
+
+def _get_cmc_budget(candidate: ModuleType | None = None) -> CallBudget | None:
+    main_module = _resolve_main_module(candidate)
+    if main_module is None:
+        return None
+    return getattr(main_module.app.state, "cmc_budget", None)
+
+
+def _sync_fear_greed_with_budget(budget: CallBudget | None) -> int:
+    try:
+        return sync_fear_greed_index(budget=budget)
+    except Exception as exc:  # pragma: no cover - defensive logging
+        logger.warning("fear & greed sync skipped: %s", exc)
+        return 0
 
 
 class DataUnavailable(Exception):
@@ -164,6 +190,8 @@ def run_etl(
                     }
                 )
             )
+            main_module_ref = _resolve_main_module()
+            _sync_fear_greed_with_budget(_get_cmc_budget(main_module_ref))
             return 0
 
         limit = max(10, settings.CG_TOP_N)
@@ -310,35 +338,19 @@ def run_etl(
         session.close()
 
     cache = markets_cache
-    main_module = None
+    main_module_ref: ModuleType | None = None
     if cache is None:
-        try:
-            from .. import main as main_module  # type: ignore
-        except Exception:  # pragma: no cover - defensive
-            cache = None
-            main_module = None
-        else:
-            cache = getattr(main_module.app.state, "markets_cache", None)
+        main_module_ref = _resolve_main_module()
+        if main_module_ref is not None:
+            cache = getattr(main_module_ref.app.state, "markets_cache", None)
     if cache is not None:
         try:
             cache.invalidate()
         except Exception:  # pragma: no cover - defensive
             logger.warning("markets cache invalidation failed", exc_info=True)
 
-    cmc_budget = None
-    if main_module is None:
-        try:
-            from .. import main as main_module  # type: ignore
-        except Exception:  # pragma: no cover - defensive
-            main_module = None
-    if main_module is not None:
-        cmc_budget = getattr(main_module.app.state, "cmc_budget", None)
-
-    fear_greed_rows = 0
-    try:
-        fear_greed_rows = sync_fear_greed_index(budget=cmc_budget)
-    except Exception as exc:  # pragma: no cover - defensive logging
-        logger.warning("fear & greed sync skipped: %s", exc)
+    cmc_budget = _get_cmc_budget(main_module_ref)
+    fear_greed_rows = _sync_fear_greed_with_budget(cmc_budget)
 
     logger.info(
         json.dumps(
