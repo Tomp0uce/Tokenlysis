@@ -118,6 +118,82 @@ def test_startup_runs_historical_import_after_etl(monkeypatch, tmp_path):
     assert order["import_calls"] == 1
 
 
+def test_startup_retries_historical_import_after_failure(monkeypatch, tmp_path):
+    TestingSessionLocal = _setup_test_session(tmp_path)
+
+    def _session_override():
+        session = TestingSessionLocal()
+        try:
+            yield session
+        finally:
+            session.close()
+
+    import backend.app.main as main_module
+
+    monkeypatch.setattr(main_module.settings, "log_level", "DEBUG")
+    monkeypatch.setattr(main_module.logging, "basicConfig", lambda **_k: None)
+    monkeypatch.setattr(main_module, "get_session", _session_override)
+    monkeypatch.setattr(main_module.asyncio, "create_task", lambda coro: coro.close())
+
+    calls: dict[str, int] = {"etl": 0, "import": 0}
+
+    async def fake_run_etl_async(*_a, **_k):
+        calls["etl"] += 1
+        session = TestingSessionLocal()
+        try:
+            session.add(
+                LatestPrice(
+                    coin_id="bitcoin",
+                    vs_currency="usd",
+                    price=1.0,
+                    market_cap=1.0,
+                    volume_24h=1.0,
+                    rank=1,
+                    pct_change_24h=0.0,
+                    snapshot_at=dt.datetime.now(dt.timezone.utc),
+                )
+            )
+            session.commit()
+        finally:
+            session.close()
+
+    async def fake_sync_async() -> int:
+        return 0
+
+    def fake_load_seed() -> None:  # pragma: no cover - should not run
+        raise AssertionError("seed should not run when ETL succeeds")
+
+    def fake_import(session, *_a, **_k):
+        calls["import"] += 1
+        if calls["import"] == 1:
+            raise RuntimeError("transient historical import failure")
+
+    monkeypatch.setattr(main_module, "run_etl_async", fake_run_etl_async)
+    monkeypatch.setattr(main_module, "sync_fear_greed_async", fake_sync_async)
+    monkeypatch.setattr(main_module, "load_seed", fake_load_seed)
+    monkeypatch.setattr(main_module, "import_historical_data", fake_import, raising=False)
+
+    main_module.app.state.startup_path = None
+    asyncio.run(main_module.startup())
+
+    session = TestingSessionLocal()
+    try:
+        assert MetaRepo(session).get("historical_import_done") == "false"
+    finally:
+        session.close()
+
+    main_module.app.state.startup_path = None
+    asyncio.run(main_module.startup())
+
+    assert calls == {"etl": 1, "import": 2}
+
+    session = TestingSessionLocal()
+    try:
+        assert MetaRepo(session).get("historical_import_done") == "true"
+    finally:
+        session.close()
+
+
 def test_startup_skips_when_bootstrapped_and_has_data(monkeypatch, tmp_path):
     TestingSessionLocal = _setup_test_session(tmp_path)
     session = TestingSessionLocal()
