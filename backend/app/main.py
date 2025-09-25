@@ -31,6 +31,7 @@ from .core.scheduling import (
 )
 from .core.version import get_version
 from .db import Base, engine, get_session
+from .etl.historical_import import import_historical_data
 from .etl.run import DataUnavailable, load_seed, run_etl
 from .schemas.version import VersionResponse
 from .models import FearGreed
@@ -791,6 +792,11 @@ async def startup() -> None:
     app.state.cmc_budget = cmc_budget
 
     session = next(get_session())
+    # HISTORICAL_IMPORT: temporary bootstrap hook, delete once CSV backfill is done.
+    try:
+        import_historical_data(session)
+    except Exception as exc:  # pragma: no cover - defensive logging
+        logger.warning("historical import skipped: %s", exc)
     meta_repo = MetaRepo(session)
     prices_repo = PricesRepo(session)
     path_taken = "skip"
