@@ -600,9 +600,7 @@ def diag(session: Session = Depends(get_session)) -> dict:
     monthly_call_categories = budget.category_counts if budget else {}
     cmc_budget = _get_cmc_budget()
     cmc_monthly_call_count = cmc_budget.monthly_call_count if cmc_budget else 0
-    cmc_monthly_call_categories = (
-        cmc_budget.category_counts if cmc_budget else {}
-    )
+    cmc_monthly_call_categories = cmc_budget.category_counts if cmc_budget else {}
     fear_greed_count = fear_greed_repo.count()
 
     return {
@@ -796,6 +794,8 @@ async def startup() -> None:
     prices_repo = PricesRepo(session)
     path_taken = "skip"
     should_run_historical_import = False
+    historical_import_done = meta_repo.get("historical_import_done") == "true"
+    has_data = False
     try:
         if meta_repo.get("bootstrap_done") != "true":
             try:
@@ -834,6 +834,8 @@ async def startup() -> None:
                 else:
                     path_taken = "ETL"
                     should_run_historical_import = True
+        if not should_run_historical_import and not historical_import_done and has_data:
+            should_run_historical_import = True
         session.commit()
     finally:
         session.close()
@@ -841,7 +843,11 @@ async def startup() -> None:
     if should_run_historical_import:
         session = next(get_session())
         try:
+            meta_repo = MetaRepo(session)
+            meta_repo.set("historical_import_done", "false")
+            session.commit()
             import_historical_data(session)
+            meta_repo.set("historical_import_done", "true")
             session.commit()
         except Exception as exc:  # pragma: no cover - defensive logging
             logger.warning("historical import skipped: %s", exc)
