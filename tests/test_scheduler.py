@@ -74,6 +74,50 @@ def test_startup_runs_etl_when_not_bootstrapped(monkeypatch, tmp_path):
     assert getattr(main_module.app.state, "startup_path", None) == "ETL"
 
 
+def test_startup_runs_historical_import_after_etl(monkeypatch, tmp_path):
+    TestingSessionLocal = _setup_test_session(tmp_path)
+
+    def _session_override():
+        session = TestingSessionLocal()
+        try:
+            yield session
+        finally:
+            session.close()
+
+    import backend.app.main as main_module
+
+    monkeypatch.setattr(main_module.settings, "log_level", "DEBUG")
+    monkeypatch.setattr(main_module.logging, "basicConfig", lambda **_k: None)
+    monkeypatch.setattr(main_module, "get_session", _session_override)
+    monkeypatch.setattr(main_module.asyncio, "create_task", lambda coro: coro.close())
+
+    order = {"etl_done": False, "import_calls": 0}
+
+    async def fake_run_etl_async(*_a, **_k):
+        order["etl_done"] = True
+        return 0
+
+    async def fake_sync_async() -> int:
+        return 0
+
+    def fake_load_seed() -> None:  # pragma: no cover - should not run
+        raise AssertionError("load_seed should not run when ETL succeeds")
+
+    def fake_import(session, *_a, **_k):
+        assert order["etl_done"], "historical import ran before ETL finished"
+        order["import_calls"] += 1
+
+    monkeypatch.setattr(main_module, "run_etl_async", fake_run_etl_async)
+    monkeypatch.setattr(main_module, "sync_fear_greed_async", fake_sync_async)
+    monkeypatch.setattr(main_module, "load_seed", fake_load_seed)
+    monkeypatch.setattr(main_module, "import_historical_data", fake_import, raising=False)
+
+    main_module.app.state.startup_path = None
+    asyncio.run(main_module.startup())
+
+    assert order["import_calls"] == 1
+
+
 def test_startup_skips_when_bootstrapped_and_has_data(monkeypatch, tmp_path):
     TestingSessionLocal = _setup_test_session(tmp_path)
     session = TestingSessionLocal()
@@ -176,6 +220,51 @@ def test_startup_handles_missing_seed_when_etl_fails(monkeypatch, tmp_path):
     assert MetaRepo(session).get("bootstrap_done") == "true"
     session.close()
     assert getattr(main_module.app.state, "startup_path", None) == "seed"
+
+
+def test_startup_runs_historical_import_after_seed(monkeypatch, tmp_path):
+    TestingSessionLocal = _setup_test_session(tmp_path)
+
+    def _session_override():
+        session = TestingSessionLocal()
+        try:
+            yield session
+        finally:
+            session.close()
+
+    import backend.app.main as main_module
+    from backend.app.core.settings import settings
+
+    monkeypatch.setattr(main_module.settings, "log_level", "DEBUG")
+    monkeypatch.setattr(main_module.logging, "basicConfig", lambda **_k: None)
+    monkeypatch.setattr(main_module, "get_session", _session_override)
+    monkeypatch.setattr(main_module.asyncio, "create_task", lambda coro: coro.close())
+
+    order = {"seed_loaded": False, "import_calls": 0}
+
+    async def fake_run_etl_async(*_a, **_k):
+        raise main_module.DataUnavailable
+
+    async def fake_sync_async() -> int:
+        return 0
+
+    def fake_load_seed():
+        order["seed_loaded"] = True
+
+    def fake_import(session, *_a, **_k):
+        assert order["seed_loaded"], "historical import ran before seed load"
+        order["import_calls"] += 1
+
+    monkeypatch.setattr(main_module, "run_etl_async", fake_run_etl_async)
+    monkeypatch.setattr(main_module, "sync_fear_greed_async", fake_sync_async)
+    monkeypatch.setattr(main_module, "load_seed", fake_load_seed)
+    monkeypatch.setattr(main_module, "import_historical_data", fake_import, raising=False)
+    monkeypatch.setattr(settings, "use_seed_on_failure", True)
+
+    main_module.app.state.startup_path = None
+    asyncio.run(main_module.startup())
+
+    assert order["import_calls"] == 1
 
 
 def test_startup_bootstrapped_empty_table_runs_etl(monkeypatch, tmp_path):
