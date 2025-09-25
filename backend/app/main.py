@@ -792,47 +792,62 @@ async def startup() -> None:
     app.state.cmc_budget = cmc_budget
 
     session = next(get_session())
-    # HISTORICAL_IMPORT: temporary bootstrap hook, delete once CSV backfill is done.
-    try:
-        import_historical_data(session)
-    except Exception as exc:  # pragma: no cover - defensive logging
-        logger.warning("historical import skipped: %s", exc)
     meta_repo = MetaRepo(session)
     prices_repo = PricesRepo(session)
     path_taken = "skip"
+    should_run_historical_import = False
     try:
         if meta_repo.get("bootstrap_done") != "true":
             try:
                 await run_etl_async(budget=budget)
-                path_taken = "ETL"
             except DataUnavailable:
                 if settings.use_seed_on_failure:
                     load_seed()
                     path_taken = "seed"
+                    should_run_historical_import = True
             except OperationalError as exc:
                 logger.warning("startup ETL failed: %s", exc)
                 if settings.use_seed_on_failure:
                     load_seed()
                     path_taken = "seed"
+                    should_run_historical_import = True
+            else:
+                path_taken = "ETL"
+                should_run_historical_import = True
             meta_repo.set("bootstrap_done", "true")
         else:
             has_data = bool(prices_repo.get_top("usd", 1))
             if not has_data:
                 try:
                     await run_etl_async(budget=budget)
-                    path_taken = "ETL"
                 except DataUnavailable:
                     if settings.use_seed_on_failure:
                         load_seed()
                         path_taken = "seed"
+                        should_run_historical_import = True
                 except OperationalError as exc:
                     logger.warning("startup ETL failed: %s", exc)
                     if settings.use_seed_on_failure:
                         load_seed()
                         path_taken = "seed"
+                        should_run_historical_import = True
+                else:
+                    path_taken = "ETL"
+                    should_run_historical_import = True
         session.commit()
     finally:
         session.close()
+
+    if should_run_historical_import:
+        session = next(get_session())
+        try:
+            import_historical_data(session)
+            session.commit()
+        except Exception as exc:  # pragma: no cover - defensive logging
+            logger.warning("historical import skipped: %s", exc)
+            session.rollback()
+        finally:
+            session.close()
 
     try:
         await sync_fear_greed_async()
