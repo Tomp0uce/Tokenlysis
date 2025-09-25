@@ -73,6 +73,61 @@ def test_run_etl_skips_when_refresh_recent(monkeypatch, tmp_path):
     assert rows == 0
 
 
+def test_run_etl_syncs_fear_greed_even_when_skipping_markets(monkeypatch, tmp_path):
+    engine = create_engine(
+        f"sqlite:///{tmp_path/'skip_fng.db'}", connect_args={"check_same_thread": False}
+    )
+    TestingSessionLocal = sessionmaker(
+        bind=engine, autoflush=False, autocommit=False, expire_on_commit=False
+    )
+    Base.metadata.create_all(bind=engine)
+    monkeypatch.setattr(run_module, "SessionLocal", TestingSessionLocal)
+    monkeypatch.setattr(settings, "REFRESH_GRANULARITY", "12h")
+
+    now = dt.datetime.now(dt.timezone.utc)
+
+    session = TestingSessionLocal()
+    prices_repo = PricesRepo(session)
+    meta_repo = MetaRepo(session)
+    prices_repo.upsert_latest(
+        [
+            {
+                "coin_id": "bitcoin",
+                "vs_currency": "usd",
+                "price": 100.0,
+                "market_cap": 200.0,
+                "fully_diluted_market_cap": 210.0,
+                "volume_24h": 50.0,
+                "rank": 1,
+                "pct_change_24h": 0.0,
+                "pct_change_7d": 0.0,
+                "pct_change_30d": 0.0,
+                "snapshot_at": now - dt.timedelta(minutes=5),
+            }
+        ]
+    )
+    meta_repo.set("last_refresh_at", (now - dt.timedelta(minutes=30)).isoformat())
+    session.commit()
+    session.close()
+
+    class StubClient:
+        def get_markets(self, **_kwargs):  # pragma: no cover - should not run
+            raise AssertionError("markets should be skipped when guard triggers")
+
+    calls: dict[str, int] = {"count": 0}
+
+    def _stub_sync_fear_greed_index(*_args, **_kwargs):
+        calls["count"] += 1
+        return 0
+
+    monkeypatch.setattr(run_module, "sync_fear_greed_index", _stub_sync_fear_greed_index)
+
+    rows = run_module.run_etl(client=StubClient(), budget=None)
+
+    assert rows == 0
+    assert calls["count"] == 1
+
+
 def test_run_etl_skips_when_budget_exceeded(monkeypatch, tmp_path, caplog):
     from backend.app.etl.run import run_etl, DataUnavailable
 
