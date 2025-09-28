@@ -157,9 +157,16 @@ def _safe_int(value: object) -> int | None:
     return max(number, 0)
 
 
-def _coingecko_usage_headers(api_key: str) -> dict[str, str]:
-    header = "x-cg-pro-api-key" if settings.COINGECKO_PLAN == "pro" else "x-cg-demo-api-key"
-    return {header: api_key}
+def _coingecko_usage_headers(api_key: str) -> list[dict[str, str]]:
+    preferred = "x-cg-pro-api-key" if settings.COINGECKO_PLAN == "pro" else "x-cg-demo-api-key"
+    header_names: list[str] = []
+    for candidate in (preferred, "x-cg-pro-api-key", "x-cg-demo-api-key"):
+        if candidate not in header_names:
+            header_names.append(candidate)
+    return [
+        {"Accept": "application/json", header_name: api_key}
+        for header_name in header_names
+    ]
 
 
 def _usage_cache_signature(cg_key: str, cmc_key: str) -> str:
@@ -191,34 +198,51 @@ def _get_cached_usage(signature: str, now: dt.datetime) -> dict[str, dict[str, o
 
 
 def _fetch_coingecko_usage(api_key: str) -> dict[str, object]:
-    headers = _coingecko_usage_headers(api_key)
-    response = requests.get(COINGECKO_USAGE_URL, headers=headers, timeout=USAGE_TIMEOUT_SECONDS)
-    response.raise_for_status()
-    payload = response.json()
-    plan = payload.get("plan") if isinstance(payload, dict) else None
-    credit = _safe_int(payload.get("monthly_call_credit")) if isinstance(payload, dict) else None
-    used = (
-        _safe_int(payload.get("current_total_monthly_calls"))
-        if isinstance(payload, dict)
-        else None
-    )
-    remaining = (
-        _safe_int(payload.get("current_remaining_monthly_calls"))
-        if isinstance(payload, dict)
-        else None
-    )
-    quota = credit if credit is not None else None
-    if quota is None and used is not None and remaining is not None:
-        quota = used + remaining
-    return {
-        "plan": plan,
-        "monthly_call_credit": credit,
-        "current_total_monthly_calls": used,
-        "current_remaining_monthly_calls": remaining,
-        "monthly_call_count": used,
-        "quota": quota,
-        "remaining": remaining,
-    }
+    last_error: requests.HTTPError | None = None
+    for headers in _coingecko_usage_headers(api_key):
+        response = requests.get(
+            COINGECKO_USAGE_URL,
+            headers=headers,
+            timeout=USAGE_TIMEOUT_SECONDS,
+        )
+        try:
+            response.raise_for_status()
+        except requests.HTTPError as exc:
+            status_code = None
+            if exc.response is not None:
+                status_code = getattr(exc.response, "status_code", None)
+            if status_code in {401, 403}:
+                last_error = exc
+                continue
+            raise
+        payload = response.json()
+        plan = payload.get("plan") if isinstance(payload, dict) else None
+        credit = _safe_int(payload.get("monthly_call_credit")) if isinstance(payload, dict) else None
+        used = (
+            _safe_int(payload.get("current_total_monthly_calls"))
+            if isinstance(payload, dict)
+            else None
+        )
+        remaining = (
+            _safe_int(payload.get("current_remaining_monthly_calls"))
+            if isinstance(payload, dict)
+            else None
+        )
+        quota = credit if credit is not None else None
+        if quota is None and used is not None and remaining is not None:
+            quota = used + remaining
+        return {
+            "plan": plan,
+            "monthly_call_credit": credit,
+            "current_total_monthly_calls": used,
+            "current_remaining_monthly_calls": remaining,
+            "monthly_call_count": used,
+            "quota": quota,
+            "remaining": remaining,
+        }
+    if last_error is not None:
+        raise last_error
+    raise requests.HTTPError("CoinGecko usage request failed")
 
 
 def _extract_monthly_usage(candidate: dict[str, object] | None) -> dict[str, int | None]:
@@ -251,6 +275,7 @@ def _fetch_cmc_usage(api_key: str) -> dict[str, object]:
     response = requests.get(
         COINMARKETCAP_USAGE_URL,
         headers=headers,
+        params={"aux": "usage,plan"},
         timeout=USAGE_TIMEOUT_SECONDS,
     )
     response.raise_for_status()
