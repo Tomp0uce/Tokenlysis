@@ -36,13 +36,14 @@ function setupDom() {
           <a id="back" href="./index.html" class="breadcrumb-link">← Retour</a>
         </header>
         <section class="sentiment-panel">
-          <div class="sentiment-card-header">
-            <span>Sentiment actuel</span>
-            <strong id="fear-greed-value">—</strong>
-          </div>
-          <div class="sentiment-visual">
-            <div id="fear-greed-gauge" class="sentiment-gauge"></div>
-            <ul class="sentiment-legend">
+        <div class="sentiment-card-header">
+          <span>Sentiment actuel</span>
+          <strong id="fear-greed-value">—</strong>
+        </div>
+        <div id="fear-greed-error" class="sentiment-error" hidden></div>
+        <div class="sentiment-visual">
+          <div id="fear-greed-gauge" class="sentiment-gauge"></div>
+          <ul class="sentiment-legend">
               <li class="sentiment-legend-item" data-band="extreme-fear">
                 <span class="legend-swatch" aria-hidden="true"></span>
                 <div class="legend-text">
@@ -106,9 +107,11 @@ function setupDom() {
               <h2>Historique</h2>
             </div>
             <div class="range-selector" id="fear-greed-range" role="radiogroup">
-              <button type="button" data-range="30d">30j</button>
-              <button type="button" data-range="90d">90j</button>
+              <button type="button" data-range="1m">1 mois</button>
+              <button type="button" data-range="3m">3 mois</button>
+              <button type="button" data-range="6m">6 mois</button>
               <button type="button" data-range="1y">1 an</button>
+              <button type="button" data-range="ytd">YTD</button>
               <button type="button" data-range="max">Tout</button>
             </div>
           </div>
@@ -184,10 +187,13 @@ test('fear-greed init renders gauge, legend and history chart with neutral scale
   assert.equal(document.getElementById('fear-greed-value').textContent, '58');
   assert.equal(document.getElementById('fear-greed-classification').textContent, 'Greed');
   assert.equal(document.getElementById('fear-greed-updated'), null);
+  const errorBanner = document.getElementById('fear-greed-error');
+  assert.equal(errorBanner.hidden, true);
   const legendItems = document.querySelectorAll('.sentiment-legend-item');
   assert.equal(legendItems.length, 5);
   const gauge = document.getElementById('fear-greed-gauge');
   assert.ok(gauge);
+  assert.equal(gauge.hidden, false);
   const [gaugeChart, historyChart] = ApexChartsStub.instances;
   assert.ok(gaugeChart);
   assert.ok(historyChart);
@@ -195,6 +201,10 @@ test('fear-greed init renders gauge, legend and history chart with neutral scale
   assert.equal(valueFormatter(72.6), '73');
   const historyContainer = document.getElementById('fear-greed-history');
   assert.ok(historyContainer);
+  assert.equal(historyContainer.hidden, false);
+  const activeRange = document.querySelector('#fear-greed-range .active');
+  assert(activeRange);
+  assert.equal(activeRange.dataset.range, '3m');
   const yFormatter = historyChart.options.yaxis.labels.formatter;
   assert.equal(yFormatter(42.9), '43');
   assert.equal(historyChart.options.tooltip.y.formatter(12.4), '12');
@@ -264,7 +274,7 @@ test('fear-greed snapshots reflect recent periods with color coding', async (t) 
 });
 
 
-test('fear-greed init shows fallback when history fails', async (t) => {
+test('fear-greed init shows banner when history fails', async (t) => {
   const dom = setupDom();
   const latest = { timestamp: '2024-03-10T00:00:00Z', score: 42, label: 'Neutral' };
   mockFetchSequence([
@@ -282,6 +292,9 @@ test('fear-greed init shows fallback when history fails', async (t) => {
   });
 
   await module.init();
+  const banner = document.getElementById('fear-greed-error');
+  assert.equal(banner.hidden, false);
+  assert.match(banner.textContent, /Fear & Greed indisponible \(HTTP 404\)/);
   const errorEl = document.getElementById('history-error');
   assert.equal(errorEl.hidden, false);
   assert.match(errorEl.textContent, /Aucune donnée|Historique indisponible/);
@@ -291,6 +304,11 @@ test('fear-greed init shows fallback when history fails', async (t) => {
   assert.equal(today.dataset.band, 'fear');
   assert.equal(today.getAttribute('title'), 'Neutral');
 
+  const gauge = document.getElementById('fear-greed-gauge');
+  assert.equal(gauge.hidden, true);
+  const historyContainer = document.getElementById('fear-greed-history');
+  assert.equal(historyContainer.hidden, true);
+
   const others = ['yesterday', 'week', 'month'];
   others.forEach((period) => {
     const valueEl = document.querySelector(`[data-period="${period}"] [data-role="value"]`);
@@ -298,4 +316,35 @@ test('fear-greed init shows fallback when history fails', async (t) => {
     assert.equal(valueEl.dataset.band, undefined);
     assert.equal(valueEl.getAttribute('title'), null);
   });
+});
+
+
+test('fear-greed surfaces HTTP errors when latest fetch fails', async (t) => {
+  const dom = setupDom();
+  mockFetchSequence([
+    new Response('', { status: 503 }),
+    new Response('', { status: 200, body: JSON.stringify({ points: [] }) }),
+  ]);
+
+  const module = await importFresh('./fear-greed.js');
+  t.after(() => {
+    dom.window.close();
+    delete global.window;
+    delete global.document;
+    delete global.localStorage;
+    delete global.fetch;
+  });
+
+  await module.init();
+  const banner = document.getElementById('fear-greed-error');
+  assert.equal(banner.hidden, false);
+  assert.match(banner.textContent, /Fear & Greed indisponible \(HTTP 503\)/);
+  const valueEl = document.getElementById('fear-greed-value');
+  assert.equal(valueEl.textContent, '0');
+  const classificationEl = document.getElementById('fear-greed-classification');
+  assert.equal(classificationEl.textContent, 'Indisponible');
+  const gauge = document.getElementById('fear-greed-gauge');
+  assert.equal(gauge.hidden, true);
+  const historyContainer = document.getElementById('fear-greed-history');
+  assert.equal(historyContainer.hidden, true);
 });

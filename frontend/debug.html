@@ -145,6 +145,67 @@
       color: var(--text-primary);
     }
 
+    section.providers-section {
+      background: var(--surface-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: 12px;
+      padding: 1.25rem;
+      box-shadow: var(--shadow-soft);
+    }
+
+    .providers-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 1rem;
+      margin: 0;
+      padding: 0;
+    }
+
+    .provider-card {
+      border: 1px solid var(--border-subtle);
+      border-radius: 10px;
+      padding: 1rem;
+      background: var(--surface-subtle, var(--surface-card));
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .provider-card h3 {
+      margin: 0;
+      font-size: 1.05rem;
+    }
+
+    .provider-card p {
+      margin: 0;
+      color: var(--text-muted);
+      font-size: 0.9rem;
+    }
+
+    .provider-endpoints {
+      list-style: none;
+      margin: 0.25rem 0 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .provider-endpoints li {
+      font-size: 0.85rem;
+      color: var(--text-primary);
+    }
+
+    .provider-endpoints a {
+      color: var(--accent, #2563eb);
+      text-decoration: none;
+    }
+
+    .provider-endpoints a:hover,
+    .provider-endpoints a:focus {
+      text-decoration: underline;
+    }
+
     @media (max-width: 600px) {
       body {
         padding: 1.5rem;
@@ -156,6 +217,10 @@
       }
 
       section.info-grid dl {
+        grid-template-columns: 1fr;
+      }
+
+      .providers-grid {
         grid-template-columns: 1fr;
       }
     }
@@ -191,6 +256,13 @@
           </ul>
         </div>
       </article>
+    </section>
+
+    <section class="providers-section" aria-label="Fournisseurs d'API">
+      <h2>Fournisseurs d'API</h2>
+      <div id="providers-list" class="providers-grid">
+        <p>Aucun fournisseur configuré</p>
+      </div>
     </section>
 
     <section class="info-grid" aria-label="Métadonnées de la plateforme">

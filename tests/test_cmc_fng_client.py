@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 import datetime as dt
 from typing import Any
 
+import pytest
 import requests
 
 from backend.app.clients.cmc_fng import CoinMarketCapFearGreedClient
@@ -64,7 +67,7 @@ def test_get_latest_normalizes_payload() -> None:
 
     latest = client.get_latest()
     assert latest == {
-        "timestamp": "2024-03-02T01:02:03+00:00",
+        "timestamp": "2024-03-02T01:02:03Z",
         "score": 73,
         "label": "Greed",
     }
@@ -72,7 +75,7 @@ def test_get_latest_normalizes_payload() -> None:
         {
             "url": "https://api.example.com/v3/fear-and-greed/latest",
             "params": None,
-            "timeout": (3.1, 20),
+            "timeout": (5, 5),
         }
     ]
     assert session.headers["Accept"] == "application/json"
@@ -113,12 +116,12 @@ def test_get_historical_includes_params_and_filters() -> None:
     history = client.get_historical(limit=3, time_start="2024-02-01T00:00:00Z", time_end="2024-02-28T00:00:00Z")
     assert history == [
         {
-            "timestamp": "2024-02-01T00:00:00+00:00",
+            "timestamp": "2024-02-01T00:00:00Z",
             "score": 55,
             "label": "Neutral",
         },
         {
-            "timestamp": "2024-02-03T00:00:00+00:00",
+            "timestamp": "2024-02-03T00:00:00Z",
             "score": 100,
             "label": "Extreme Greed",
         },
@@ -131,7 +134,7 @@ def test_get_historical_includes_params_and_filters() -> None:
                 "time_start": "2024-02-01T00:00:00Z",
                 "time_end": "2024-02-28T00:00:00Z",
             },
-            "timeout": (3.1, 20),
+            "timeout": (5, 5),
         }
     ]
 
@@ -153,14 +156,14 @@ def test_get_latest_handles_dict_payload() -> None:
 
     latest = client.get_latest()
     assert latest == {
-        "timestamp": "2024-03-05T12:00:00+00:00",
+        "timestamp": "2024-03-05T12:00:00Z",
         "score": 9,
         "label": "Extreme Fear",
     }
 
 
 def test_get_historical_returns_empty_for_invalid_data() -> None:
-    responses = [DummyResponse({"data": [None, "oops", {"timestamp": ""}]} )]
+    responses = [DummyResponse({"data": [None, "oops", {"timestamp": ""}]})]
     session = DummySession(responses)
     client = CoinMarketCapFearGreedClient(api_key=None, base_url=None, session=session, throttle_ms=0)
 
@@ -194,3 +197,41 @@ def test_get_latest_accepts_unix_timestamp() -> None:
         "score": 49,
         "label": "Neutral",
     }
+
+
+def test_request_retries_with_backoff_and_logging(monkeypatch, caplog) -> None:
+    failure = DummyResponse({"status": "error"}, status_code=502)
+    success = DummyResponse({"data": {"timestamp": "2024-01-01T00:00:00Z", "value": 42}})
+    session = DummySession([failure, failure, success])
+
+    sleep_calls: list[float] = []
+
+    def fake_sleep(seconds: float) -> None:
+        sleep_calls.append(seconds)
+
+    monkeypatch.setattr("time.sleep", fake_sleep)
+
+    client = CoinMarketCapFearGreedClient(
+        api_key=None,
+        base_url="https://api.example.com",
+        session=session,
+        throttle_ms=0,
+    )
+
+    with caplog.at_level("WARNING"):
+        latest = client.get_latest()
+
+    assert latest == {
+        "timestamp": "2024-01-01T00:00:00Z",
+        "score": 42,
+        "label": "Unknown",
+    }
+
+    assert len(session.calls) == 3
+    assert sleep_calls[:2] == [pytest.approx(0.25, rel=0, abs=1e-6), pytest.approx(0.5, rel=0, abs=1e-6)]
+
+    error_logs = [record for record in caplog.records if "coinmarketcap request failed" in record.getMessage()]
+    assert error_logs, "expected at least one error log"
+    message = error_logs[0].getMessage()
+    assert "/v3/fear-and-greed/latest" in message
+    assert "502" in message

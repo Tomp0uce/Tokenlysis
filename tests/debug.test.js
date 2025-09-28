@@ -11,6 +11,68 @@ import {
   normalizeBudgetCategories,
 } from '../frontend/debug.js';
 
+function makeDiagPayload() {
+  return {
+    providers: {
+      coinmarketcap: {
+        base_url: 'https://pro-api.coinmarketcap.com',
+        api_key_masked: '',
+        fng_latest: {
+          path: '/v3/fear-and-greed/latest',
+          doc_url:
+            'https://coinmarketcap.com/api/documentation/v3/#operation/getV3FearAndGreedLatest',
+          safe_url: 'https://pro-api.coinmarketcap.com/v3/fear-and-greed/latest',
+        },
+        fng_historical: {
+          path: '/v3/fear-and-greed/historical',
+          doc_url:
+            'https://coinmarketcap.com/api/documentation/v3/#operation/getV3FearAndGreedHistorical',
+          safe_url: 'https://pro-api.coinmarketcap.com/v3/fear-and-greed/historical',
+        },
+      },
+      coingecko: {
+        base_url: 'https://api.coingecko.com/api/v3',
+        api_key_masked: '',
+        markets: {
+          path: '/coins/markets',
+          doc_url: 'https://www.coingecko.com/en/api/documentation',
+          safe_url: 'https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd',
+        },
+      },
+    },
+    plan: 'demo',
+    base_url: 'https://api.coingecko.com/api/v3',
+    granularity: '12h',
+    last_refresh_at: '2024-01-01T00:00:00Z',
+    last_etl_items: 10,
+    monthly_call_count: 5,
+    monthly_call_categories: { markets: 5 },
+    quota: 100,
+    data_source: 'api',
+    top_n: 200,
+    fear_greed_last_refresh: '2024-01-01T00:00:00Z',
+    fear_greed_count: 20,
+    coingecko_usage: {
+      plan: 'demo',
+      monthly_call_count: 5,
+      monthly_call_categories: { markets: 5 },
+      quota: 100,
+    },
+    coinmarketcap_usage: {
+      monthly_call_count: 0,
+      monthly_call_categories: {},
+      quota: 50,
+      alert_threshold: 0.8,
+    },
+    fng_cache: {
+      rows: 20,
+      last_refresh: '2024-01-01T00:00:00Z',
+      min_timestamp: '2023-12-01T00:00:00Z',
+      max_timestamp: '2024-01-01T00:00:00Z',
+    },
+  };
+}
+
 function closeTo(value, expected, epsilon = 1e-6) {
   assert.ok(Math.abs(value - expected) <= epsilon, `${value} not within ${epsilon} of ${expected}`);
 }
@@ -167,6 +229,8 @@ test('debug page exposes a theme toggle control for accessibility', () => {
   assert.ok(toggle, 'theme toggle should exist on debug page');
   assert.equal(toggle.getAttribute('type'), 'button');
   assert.equal(toggle.classList.contains('theme-toggle'), true);
+  const providers = dom.window.document.getElementById('providers-list');
+  assert.ok(providers, 'providers list placeholder should exist');
 });
 
 test('debug initialization reuses stored theme preference', async () => {
@@ -180,7 +244,7 @@ test('debug initialization reuses stored theme preference', async () => {
   dom.window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
   global.fetch = async (url) => {
     if (url.endsWith('/diag')) {
-      return { ok: true, status: 200, json: async () => ({}) };
+      return { ok: true, status: 200, json: async () => makeDiagPayload() };
     }
     if (url.endsWith('/markets/top?limit=1')) {
       return { ok: true, status: 200, json: async () => ({}) };
@@ -206,6 +270,200 @@ test('debug initialization reuses stored theme preference', async () => {
     delete global.window;
     delete global.document;
     delete global.localStorage;
+    delete global.fetch;
+  }
+});
+
+test('debug page renders provider diagnostics with safe links', async () => {
+  const htmlPath = path.join('frontend', 'debug.html');
+  const html = fs.readFileSync(htmlPath, 'utf8');
+  const dom = new JSDOM(html, { url: 'http://localhost' });
+
+  global.window = dom.window;
+  global.document = dom.window.document;
+  dom.window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
+
+  const diagPayload = makeDiagPayload();
+  global.fetch = async (url) => {
+    if (url.endsWith('/diag')) {
+      return { ok: true, status: 200, json: async () => diagPayload };
+    }
+    if (url.endsWith('/markets/top?limit=1')) {
+      return { ok: true, status: 200, json: async () => ({}) };
+    }
+    if (url.endsWith('/debug/categories')) {
+      return { ok: true, status: 200, json: async () => ({ items: [] }) };
+    }
+    throw new Error(`Unexpected fetch ${url}`);
+  };
+
+  try {
+    const module = await import('../frontend/debug.js');
+    await module.loadDiagnostics();
+
+    const providers = document.querySelectorAll('[data-provider]');
+    assert.equal(providers.length, 2);
+
+    const cmc = document.querySelector('[data-provider="coinmarketcap"]');
+    assert.ok(cmc);
+    const cmcBase = cmc.querySelector('[data-role="base-url"]');
+    assert.equal(cmcBase?.textContent, diagPayload.providers.coinmarketcap.base_url);
+    const cmcDoc = cmc.querySelector('a[data-role="doc-link"]');
+    assert.equal(cmcDoc?.getAttribute('href'), diagPayload.providers.coinmarketcap.fng_latest.doc_url);
+    const cmcSafe = cmc.querySelector('a[data-role="safe-link"]');
+    assert.equal(
+      cmcSafe?.getAttribute('href'),
+      diagPayload.providers.coinmarketcap.fng_latest.safe_url,
+    );
+    const cmcKey = cmc.querySelector('[data-role="masked-key"]');
+    assert.equal(cmcKey?.textContent, '');
+
+    const cg = document.querySelector('[data-provider="coingecko"]');
+    assert.ok(cg);
+    const cgSafe = cg.querySelector('a[data-role="safe-link"]');
+    assert.equal(
+      cgSafe?.getAttribute('href'),
+      diagPayload.providers.coingecko.markets.safe_url,
+    );
+  } finally {
+    delete global.window;
+    delete global.document;
+    delete global.fetch;
+  }
+});
+
+test('renderDiag updates optional CoinMarketCap metrics when placeholders exist', async () => {
+  const htmlPath = path.join('frontend', 'debug.html');
+  const html = fs.readFileSync(htmlPath, 'utf8');
+  const dom = new JSDOM(html, { url: 'http://localhost' });
+
+  global.window = dom.window;
+  global.document = dom.window.document;
+  dom.window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
+
+  const cmcWrapper = document.createElement('section');
+  cmcWrapper.id = 'cmc-diagnostics';
+  const cmcCount = document.createElement('span');
+  cmcCount.id = 'cmc-budget-count';
+  const cmcQuota = document.createElement('span');
+  cmcQuota.id = 'cmc-budget-quota';
+  const cmcRatio = document.createElement('span');
+  cmcRatio.id = 'cmc-budget-ratio';
+  cmcRatio.classList.add('status-pill');
+  const cmcList = document.createElement('ul');
+  cmcList.id = 'cmc-budget-breakdown-list';
+  cmcWrapper.append(cmcCount, cmcQuota, cmcRatio, cmcList);
+  document.body.appendChild(cmcWrapper);
+
+  const diagPayload = makeDiagPayload();
+  diagPayload.coinmarketcap_usage.monthly_call_count = 26;
+  diagPayload.coinmarketcap_usage.quota = 30;
+  diagPayload.coinmarketcap_usage.monthly_call_categories = {
+    latest: 20,
+    history: 6,
+  };
+
+  global.fetch = async (url) => {
+    if (url.endsWith('/diag')) {
+      return { ok: true, status: 200, json: async () => diagPayload };
+    }
+    if (url.endsWith('/markets/top?limit=1')) {
+      return { ok: true, status: 200, json: async () => ({}) };
+    }
+    if (url.endsWith('/debug/categories')) {
+      return { ok: true, status: 200, json: async () => ({ items: [] }) };
+    }
+    throw new Error(`Unexpected fetch ${url}`);
+  };
+
+  try {
+    const module = await import('../frontend/debug.js');
+    await module.loadDiagnostics();
+
+    assert.equal(document.getElementById('cmc-budget-count')?.textContent, '26');
+    assert.equal(document.getElementById('cmc-budget-quota')?.textContent, '30');
+    const ratioEl = document.getElementById('cmc-budget-ratio');
+    assert.ok(ratioEl?.classList.contains('status-pill'));
+    assert.equal(ratioEl?.textContent, '86,7 %');
+    assert.equal(ratioEl?.classList.contains('status-warn'), true);
+
+    const items = Array.from(document.querySelectorAll('#cmc-budget-breakdown-list li'));
+    assert.equal(items.length, 2);
+    assert.equal(items[0]?.textContent, 'Latest : 20 — 76,9 %');
+    assert.equal(items[1]?.textContent, 'History : 6 — 23,1 %');
+  } finally {
+    delete global.window;
+    delete global.document;
+    delete global.fetch;
+  }
+});
+
+test('providers grid collapses to a single column on small screens', () => {
+  const htmlPath = path.join('frontend', 'debug.html');
+  const html = fs.readFileSync(htmlPath, 'utf8');
+
+  assert.match(
+    html,
+    /@media\s*\(max-width:\s*600px\)[\s\S]*\.providers-grid\s*{[\s\S]*grid-template-columns:\s*1fr/i,
+    'providers grid should switch to single column at mobile breakpoint',
+  );
+});
+
+test('provider rendering tolerates endpoints without documentation links', async () => {
+  const htmlPath = path.join('frontend', 'debug.html');
+  const html = fs.readFileSync(htmlPath, 'utf8');
+  const dom = new JSDOM(html, { url: 'http://localhost' });
+
+  global.window = dom.window;
+  global.document = dom.window.document;
+  dom.window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
+
+  const diagPayload = makeDiagPayload();
+  diagPayload.providers.coinmarketcap.fng_latest = {
+    path: '/v3/fear-and-greed/latest',
+    safe_url: 'https://pro-api.coinmarketcap.com/v3/fear-and-greed/latest',
+  };
+  diagPayload.providers.coinmarketcap.fng_historical = {
+    path: '/v3/fear-and-greed/historical',
+  };
+
+  global.fetch = async (url) => {
+    if (url.endsWith('/diag')) {
+      return { ok: true, status: 200, json: async () => diagPayload };
+    }
+    if (url.endsWith('/markets/top?limit=1')) {
+      return { ok: true, status: 200, json: async () => ({}) };
+    }
+    if (url.endsWith('/debug/categories')) {
+      return { ok: true, status: 200, json: async () => ({ items: [] }) };
+    }
+    throw new Error(`Unexpected fetch ${url}`);
+  };
+
+  try {
+    const module = await import('../frontend/debug.js');
+    await module.loadDiagnostics();
+
+    const cmcCard = document.querySelector('[data-provider="coinmarketcap"]');
+    assert.ok(cmcCard, 'coinmarketcap card should exist');
+    const endpointItems = cmcCard?.querySelectorAll('.provider-endpoints li');
+    assert.equal(endpointItems?.length, 2, 'should render one entry per endpoint');
+
+    const firstItem = endpointItems?.[0];
+    const docLink = firstItem?.querySelector('a[data-role="doc-link"]');
+    assert.equal(docLink, null, 'should not render documentation link when missing');
+    const safeLink = firstItem?.querySelector('a[data-role="safe-link"]');
+    assert.ok(safeLink, 'safe link should be rendered when provided');
+
+    const secondItem = endpointItems?.[1];
+    assert.equal(
+      secondItem?.querySelectorAll('a').length,
+      0,
+      'endpoints without safe URLs should not render anchor tags',
+    );
+  } finally {
+    delete global.window;
+    delete global.document;
     delete global.fetch;
   }
 });

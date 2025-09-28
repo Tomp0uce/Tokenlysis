@@ -47,23 +47,48 @@ def test_diag_returns_debug(monkeypatch, tmp_path):
     resp = client.get("/api/diag")
     assert resp.status_code == 200
     data = resp.json()
-    assert data["plan"] == settings.COINGECKO_PLAN
-    assert data["base_url"] == effective_coingecko_base_url()
-    assert data["granularity"] == "12h"
-    assert data["last_refresh_at"] == "2025-09-07T20:51:26Z"
-    assert data["last_etl_items"] == 50
-    assert data["monthly_call_count"] == 2
-    assert data["monthly_call_categories"] == {
+    providers = data["providers"]
+    cmc_provider = providers["coinmarketcap"]
+    cg_provider = providers["coingecko"]
+    assert cmc_provider["base_url"].startswith("https://")
+    assert cmc_provider["fng_latest"]["path"] == "/v3/fear-and-greed/latest"
+    assert cmc_provider["fng_latest"]["safe_url"].endswith(
+        "/v3/fear-and-greed/latest"
+    )
+    assert cmc_provider["fng_historical"]["path"] == "/v3/fear-and-greed/historical"
+    assert cmc_provider["api_key_masked"] == ""
+    assert "doc_url" in cmc_provider["fng_latest"]
+
+    assert cg_provider["base_url"] == effective_coingecko_base_url()
+    assert cg_provider["markets"]["path"] == "/coins/markets"
+    assert cg_provider["markets"]["safe_url"].endswith("/coins/markets?vs_currency=usd")
+    assert "doc_url" in cg_provider["markets"]
+
+    etl = data["etl"]
+    assert etl["granularity"] == "12h"
+    assert etl["last_refresh_at"] == "2025-09-07T20:51:26Z"
+    assert etl["last_etl_items"] == 50
+    assert etl["top_n"] == settings.CG_TOP_N
+    assert etl["data_source"] == "api"
+
+    cg_usage = data["coingecko_usage"]
+    assert cg_usage["plan"] == settings.COINGECKO_PLAN
+    assert cg_usage["monthly_call_count"] == 2
+    assert cg_usage["monthly_call_categories"] == {
         "coin_profile": 1,
         "markets": 1,
     }
-    assert data["quota"] == settings.CG_MONTHLY_QUOTA
-    assert data["data_source"] == "api"
-    assert data["top_n"] == settings.CG_TOP_N
-    assert data["fear_greed_last_refresh"] is None
-    assert data["fear_greed_count"] == 0
-    assert data["cmc_monthly_call_count"] == 0
-    assert data["cmc_monthly_call_categories"] == {}
+    assert cg_usage["quota"] == settings.CG_MONTHLY_QUOTA
+
+    cmc_usage = data["coinmarketcap_usage"]
+    assert cmc_usage["monthly_call_count"] == 0
+    assert cmc_usage["monthly_call_categories"] == {}
+
+    fng_cache = data["fng_cache"]
+    assert fng_cache["rows"] == 0
+    assert fng_cache["last_refresh"] is None
+    assert fng_cache["min_timestamp"] is None
+    assert fng_cache["max_timestamp"] is None
 
 
 def test_diag_uses_budget_over_meta(monkeypatch, tmp_path):
@@ -85,8 +110,8 @@ def test_diag_uses_budget_over_meta(monkeypatch, tmp_path):
     client = TestClient(main_module.app)
     resp = client.get("/api/diag")
     data = resp.json()
-    assert data["monthly_call_count"] == 3
-    assert data["monthly_call_categories"] == {"markets": 3}
+    assert data["coingecko_usage"]["monthly_call_count"] == 3
+    assert data["coingecko_usage"]["monthly_call_categories"] == {"markets": 3}
 
 
 def test_diag_no_budget(monkeypatch, tmp_path):
@@ -100,13 +125,13 @@ def test_diag_no_budget(monkeypatch, tmp_path):
     client = TestClient(main_module.app)
     resp = client.get("/api/diag")
     data = resp.json()
-    assert data["monthly_call_count"] == 0
-    assert data["monthly_call_categories"] == {}
-    assert data["last_refresh_at"] is None
-    assert data["last_etl_items"] == 0
-    assert data["data_source"] is None
-    assert data["fear_greed_last_refresh"] is None
-    assert data["fear_greed_count"] == 0
+    assert data["coingecko_usage"]["monthly_call_count"] == 0
+    assert data["coingecko_usage"]["monthly_call_categories"] == {}
+    assert data["etl"]["last_refresh_at"] is None
+    assert data["etl"]["last_etl_items"] == 0
+    assert data["etl"]["data_source"] is None
+    assert data["fng_cache"]["last_refresh"] is None
+    assert data["fng_cache"]["rows"] == 0
 
 
 def test_diag_handles_invalid_last_etl_items(monkeypatch, tmp_path):
@@ -125,7 +150,7 @@ def test_diag_handles_invalid_last_etl_items(monkeypatch, tmp_path):
     client = TestClient(main_module.app)
     resp = client.get("/api/diag")
     data = resp.json()
-    assert data["last_etl_items"] == 0
+    assert data["etl"]["last_etl_items"] == 0
 
 
 def test_diag_reports_fear_greed_metrics(monkeypatch, tmp_path):
@@ -165,8 +190,11 @@ def test_diag_reports_fear_greed_metrics(monkeypatch, tmp_path):
     resp = client.get("/api/diag")
     assert resp.status_code == 200
     data = resp.json()
-    assert data["fear_greed_last_refresh"] == now.isoformat()
-    assert data["fear_greed_count"] == 2
+    expected_refresh = now.isoformat().replace("+00:00", "Z")
+    assert data["fng_cache"]["last_refresh"] == expected_refresh
+    assert data["fng_cache"]["rows"] == 2
+    assert data["fng_cache"]["min_timestamp"].startswith("2025-01-01")
+    assert data["fng_cache"]["max_timestamp"].startswith("2025-01-02")
 
 
 def test_diag_uses_configurable_granularity(monkeypatch, tmp_path):
@@ -198,13 +226,13 @@ def test_diag_reports_cmc_budget(monkeypatch, tmp_path):
     resp = client.get("/api/diag")
     assert resp.status_code == 200
     data = resp.json()
-    assert data["cmc_monthly_call_count"] == 3
-    assert data["cmc_monthly_call_categories"] == {
+    assert data["coinmarketcap_usage"]["monthly_call_count"] == 3
+    assert data["coinmarketcap_usage"]["monthly_call_categories"] == {
         "cmc_history": 2,
         "cmc_latest": 1,
     }
-    assert data["cmc_quota"] == 5
-    assert data["cmc_alert_threshold"] == 0.8
+    assert data["coinmarketcap_usage"]["quota"] == 5
+    assert data["coinmarketcap_usage"]["alert_threshold"] == 0.8
 
     main_module.app.state.cmc_budget = None
 

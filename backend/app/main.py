@@ -24,7 +24,7 @@ from .clients.cmc_fng import (
     CoinMarketCapFearGreedClient,
     build_default_client as build_fng_client,
 )
-from .core.settings import effective_coingecko_base_url, settings
+from .core.settings import effective_coingecko_base_url, mask_secret, settings
 from .core.scheduling import (
     refresh_granularity_to_seconds,
     refresh_granularity_to_timedelta,
@@ -96,6 +96,9 @@ RANGE_TO_DELTA: dict[str, dt.timedelta] = {
 }
 
 
+FNG_UNAVAILABLE_DETAIL = "fear_greed_unavailable"
+
+
 def get_fng_client() -> CoinMarketCapFearGreedClient:
     """Dependency factory returning the configured Fear & Greed API client."""
 
@@ -106,7 +109,39 @@ def _get_cmc_budget() -> CallBudget | None:
     return getattr(app.state, "cmc_budget", None)
 
 
-def _parse_fng_timestamp(raw: object) -> dt.datetime:
+def _disable_cmc_budget(exc: BaseException) -> None:
+    if getattr(app.state, "cmc_budget", None) is None:
+        return
+    logger.warning("fear & greed budget disabled: %s", exc)
+    app.state.cmc_budget = None
+
+
+def _cmc_can_spend(budget: CallBudget | None, calls: int) -> bool:
+    if budget is None:
+        return True
+    try:
+        return budget.can_spend(calls)
+    except Exception as exc:  # pragma: no cover - defensive
+        _disable_cmc_budget(exc)
+        return True
+
+
+def _cmc_spend(budget: CallBudget | None, calls: int, *, category: str) -> None:
+    if budget is None:
+        return
+    try:
+        budget.spend(calls, category=category)
+    except Exception as exc:  # pragma: no cover - defensive
+        _disable_cmc_budget(exc)
+
+
+def _parse_fng_timestamp(raw: object) -> dt.datetime | None:
+    if isinstance(raw, dt.datetime):
+        return raw.astimezone(dt.timezone.utc) if raw.tzinfo else raw.replace(tzinfo=dt.timezone.utc)
+    if isinstance(raw, (int, float)):
+        if not math.isfinite(raw):
+            return None
+        return dt.datetime.fromtimestamp(float(raw), tz=dt.timezone.utc)
     if isinstance(raw, str):
         candidate = raw.strip()
         if candidate:
@@ -119,7 +154,7 @@ def _parse_fng_timestamp(raw: object) -> dt.datetime:
             else:
                 normalized = parsed.replace(tzinfo=parsed.tzinfo or dt.timezone.utc)
                 return normalized.astimezone(dt.timezone.utc)
-    return dt.datetime.min.replace(tzinfo=dt.timezone.utc)
+    return None
 
 
 def _parse_meta_timestamp(raw: object) -> dt.datetime | None:
@@ -147,6 +182,41 @@ def _parse_meta_timestamp(raw: object) -> dt.datetime | None:
             parsed = parsed.replace(tzinfo=dt.timezone.utc)
         return parsed.astimezone(dt.timezone.utc)
     return None
+
+
+def _isoformat_z(value: dt.datetime) -> str:
+    normalized = value.astimezone(dt.timezone.utc)
+    text = normalized.isoformat()
+    if text.endswith("+00:00"):
+        return text[:-6] + "Z"
+    return text
+
+
+def _normalize_fng_payload(payload: dict[str, object] | None) -> dict[str, object] | None:
+    if not isinstance(payload, dict):
+        return None
+    timestamp_raw = payload.get("timestamp") or payload.get("time")
+    timestamp_dt = _parse_fng_timestamp(timestamp_raw)
+    if not isinstance(timestamp_dt, dt.datetime):
+        return None
+    score_source = payload.get("score") if "score" in payload else payload.get("value")
+    try:
+        score = int(round(float(score_source)))
+    except (TypeError, ValueError):
+        return None
+    score = max(0, min(100, score))
+    label_raw = (
+        payload.get("label")
+        or payload.get("classification")
+        or payload.get("value_classification")
+        or payload.get("valueClassification")
+    )
+    label = (str(label_raw).strip() or DEFAULT_CLASSIFICATION) if label_raw else DEFAULT_CLASSIFICATION
+    return {
+        "timestamp": _isoformat_z(timestamp_dt),
+        "score": score,
+        "label": label,
+    }
 
 
 def _should_refresh_fng(
@@ -179,7 +249,7 @@ def _serialize_fng_row(row: FearGreed | None) -> dict[str, object] | None:
         str(row.classification).strip() if row.classification is not None else ""
     ) or DEFAULT_CLASSIFICATION
     return {
-        "timestamp": timestamp.isoformat(),
+        "timestamp": _isoformat_z(timestamp),
         "score": int(value),
         "label": classification,
     }
@@ -346,16 +416,16 @@ def fng_latest(
 
     latest_error: requests.RequestException | None = None
     latest: dict[str, object] | None = None
-    if cmc_budget is None or cmc_budget.can_spend(1):
+    if _cmc_can_spend(cmc_budget, 1):
         try:
-            latest = client.get_latest()
+            latest_raw = client.get_latest()
+            latest = _normalize_fng_payload(latest_raw)
         except requests.RequestException as exc:
             logger.warning("fear & greed latest fetch failed: %s", exc)
             latest_error = exc
         finally:
-            if cmc_budget is not None:
-                cmc_budget.spend(1, category="cmc_latest")
-    else:
+            _cmc_spend(cmc_budget, 1, category="cmc_latest")
+    elif cmc_budget is not None:
         logger.warning(
             "fear & greed latest fetch skipped: CMC quota exceeded",
             extra={
@@ -363,24 +433,26 @@ def fng_latest(
                 "quota": settings.CMC_MONTHLY_QUOTA,
             },
         )
-    if latest:
+    if latest is not None:
         return latest
 
     history_error: requests.RequestException | None = None
     fallback_point: dict[str, object] | None = None
-    if cmc_budget is None or cmc_budget.can_spend(1):
+    if _cmc_can_spend(cmc_budget, 1):
         try:
             history = client.get_historical(limit=1)
         except requests.RequestException as exc:
             logger.error("fear & greed fallback fetch failed: %s", exc)
             history_error = exc
         else:
-            if history:
-                fallback_point = history[-1]
+            for candidate in reversed(history or []):
+                normalized = _normalize_fng_payload(candidate)
+                if normalized is not None:
+                    fallback_point = normalized
+                    break
         finally:
-            if cmc_budget is not None:
-                cmc_budget.spend(1, category="cmc_history")
-    else:
+            _cmc_spend(cmc_budget, 1, category="cmc_history")
+    elif cmc_budget is not None:
         logger.warning(
             "fear & greed history fallback skipped: CMC quota exceeded",
             extra={
@@ -388,15 +460,15 @@ def fng_latest(
                 "quota": settings.CMC_MONTHLY_QUOTA,
             },
         )
-    if fallback_point:
+    if fallback_point is not None:
         return fallback_point
 
-    detail = "fear & greed data unavailable"
+    detail = FNG_UNAVAILABLE_DETAIL
     if history_error is not None:
-        raise HTTPException(status_code=502, detail=detail) from history_error
+        raise HTTPException(status_code=503, detail=detail) from history_error
     if latest_error is not None:
-        raise HTTPException(status_code=502, detail=detail) from latest_error
-    raise HTTPException(status_code=502, detail=detail)
+        raise HTTPException(status_code=503, detail=detail) from latest_error
+    raise HTTPException(status_code=503, detail=detail)
 
 
 @app.get("/api/fng/history")
@@ -465,18 +537,21 @@ def fng_history(
         return {"days": limit, "points": ordered}
 
     fetch_error: requests.RequestException | None = None
-    points: list[dict] = []
-    if cmc_budget is None or cmc_budget.can_spend(1):
+    normalized_points: list[dict[str, object]] = []
+    if _cmc_can_spend(cmc_budget, 1):
         try:
             points = client.get_historical(limit=limit)
         except requests.RequestException as exc:
             logger.error("fear & greed history fetch failed: %s", exc)
             fetch_error = exc
-            points = []
+        else:
+            for raw_point in points or []:
+                normalized = _normalize_fng_payload(raw_point)
+                if normalized is not None:
+                    normalized_points.append(normalized)
         finally:
-            if cmc_budget is not None:
-                cmc_budget.spend(1, category="cmc_history")
-    else:
+            _cmc_spend(cmc_budget, 1, category="cmc_history")
+    elif cmc_budget is not None:
         logger.warning(
             "fear & greed history fetch skipped: CMC quota exceeded",
             extra={
@@ -484,17 +559,18 @@ def fng_history(
                 "quota": settings.CMC_MONTHLY_QUOTA,
             },
         )
-    filtered = [point for point in points if isinstance(point, dict)]
-    if filtered:
+    if normalized_points:
         ordered = sorted(
-            filtered, key=lambda item: _parse_fng_timestamp(item.get("timestamp"))
+            normalized_points,
+            key=lambda item: _parse_fng_timestamp(item.get("timestamp"))
+            or dt.datetime.min.replace(tzinfo=dt.timezone.utc),
         )
         if ordered:
             return {"days": limit, "points": ordered}
     if fetch_error is not None:
         raise HTTPException(
-            status_code=502,
-            detail="fear & greed history unavailable",
+            status_code=503,
+            detail=FNG_UNAVAILABLE_DETAIL,
         ) from fetch_error
     return {"days": limit, "points": []}
 
@@ -603,24 +679,99 @@ def diag(session: Session = Depends(get_session)) -> dict:
     cmc_monthly_call_categories = cmc_budget.category_counts if cmc_budget else {}
     fear_greed_count = fear_greed_repo.count()
 
-    return {
-        "plan": settings.COINGECKO_PLAN,
-        "base_url": effective_coingecko_base_url(),
+    parsed_last_refresh = _parse_meta_timestamp(last_refresh_at)
+    parsed_fng_last_refresh = _parse_meta_timestamp(fear_greed_last_refresh)
+    earliest_ts, latest_ts = fear_greed_repo.get_timespan()
+
+    fng_cache = {
+        "rows": fear_greed_count,
+        "last_refresh": _isoformat_z(parsed_fng_last_refresh)
+        if isinstance(parsed_fng_last_refresh, dt.datetime)
+        else None,
+        "min_timestamp": _isoformat_z(earliest_ts) if isinstance(earliest_ts, dt.datetime) else None,
+        "max_timestamp": _isoformat_z(latest_ts) if isinstance(latest_ts, dt.datetime) else None,
+    }
+
+    cg_base_url = effective_coingecko_base_url().rstrip("/")
+    cmc_base_url = (settings.CMC_BASE_URL or "https://pro-api.coinmarketcap.com").rstrip("/")
+    cg_key_raw = settings.COINGECKO_API_KEY or settings.coingecko_api_key
+
+    providers = {
+        "coinmarketcap": {
+            "base_url": cmc_base_url,
+            "api_key_masked": mask_secret(settings.CMC_API_KEY),
+            "fng_latest": {
+                "path": "/v3/fear-and-greed/latest",
+                "doc_url": "https://coinmarketcap.com/api/documentation/v3/#operation/getV3FearAndGreedLatest",
+                "safe_url": f"{cmc_base_url}/v3/fear-and-greed/latest",
+            },
+            "fng_historical": {
+                "path": "/v3/fear-and-greed/historical",
+                "doc_url": "https://coinmarketcap.com/api/documentation/v3/#operation/getV3FearAndGreedHistorical",
+                "safe_url": f"{cmc_base_url}/v3/fear-and-greed/historical",
+            },
+        },
+        "coingecko": {
+            "base_url": cg_base_url,
+            "api_key_masked": mask_secret(cg_key_raw),
+            "markets": {
+                "path": "/coins/markets",
+                "doc_url": "https://www.coingecko.com/en/api/documentation",
+                "safe_url": f"{cg_base_url}/coins/markets?vs_currency=usd",
+            },
+        },
+    }
+
+    etl = {
         "granularity": settings.REFRESH_GRANULARITY,
-        "last_refresh_at": last_refresh_at,
+        "last_refresh_at": _isoformat_z(parsed_last_refresh)
+        if isinstance(parsed_last_refresh, dt.datetime)
+        else None,
         "last_etl_items": last_etl_items,
+        "top_n": settings.CG_TOP_N,
+        "data_source": data_source,
+    }
+
+    coingecko_usage = {
+        "plan": settings.COINGECKO_PLAN,
         "monthly_call_count": monthly_call_count,
         "monthly_call_categories": monthly_call_categories,
         "quota": settings.CG_MONTHLY_QUOTA,
-        "cmc_monthly_call_count": cmc_monthly_call_count,
-        "cmc_monthly_call_categories": cmc_monthly_call_categories,
-        "cmc_quota": settings.CMC_MONTHLY_QUOTA,
-        "cmc_alert_threshold": settings.CMC_ALERT_THRESHOLD,
+    }
+
+    coinmarketcap_usage = {
+        "monthly_call_count": cmc_monthly_call_count,
+        "monthly_call_categories": cmc_monthly_call_categories,
+        "quota": settings.CMC_MONTHLY_QUOTA,
+        "alert_threshold": settings.CMC_ALERT_THRESHOLD,
+    }
+
+    response = {
+        "providers": providers,
+        "etl": etl,
+        "coingecko_usage": coingecko_usage,
+        "coinmarketcap_usage": coinmarketcap_usage,
+        "fng_cache": fng_cache,
+        # legacy fields for compatibility
+        "plan": coingecko_usage["plan"],
+        "base_url": cg_base_url,
+        "granularity": etl["granularity"],
+        "last_refresh_at": etl["last_refresh_at"],
+        "last_etl_items": etl["last_etl_items"],
+        "monthly_call_count": coingecko_usage["monthly_call_count"],
+        "monthly_call_categories": coingecko_usage["monthly_call_categories"],
+        "quota": coingecko_usage["quota"],
         "data_source": data_source,
         "top_n": settings.CG_TOP_N,
-        "fear_greed_last_refresh": fear_greed_last_refresh,
-        "fear_greed_count": fear_greed_count,
+        "fear_greed_last_refresh": fng_cache["last_refresh"],
+        "fear_greed_count": fng_cache["rows"],
+        "cmc_monthly_call_count": coinmarketcap_usage["monthly_call_count"],
+        "cmc_monthly_call_categories": coinmarketcap_usage["monthly_call_categories"],
+        "cmc_quota": coinmarketcap_usage["quota"],
+        "cmc_alert_threshold": coinmarketcap_usage["alert_threshold"],
     }
+
+    return response
 
 
 @app.get("/api/last-refresh")

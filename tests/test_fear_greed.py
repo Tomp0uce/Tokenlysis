@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import datetime as dt
 
 import pytest
@@ -7,6 +9,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from backend.app.services.budget import CallBudget
+from backend.app.services.fear_greed import DEFAULT_CLASSIFICATION
 
 
 @pytest.fixture()
@@ -84,7 +87,7 @@ def test_api_fng_latest_success(monkeypatch, TestingSessionLocal):
         def get_latest(self) -> dict:
             self.latest_calls += 1
             return {
-                "timestamp": "2024-03-10T00:00:00+00:00",
+                "timestamp": "2024-03-10T00:00:00Z",
                 "score": 58,
                 "label": "Greed",
             }
@@ -118,7 +121,7 @@ def test_api_fng_latest_success(monkeypatch, TestingSessionLocal):
     assert resp.status_code == 200
     payload = resp.json()
     assert payload == {
-        "timestamp": "2024-03-10T00:00:00+00:00",
+        "timestamp": "2024-03-10T00:00:00Z",
         "score": 58,
         "label": "Greed",
     }
@@ -152,12 +155,12 @@ def test_api_fng_latest_falls_back_to_history(monkeypatch, TestingSessionLocal):
             })
             return [
                 {
-                    "timestamp": "2024-03-09T00:00:00+00:00",
+                    "timestamp": "2024-03-09T00:00:00Z",
                     "score": 20,
                     "label": "Fear",
                 },
                 {
-                    "timestamp": "2024-03-11T00:00:00+00:00",
+                    "timestamp": "2024-03-11T00:00:00Z",
                     "score": 35,
                     "label": "Neutral",
                 },
@@ -328,9 +331,62 @@ def test_api_fng_latest_propagates_errors(monkeypatch, TestingSessionLocal):
 
     client = TestClient(main_module.app)
     resp = client.get("/api/fng/latest")
-    assert resp.status_code == 502
-    payload = resp.json()
-    assert "fear & greed" in payload.get("detail", "").lower()
+    assert resp.status_code == 503
+    assert resp.json() == {"detail": "fear_greed_unavailable"}
+
+    main_module.app.dependency_overrides.pop(main_module.get_session, None)
+    main_module.app.dependency_overrides.pop(main_module.get_fng_client, None)
+    session.close()
+
+
+def test_api_fng_latest_disables_faulty_budget(
+    monkeypatch, TestingSessionLocal, caplog
+):
+    import backend.app.main as main_module
+
+    class StubClient:
+        def get_latest(self) -> dict:
+            return {
+                "timestamp": "2024-06-01T00:00:00Z",
+                "score": 60,
+                "label": "Greed",
+            }
+
+        def get_historical(self, **_: object) -> list[dict]:
+            return []
+
+    class FaultyBudget:
+        def can_spend(self, calls: int) -> bool:
+            raise OSError("disk error")
+
+        def spend(self, calls: int, category: str | None = None) -> None:
+            raise OSError("disk error")
+
+    session = TestingSessionLocal()
+
+    def override_session():
+        try:
+            yield session
+        finally:
+            pass
+
+    main_module.app.dependency_overrides[main_module.get_session] = override_session
+    main_module.app.dependency_overrides[
+        main_module.get_fng_client
+    ] = lambda: StubClient()
+    main_module.app.state.cmc_budget = FaultyBudget()
+
+    client = TestClient(main_module.app)
+    with caplog.at_level("WARNING"):
+        resp = client.get("/api/fng/latest")
+
+    assert resp.status_code == 200
+    assert resp.json()["timestamp"].endswith("Z")
+    assert main_module.app.state.cmc_budget is None
+    assert any(
+        "fear & greed budget disabled" in record.getMessage()
+        for record in caplog.records
+    )
 
     main_module.app.dependency_overrides.pop(main_module.get_session, None)
     main_module.app.dependency_overrides.pop(main_module.get_fng_client, None)
@@ -357,12 +413,12 @@ def test_api_fng_history_orders_points(monkeypatch, TestingSessionLocal):
             })
             return [
                 {
-                    "timestamp": "2024-03-15T00:00:00+00:00",
+                    "timestamp": "2024-03-15T00:00:00Z",
                     "score": 55,
                     "label": "Greed",
                 },
                 {
-                    "timestamp": "2024-03-12T00:00:00+00:00",
+                    "timestamp": "2024-03-12T00:00:00Z",
                     "score": 25,
                     "label": "Fear",
                 },
@@ -387,9 +443,104 @@ def test_api_fng_history_orders_points(monkeypatch, TestingSessionLocal):
     payload = resp.json()
     assert payload["days"] == 5
     assert [point["score"] for point in payload["points"]] == [25, 55]
+    assert all(point["timestamp"].endswith("Z") for point in payload["points"])
     assert stub.calls == [
         {"limit": None, "time_start": None, "time_end": None}
     ]
+
+    main_module.app.dependency_overrides.pop(main_module.get_fng_client, None)
+    main_module.app.dependency_overrides.pop(main_module.get_session, None)
+    session.close()
+
+
+def test_api_fng_history_normalizes_external_shapes(monkeypatch, TestingSessionLocal):
+    import backend.app.main as main_module
+
+    class StubClient:
+        def get_historical(self, **_: object) -> list[dict]:
+            return [
+                {
+                    "time": 1_709_035_200,
+                    "value": "45.2",
+                    "valueClassification": "Greed",
+                },
+                {
+                    "timestamp": "2024-03-01",
+                    "value": 30,
+                },
+                {
+                    "timestamp": None,
+                    "value": "nan",
+                },
+            ]
+
+        def get_latest(self) -> dict | None:
+            return None
+
+    session = TestingSessionLocal()
+
+    def override_session():
+        try:
+            yield session
+        finally:
+            pass
+
+    main_module.app.dependency_overrides[main_module.get_session] = override_session
+    main_module.app.dependency_overrides[main_module.get_fng_client] = lambda: StubClient()
+    main_module.app.state.cmc_budget = None
+
+    client = TestClient(main_module.app)
+    resp = client.get("/api/fng/history")
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["points"] == [
+        {
+            "timestamp": "2024-02-27T12:00:00Z",
+            "score": 45,
+            "label": "Greed",
+        },
+        {
+            "timestamp": "2024-03-01T00:00:00Z",
+            "score": 30,
+            "label": DEFAULT_CLASSIFICATION,
+        },
+    ]
+
+    main_module.app.dependency_overrides.pop(main_module.get_fng_client, None)
+    main_module.app.dependency_overrides.pop(main_module.get_session, None)
+    session.close()
+
+
+def test_api_fng_history_returns_503_when_sources_unavailable(
+    monkeypatch, TestingSessionLocal
+):
+    import backend.app.main as main_module
+
+    class StubClient:
+        def get_latest(self) -> dict:
+            raise requests.RequestException("fail latest")
+
+        def get_historical(self, **_: object) -> list[dict]:
+            raise requests.RequestException("fail history")
+
+    session = TestingSessionLocal()
+
+    def override_session():
+        try:
+            yield session
+        finally:
+            pass
+
+    main_module.app.dependency_overrides[main_module.get_session] = override_session
+    main_module.app.dependency_overrides[
+        main_module.get_fng_client
+    ] = lambda: StubClient()
+    main_module.app.state.cmc_budget = None
+
+    client = TestClient(main_module.app)
+    resp = client.get("/api/fng/history?days=5")
+    assert resp.status_code == 503
+    assert resp.json() == {"detail": "fear_greed_unavailable"}
 
     main_module.app.dependency_overrides.pop(main_module.get_fng_client, None)
     main_module.app.dependency_overrides.pop(main_module.get_session, None)
@@ -551,6 +702,54 @@ def test_api_fng_history_uses_cache_when_refresh_recent(
 
     main_module.app.dependency_overrides.pop(main_module.get_session, None)
     main_module.app.dependency_overrides.pop(main_module.get_fng_client, None)
+    session.close()
+
+
+def test_sync_fear_greed_index_logs_summary(monkeypatch, TestingSessionLocal, caplog):
+    from backend.app.services import fear_greed as service_module
+    from backend.app.services.dao import MetaRepo
+
+    session = TestingSessionLocal()
+    meta_repo = MetaRepo(session)
+    meta_repo.set("fear_greed_last_refresh", "2024-05-01T00:00:00Z")
+    session.commit()
+
+    now = dt.datetime(2024, 5, 5, tzinfo=dt.timezone.utc)
+
+    class StubClient:
+        def get_historical(self, **_: object) -> list[dict]:
+            return [
+                {"timestamp": "2024-05-03T00:00:00Z", "value": 30, "label": "Fear"},
+                {"timestamp": "2024-05-04T00:00:00Z", "value": 55, "label": "Neutral"},
+            ]
+
+        def get_latest(self) -> dict:
+            return {
+                "timestamp": "2024-05-05T12:00:00Z",
+                "value": 62,
+                "label": "Greed",
+            }
+
+    with caplog.at_level("INFO"):
+        processed = service_module.sync_fear_greed_index(
+            session=session,
+            client=StubClient(),
+            now=now,
+            budget=None,
+        )
+
+    assert processed == 3
+    summary_logs = [
+        record
+        for record in caplog.records
+        if record.getMessage() == "fear & greed sync summary"
+    ]
+    assert summary_logs, "expected summary log"
+    summary = summary_logs[-1]
+    assert summary.insert_count == 3
+    assert summary.min_timestamp.endswith("Z")
+    assert summary.max_timestamp.endswith("Z")
+
     session.close()
 
 
