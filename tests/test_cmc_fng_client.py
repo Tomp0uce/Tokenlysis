@@ -162,6 +162,29 @@ def test_get_latest_handles_dict_payload() -> None:
     }
 
 
+def test_get_latest_supports_update_time_payload() -> None:
+    responses = [
+        DummyResponse(
+            {
+                "data": {
+                    "value": 34,
+                    "update_time": "2025-09-28T10:23:10.053Z",
+                    "value_classification": "Fear",
+                }
+            }
+        )
+    ]
+    session = DummySession(responses)
+    client = CoinMarketCapFearGreedClient(api_key=None, base_url=None, session=session, throttle_ms=0)
+
+    latest = client.get_latest()
+    assert latest == {
+        "timestamp": "2025-09-28T10:23:10.053000Z",
+        "score": 34,
+        "label": "Fear",
+    }
+
+
 def test_get_historical_returns_empty_for_invalid_data() -> None:
     responses = [DummyResponse({"data": [None, "oops", {"timestamp": ""}]})]
     session = DummySession(responses)
@@ -169,6 +192,53 @@ def test_get_historical_returns_empty_for_invalid_data() -> None:
 
     history = client.get_historical()
     assert history == []
+
+
+def test_get_historical_parses_numeric_timestamps() -> None:
+    responses = [
+        DummyResponse(
+            {
+                "data": [
+                    {
+                        "timestamp": "1758931200",
+                        "value": 34,
+                        "value_classification": "Fear",
+                    },
+                    {
+                        "timestamp": "1758844800",
+                        "value": 32,
+                        "value_classification": "Fear",
+                    },
+                    {
+                        "timestamp": "1758758400",
+                        "value": 41,
+                        "value_classification": "Neutral",
+                    },
+                ]
+            }
+        )
+    ]
+    session = DummySession(responses)
+    client = CoinMarketCapFearGreedClient(api_key=None, base_url=None, session=session, throttle_ms=0)
+
+    history = client.get_historical()
+    assert history == [
+        {
+            "timestamp": "2025-09-25T00:00:00Z",
+            "score": 41,
+            "label": "Neutral",
+        },
+        {
+            "timestamp": "2025-09-26T00:00:00Z",
+            "score": 32,
+            "label": "Fear",
+        },
+        {
+            "timestamp": "2025-09-27T00:00:00Z",
+            "score": 34,
+            "label": "Fear",
+        },
+    ]
 
 
 def test_get_latest_accepts_unix_timestamp() -> None:

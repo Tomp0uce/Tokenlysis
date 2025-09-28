@@ -76,6 +76,24 @@ def test_fear_greed_repo_upsert_and_history(TestingSessionLocal):
     session.close()
 
 
+def test_normalize_fng_payload_supports_update_time() -> None:
+    import backend.app.main as main_module
+
+    payload = {
+        "value": 34,
+        "update_time": "2025-09-28T10:23:10.053Z",
+        "value_classification": "Fear",
+    }
+
+    normalized = main_module._normalize_fng_payload(payload)
+
+    assert normalized == {
+        "timestamp": "2025-09-28T10:23:10.053000Z",
+        "score": 34,
+        "label": "Fear",
+    }
+
+
 def test_api_fng_latest_success(monkeypatch, TestingSessionLocal):
     import backend.app.main as main_module
 

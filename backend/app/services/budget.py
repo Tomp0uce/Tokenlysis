@@ -3,7 +3,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 
 class CallBudget:
@@ -17,8 +17,8 @@ class CallBudget:
         self._data = self._load()
 
     def _current_month(self) -> str:
-        today = dt.date.today()
-        return f"{today.year:04d}-{today.month:02d}"
+        today = dt.date.today().replace(day=1)
+        return today.isoformat()
 
     def _default_payload(self) -> dict[str, Any]:
         return {
@@ -64,7 +64,7 @@ class CallBudget:
                 data = self._default_payload()
                 month = raw.get("month")
                 if isinstance(month, str) and month.strip():
-                    data["month"] = month
+                    data["month"] = self._normalise_month(month)
                 else:
                     data["month"] = self._current_month()
                 data["monthly_call_count"] = self._normalise_calls(
@@ -77,7 +77,7 @@ class CallBudget:
     def _save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         serialisable = {
-            "month": self._data.get("month", self._current_month()),
+            "month": self._normalise_month(self._data.get("month")),
             "monthly_call_count": self._normalise_calls(
                 self._data.get("monthly_call_count")
             ),
@@ -92,6 +92,31 @@ class CallBudget:
             self._data = self._default_payload()
             self._data["month"] = current
             self._save()
+
+    def _normalise_month(self, month: Any) -> str:
+        if isinstance(month, str):
+            text = month.strip()
+            if text:
+                try:
+                    parsed = dt.datetime.strptime(text, "%Y-%m-%d")
+                except ValueError:
+                    try:
+                        parsed = dt.datetime.strptime(text, "%Y-%m")
+                        parsed = parsed.replace(day=1)
+                    except ValueError:
+                        parsed = None
+                else:
+                    parsed = parsed.replace(hour=0, minute=0, second=0, microsecond=0)
+                if parsed is not None:
+                    return parsed.date().isoformat()
+        return self._current_month()
+
+    def month_start(self) -> dt.date:
+        """Return the first day of the tracked month."""
+
+        self.reset_if_needed()
+        month = self._normalise_month(self._data.get("month"))
+        return dt.date.fromisoformat(month)
 
     def can_spend(self, calls: int) -> bool:
         self.reset_if_needed()
@@ -108,6 +133,26 @@ class CallBudget:
         key = self._normalise_category(category)
         categories[key] = self._normalise_calls(categories.get(key)) + amount
         self._save()
+
+    def sync_usage(
+        self,
+        *,
+        monthly_call_count: Any | None = None,
+        categories: Mapping[str, Any] | None = None,
+    ) -> None:
+        """Synchronise persisted usage with an external snapshot."""
+
+        self.reset_if_needed()
+        updated = False
+        if monthly_call_count is not None:
+            self._data["monthly_call_count"] = self._normalise_calls(monthly_call_count)
+            updated = True
+        if categories is not None:
+            serialisable = dict(categories)
+            self._data["categories"] = self._sanitise_categories(serialisable)
+            updated = True
+        if updated:
+            self._save()
 
     @property
     def monthly_call_count(self) -> int:
