@@ -382,11 +382,11 @@ function updateNumberElement(elementId, value) {
   element.textContent = formatNumber(value);
 }
 
-function updateBudgetBreakdown(diag) {
+function updateBudgetBreakdown(diag, targetId = 'budget-breakdown-list') {
   if (!hasDocument()) {
     return;
   }
-  const list = document.getElementById('budget-breakdown-list');
+  const list = document.getElementById(targetId);
   if (!list) {
     return;
   }
@@ -498,23 +498,52 @@ function setStatusMessage(message, status) {
 }
 
 function renderDiag(diag) {
+  const etl = diag?.etl ?? {};
+  const cgUsage = diag?.coingecko_usage ?? {};
+  const cmcUsage = diag?.coinmarketcap_usage ?? {};
+  const fngCache = diag?.fng_cache ?? {};
   const metrics = evaluateRatios(diag);
-  updateNumberElement('etl-count', diag?.last_etl_items);
-  updateNumberElement('etl-target', diag?.top_n);
+  updateNumberElement('etl-count', etl?.last_etl_items ?? diag?.last_etl_items);
+  updateNumberElement('etl-target', etl?.top_n ?? diag?.top_n);
   updateRatioElement('etl-ratio', metrics.etl);
 
-  updateNumberElement('budget-count', diag?.monthly_call_count);
-  updateNumberElement('budget-quota', diag?.quota);
+  updateNumberElement('budget-count', cgUsage?.monthly_call_count ?? diag?.monthly_call_count);
+  updateNumberElement('budget-quota', cgUsage?.quota ?? diag?.quota);
   updateRatioElement('budget-ratio', metrics.budget);
-  updateBudgetBreakdown(diag);
+  updateBudgetBreakdown({
+    monthly_call_count: cgUsage?.monthly_call_count ?? diag?.monthly_call_count,
+    monthly_call_categories:
+      cgUsage?.monthly_call_categories ?? diag?.monthly_call_categories,
+  });
 
-  updateTextElement('diag-source', diag?.data_source);
-  updateTextElement('diag-plan', diag?.plan);
-  updateTextElement('diag-base-url', diag?.base_url);
-  updateTextElement('diag-granularity', diag?.granularity);
-  updateTimestampElement('diag-last-refresh', diag?.last_refresh_at);
-  updateTimestampElement('fear-greed-last-refresh', diag?.fear_greed_last_refresh);
-  updateNumberElement('fear-greed-count', diag?.fear_greed_count);
+  updateNumberElement('cmc-budget-count', cmcUsage?.monthly_call_count);
+  updateNumberElement('cmc-budget-quota', cmcUsage?.quota);
+  const cmcRatioValue = computeRatio(
+    cmcUsage?.monthly_call_count,
+    cmcUsage?.quota,
+  );
+  updateRatioElement('cmc-budget-ratio', {
+    ratio: cmcRatioValue,
+    status: classifyBudgetRatio(cmcRatioValue),
+  });
+  updateBudgetBreakdown(
+    {
+      monthly_call_count: cmcUsage?.monthly_call_count,
+      monthly_call_categories: cmcUsage?.monthly_call_categories,
+    },
+    'cmc-budget-breakdown-list',
+  );
+
+  updateTextElement('diag-source', etl?.data_source ?? diag?.data_source);
+  updateTextElement('diag-plan', cgUsage?.plan ?? diag?.plan);
+  updateTextElement('diag-base-url', diag?.base_url ?? diag?.providers?.coingecko?.base_url);
+  updateTextElement('diag-granularity', etl?.granularity ?? diag?.granularity);
+  updateTimestampElement('diag-last-refresh', etl?.last_refresh_at ?? diag?.last_refresh_at);
+  updateTimestampElement(
+    'fear-greed-last-refresh',
+    fngCache?.last_refresh ?? diag?.fear_greed_last_refresh,
+  );
+  updateNumberElement('fear-greed-count', fngCache?.rows ?? diag?.fear_greed_count);
 }
 
 function renderMarketMeta(market, diag, nowMs = Date.now()) {
@@ -578,6 +607,128 @@ function renderCategoryDiagnostics(payload) {
   return summary;
 }
 
+function renderProviders(providers) {
+  if (!hasDocument()) {
+    return;
+  }
+  const container = document.getElementById('providers-list');
+  if (!container) {
+    return;
+  }
+  container.innerHTML = '';
+  if (!providers || typeof providers !== 'object') {
+    const paragraph = document.createElement('p');
+    paragraph.textContent = 'Aucun fournisseur configuré';
+    container.appendChild(paragraph);
+    return;
+  }
+
+  const entries = Object.entries(providers);
+  if (entries.length === 0) {
+    const paragraph = document.createElement('p');
+    paragraph.textContent = 'Aucun fournisseur configuré';
+    container.appendChild(paragraph);
+    return;
+  }
+
+  for (const [key, info] of entries) {
+    const card = document.createElement('article');
+    card.dataset.provider = key;
+    card.classList.add('provider-card');
+
+    const baseUrl = typeof info?.base_url === 'string' ? info.base_url : '';
+
+    const title = document.createElement('h3');
+    title.textContent = key.charAt(0).toUpperCase() + key.slice(1);
+    card.appendChild(title);
+
+    const basePara = document.createElement('p');
+    basePara.innerHTML = `Base : <span data-role="base-url">${info?.base_url ?? '—'}</span>`;
+    card.appendChild(basePara);
+
+    const keyPara = document.createElement('p');
+    keyPara.innerHTML = `Clé masquée : <span data-role="masked-key">${info?.api_key_masked ?? ''}</span>`;
+    card.appendChild(keyPara);
+
+    const endpointsList = document.createElement('ul');
+    endpointsList.classList.add('provider-endpoints');
+
+    for (const [endpointName, endpointInfo] of Object.entries(info || {})) {
+      if (endpointName === 'base_url' || endpointName === 'api_key_masked') {
+        continue;
+      }
+      let endpointData = null;
+      if (endpointInfo && typeof endpointInfo === 'object') {
+        endpointData = endpointInfo;
+      } else if (typeof endpointInfo === 'string' && endpointInfo.trim()) {
+        endpointData = { path: endpointInfo.trim() };
+      } else {
+        continue;
+      }
+
+      const item = document.createElement('li');
+      const label = document.createElement('span');
+      const rawPath = endpointData?.path ?? endpointData?.url ?? endpointName;
+      const pathText =
+        typeof rawPath === 'string' && rawPath.trim()
+          ? rawPath.trim()
+          : String(endpointName);
+      label.textContent = pathText;
+      item.appendChild(label);
+
+      const docCandidate =
+        endpointData?.doc_url ??
+        endpointData?.docUrl ??
+        endpointData?.documentation_url ??
+        endpointData?.documentation;
+      if (typeof docCandidate === 'string' && docCandidate.trim()) {
+        const docLink = document.createElement('a');
+        docLink.href = docCandidate;
+        docLink.target = '_blank';
+        docLink.rel = 'noreferrer';
+        docLink.dataset.role = 'doc-link';
+        docLink.textContent = 'Documentation';
+        item.appendChild(document.createTextNode(' '));
+        item.appendChild(docLink);
+      }
+
+      let safeCandidate =
+        endpointData?.safe_url ?? endpointData?.safeUrl ?? endpointData?.url ?? null;
+      if (typeof safeCandidate !== 'string' || !safeCandidate.trim()) {
+        const rawPath =
+          (typeof endpointData?.path === 'string' && endpointData.path.trim()) || '';
+        if (rawPath.startsWith('http')) {
+          safeCandidate = rawPath;
+        } else {
+          safeCandidate = null;
+        }
+      }
+
+      if (typeof safeCandidate === 'string' && safeCandidate.trim()) {
+        const safeLink = document.createElement('a');
+        safeLink.href = safeCandidate;
+        safeLink.target = '_blank';
+        safeLink.rel = 'noreferrer';
+        safeLink.dataset.role = 'safe-link';
+        safeLink.textContent = safeCandidate;
+        item.appendChild(document.createElement('br'));
+        item.appendChild(safeLink);
+      }
+
+      endpointsList.appendChild(item);
+    }
+
+    if (endpointsList.childElementCount === 0) {
+      const emptyItem = document.createElement('li');
+      emptyItem.textContent = 'Aucun endpoint déclaré';
+      endpointsList.appendChild(emptyItem);
+    }
+
+    card.appendChild(endpointsList);
+    container.appendChild(card);
+  }
+}
+
 async function fetchDiag() {
   const prefix = API_BASE || '';
   const response = await fetch(`${prefix}/diag`, {
@@ -619,6 +770,7 @@ export async function loadDiagnostics() {
     setStatusMessage('Chargement des diagnostics…', 'warn');
     const diag = await fetchDiag();
     renderDiag(diag);
+    renderProviders(diag?.providers);
     let market = null;
     let marketError = null;
     try {

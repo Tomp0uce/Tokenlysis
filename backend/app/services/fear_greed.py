@@ -31,6 +31,16 @@ def _ensure_timezone(ts: dt.datetime) -> dt.datetime:
     return ts.astimezone(dt.timezone.utc)
 
 
+def _isoformat_z(value: dt.datetime | None) -> str | None:
+    if value is None:
+        return None
+    normalized = _ensure_timezone(value)
+    text = normalized.isoformat()
+    if text.endswith("+00:00"):
+        return text[:-6] + "Z"
+    return text
+
+
 def _parse_timestamp(raw: object) -> dt.datetime | None:
     if isinstance(raw, dt.datetime):
         return _ensure_timezone(raw)
@@ -81,6 +91,7 @@ def _normalize_entry(entry: dict, ingested_at: dt.datetime) -> dict | None:
     classification_raw = (
         entry.get("label")
         or entry.get("value_classification")
+        or entry.get("valueClassification")
         or entry.get("classification")
         or DEFAULT_CLASSIFICATION
     )
@@ -260,6 +271,16 @@ def sync_fear_greed_index(
             if processed:
                 meta_repo.set("fear_greed_last_refresh", timestamp_now.isoformat())
             session.commit()
+            if processed:
+                min_ts, max_ts = repo.get_timespan()
+                logger.info(
+                    "fear & greed sync summary",
+                    extra={
+                        "insert_count": processed,
+                        "min_timestamp": _isoformat_z(min_ts),
+                        "max_timestamp": _isoformat_z(max_ts),
+                    },
+                )
         except Exception:
             session.rollback()
             raise

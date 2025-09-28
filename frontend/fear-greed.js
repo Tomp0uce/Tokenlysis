@@ -14,11 +14,12 @@ import {
 
 const API_URL = document.querySelector('meta[name="api-url"]')?.content || '';
 const API_BASE = API_URL.endsWith('/') ? API_URL.slice(0, -1) : API_URL;
-const DEFAULT_RANGE = '90d';
+const DEFAULT_RANGE = '3m';
 const DEFAULT_CLASSIFICATION = 'Indéterminé';
 const RANGE_TO_DAYS = {
-  '30d': 30,
-  '90d': 90,
+  '1m': 30,
+  '3m': 90,
+  '6m': 180,
   '1y': 365,
 };
 
@@ -29,6 +30,8 @@ let rangeInitialized = false;
 let latestDatapoint = null;
 let historyDatapoints = [];
 let snapshotElements = null;
+let latestAvailable = true;
+let historyAvailable = true;
 
 function getFetch(fetchImpl) {
   if (typeof fetchImpl === 'function') {
@@ -38,6 +41,82 @@ function getFetch(fetchImpl) {
     return fetch;
   }
   return null;
+}
+
+function normalizeTimestamp(value) {
+  if (value instanceof Date) {
+    return value.toISOString().replace('.000Z', 'Z');
+  }
+  if (typeof value !== 'string') {
+    try {
+      return new Date(value).toISOString().replace('.000Z', 'Z');
+    } catch (error) {
+      console.error('normalizeTimestamp failed', error);
+      return new Date().toISOString().replace('.000Z', 'Z');
+    }
+  }
+  const trimmed = value.trim();
+  if (trimmed.endsWith('+00:00')) {
+    return `${trimmed.slice(0, -6)}Z`;
+  }
+  if (trimmed.endsWith('Z')) {
+    return trimmed;
+  }
+  const parsed = Date.parse(trimmed);
+  if (!Number.isNaN(parsed)) {
+    return new Date(parsed).toISOString().replace('.000Z', 'Z');
+  }
+  return trimmed || new Date().toISOString().replace('.000Z', 'Z');
+}
+
+function setErrorBanner(message) {
+  const banner = document.getElementById('fear-greed-error');
+  if (!banner) {
+    return;
+  }
+  if (!message) {
+    banner.textContent = '';
+    banner.hidden = true;
+  } else {
+    banner.textContent = message;
+    banner.hidden = false;
+  }
+}
+
+function hideVisuals() {
+  const gaugeContainer = document.getElementById('fear-greed-gauge');
+  const historyContainer = document.getElementById('fear-greed-history');
+  if (gaugeContainer) {
+    gaugeContainer.hidden = true;
+  }
+  if (historyContainer) {
+    historyContainer.hidden = true;
+  }
+}
+
+function showVisuals() {
+  const gaugeContainer = document.getElementById('fear-greed-gauge');
+  const historyContainer = document.getElementById('fear-greed-history');
+  if (gaugeContainer) {
+    gaugeContainer.hidden = false;
+  }
+  if (historyContainer) {
+    historyContainer.hidden = false;
+  }
+}
+
+function refreshAvailability() {
+  if (latestAvailable && historyAvailable) {
+    showVisuals();
+    setErrorBanner(null);
+  }
+}
+
+function formatHttpStatus(status) {
+  if (typeof status === 'number' && Number.isFinite(status)) {
+    return status;
+  }
+  return 'réseau';
 }
 
 function rangeToDays(range) {
@@ -50,6 +129,12 @@ function rangeToDays(range) {
   }
   if (Object.prototype.hasOwnProperty.call(RANGE_TO_DAYS, key)) {
     return RANGE_TO_DAYS[key];
+  }
+  if (key === 'ytd') {
+    const now = new Date();
+    const start = new Date(Date.UTC(now.getUTCFullYear(), 0, 1));
+    const diff = Math.floor((now.getTime() - start.getTime()) / (24 * 60 * 60 * 1000)) + 1;
+    return diff > 0 ? diff : null;
   }
   if (key.endsWith('d')) {
     const parsed = Number.parseInt(key.slice(0, -1), 10);
@@ -114,13 +199,17 @@ async function loadLatest(fetchImpl) {
   try {
     const response = await fetcher(`${API_BASE}/fng/latest`);
     if (!response?.ok) {
-      throw new Error(`HTTP ${response?.status ?? 'error'}`);
+      const error = new Error(`HTTP ${response?.status ?? 'error'}`);
+      error.status = response?.status;
+      throw error;
     }
     const payload = await response.json();
     const rawScore = Number(payload?.score ?? payload?.value ?? 0);
     const value = Number.isFinite(rawScore) ? Math.round(rawScore) : 0;
     const classification = String(payload?.label || payload?.classification || '').trim() || DEFAULT_CLASSIFICATION;
-    const timestamp = typeof payload?.timestamp === 'string' ? payload.timestamp : new Date().toISOString();
+    const timestamp = normalizeTimestamp(
+      typeof payload?.timestamp === 'string' ? payload.timestamp : new Date(),
+    );
 
     valueEl.textContent = formatSentiment(value);
     classificationEl.textContent = classification;
@@ -133,6 +222,8 @@ async function loadLatest(fetchImpl) {
     } else {
       await updateRadialGauge(gaugeChart, { value, classification });
     }
+    latestAvailable = true;
+    refreshAvailability();
     return gaugeChart;
   } catch (error) {
     console.error(error);
@@ -143,6 +234,10 @@ async function loadLatest(fetchImpl) {
     if (gaugeChart) {
       await updateRadialGauge(gaugeChart, { value: 0, classification: 'Indisponible' });
     }
+    latestAvailable = false;
+    const statusText = formatHttpStatus(error?.status);
+    setErrorBanner(`Fear & Greed indisponible (HTTP ${statusText})`);
+    hideVisuals();
     return null;
   }
 }
@@ -162,13 +257,20 @@ async function loadHistory(range = activeRange, fetchImpl) {
     const query = typeof days === 'number' && days > 0 ? `?days=${encodeURIComponent(days)}` : '';
     const response = await fetcher(`${API_BASE}/fng/history${query}`);
     if (!response?.ok) {
-      throw new Error(`HTTP ${response?.status ?? 'error'}`);
+      const error = new Error(`HTTP ${response?.status ?? 'error'}`);
+      error.status = response?.status;
+      throw error;
     }
     const payload = await response.json();
     const rawPoints = Array.isArray(payload?.points) ? payload.points : [];
     const points = rawPoints
       .map((point) => {
-        const timestamp = typeof point?.timestamp === 'string' ? point.timestamp : null;
+        const rawTimestamp = point?.timestamp ?? point?.time ?? null;
+        const timestamp = rawTimestamp !== null && rawTimestamp !== undefined
+          ? normalizeTimestamp(
+              typeof rawTimestamp === 'number' ? new Date(rawTimestamp) : rawTimestamp,
+            )
+          : null;
         if (!timestamp) {
           return null;
         }
@@ -177,7 +279,8 @@ async function loadHistory(range = activeRange, fetchImpl) {
         const label = String(point?.label || point?.classification || '').trim() || DEFAULT_CLASSIFICATION;
         return { timestamp, value: numeric, classification: label };
       })
-      .filter(Boolean);
+      .filter(Boolean)
+      .sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
     if (!points.length) {
       errorEl.hidden = false;
       errorEl.textContent = 'Historique indisponible pour la période sélectionnée.';
@@ -194,6 +297,8 @@ async function loadHistory(range = activeRange, fetchImpl) {
           true,
         );
       }
+      historyAvailable = true;
+      refreshAvailability();
       return null;
     }
     errorEl.hidden = true;
@@ -238,6 +343,8 @@ async function loadHistory(range = activeRange, fetchImpl) {
     }
     const effectiveRange = typeof payload?.range === 'string' ? payload.range : range;
     setActiveRange(effectiveRange);
+    historyAvailable = true;
+    refreshAvailability();
     return historyChart;
   } catch (error) {
     console.error(error);
@@ -245,6 +352,10 @@ async function loadHistory(range = activeRange, fetchImpl) {
     errorEl.textContent = 'Historique indisponible pour la période sélectionnée.';
     historyDatapoints = [];
     updateSnapshotSummary();
+    historyAvailable = false;
+    const statusText = formatHttpStatus(error?.status);
+    setErrorBanner(`Fear & Greed indisponible (HTTP ${statusText})`);
+    hideVisuals();
     return null;
   }
 }
@@ -271,6 +382,10 @@ function bindRangeButtons() {
 }
 
 export async function init() {
+  latestAvailable = true;
+  historyAvailable = true;
+  setErrorBanner(null);
+  showVisuals();
   initThemeToggle('[data-theme-toggle]');
   onThemeChange((theme) => refreshChartsTheme(theme));
   setActiveRange(DEFAULT_RANGE);
@@ -278,7 +393,7 @@ export async function init() {
   updateSnapshotSummary();
   const rangeContainer = document.getElementById('fear-greed-range');
   if (rangeContainer) {
-    syncRangeSelector(rangeContainer, new Set(['30d', '90d', '1y', 'max']));
+    syncRangeSelector(rangeContainer, new Set(['1m', '3m', '6m', '1y', 'ytd', 'max']));
   }
   await loadLatest();
   await loadHistory(DEFAULT_RANGE);

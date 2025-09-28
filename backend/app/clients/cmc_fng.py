@@ -28,6 +28,14 @@ def _ensure_timezone(ts: dt.datetime) -> dt.datetime:
     return ts.astimezone(dt.timezone.utc)
 
 
+def _isoformat_z(value: dt.datetime) -> str:
+    normalized = _ensure_timezone(value)
+    text = normalized.isoformat()
+    if text.endswith("+00:00"):
+        return text[:-6] + "Z"
+    return text
+
+
 def _parse_timestamp(raw: object) -> tuple[str, dt.datetime] | None:
     if isinstance(raw, (int, float)):
         if not math.isfinite(raw):
@@ -51,7 +59,7 @@ def _parse_timestamp(raw: object) -> tuple[str, dt.datetime] | None:
                 return None
             parsed = dt.datetime.fromtimestamp(numeric, tz=dt.timezone.utc)
         normalized = _ensure_timezone(parsed)
-        return normalized.isoformat(), normalized
+        return _isoformat_z(normalized), normalized
     return None
 
 
@@ -94,27 +102,74 @@ class CoinMarketCapFearGreedClient:
             )
         self.throttle_ms = max(0, int(throttle_ms))
 
+    @staticmethod
+    def _sanitise_params(params: dict[str, Any] | None) -> dict[str, Any] | None:
+        if not params:
+            return None
+        safe: dict[str, Any] = {}
+        for key, value in params.items():
+            key_text = str(key)
+            if "key" in key_text.lower():
+                continue
+            safe[key_text] = value
+        return safe
+
+    def _log_error(
+        self,
+        *,
+        path: str,
+        params: dict[str, Any] | None,
+        response: requests.Response | None,
+        error: BaseException,
+    ) -> None:
+        status = response.status_code if response is not None else None
+        body_excerpt = ""
+        if response is not None:
+            try:
+                if response.headers.get("Content-Type", "").startswith("application/json"):
+                    body_excerpt = json.dumps(response.json())
+                else:
+                    body_excerpt = response.text
+            except Exception:  # pragma: no cover - defensive logging
+                body_excerpt = ""
+        body_excerpt = (body_excerpt or "")[:200]
+        payload = {
+            "status": status,
+            "endpoint": path,
+            "params": self._sanitise_params(params),
+            "body": body_excerpt,
+            "error": str(error),
+        }
+        logger.warning("coinmarketcap request failed: %s", json.dumps(payload))
+
     def _request(
         self, path: str, params: dict[str, Any] | None = None
     ) -> dict[str, Any]:
         url = f"{self.base_url}{path}"
-        if self.throttle_ms:
-            time.sleep(self.throttle_ms / 1000.0)
-        response = self.session.get(url, params=params, timeout=(3.1, 20))
-        try:
-            response.raise_for_status()
-        except requests.HTTPError:
+        backoffs = [0.25, 0.5]
+        attempts = len(backoffs) + 1
+        last_error: BaseException | None = None
+        for attempt in range(attempts):
+            if self.throttle_ms:
+                time.sleep(self.throttle_ms / 1000.0)
+            response: requests.Response | None = None
             try:
-                body = response.json()
-            except Exception:  # pragma: no cover - defensive logging
-                body = response.text
-            logger.warning(
-                "coinmarketcap request failed: %s",
-                json.dumps({"url": url, "status": response.status_code, "body": body}),
-            )
-            raise
-        payload: Any = response.json()
-        return payload if isinstance(payload, dict) else {}
+                response = self.session.get(url, params=params, timeout=(5, 5))
+                response.raise_for_status()
+            except requests.HTTPError as exc:
+                self._log_error(path=path, params=params, response=response, error=exc)
+                last_error = exc
+            except requests.RequestException as exc:
+                self._log_error(path=path, params=params, response=None, error=exc)
+                last_error = exc
+            else:
+                payload: Any = response.json()
+                return payload if isinstance(payload, dict) else {}
+            if attempt < len(backoffs):
+                time.sleep(backoffs[attempt])
+        if last_error is not None:
+            raise last_error
+        raise requests.RequestException("coinmarketcap request failed")
 
     @staticmethod
     def _normalize_entry(

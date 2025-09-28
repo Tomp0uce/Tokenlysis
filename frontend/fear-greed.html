@@ -24,6 +24,7 @@
           <span>Sentiment actuel</span>
           <strong id="fear-greed-value">—</strong>
         </div>
+        <div id="fear-greed-error" class="sentiment-error" hidden>Fear &amp; Greed indisponible</div>
         <div class="sentiment-visual">
           <div id="fear-greed-gauge" class="sentiment-gauge" aria-hidden="true"></div>
           <ul class="sentiment-legend">
@@ -91,9 +92,11 @@
             <p>Suivez la variation de l'indice sur différentes périodes.</p>
           </div>
           <div class="range-selector" id="fear-greed-range" role="radiogroup" aria-label="Période de l'historique">
-            <button type="button" data-range="30d" aria-pressed="false">30j</button>
-            <button type="button" data-range="90d" aria-pressed="false">90j</button>
+            <button type="button" data-range="1m" aria-pressed="false">1 mois</button>
+            <button type="button" data-range="3m" aria-pressed="false">3 mois</button>
+            <button type="button" data-range="6m" aria-pressed="false">6 mois</button>
             <button type="button" data-range="1y" aria-pressed="false">1 an</button>
+            <button type="button" data-range="ytd" aria-pressed="false">YTD</button>
             <button type="button" data-range="max" aria-pressed="false">Totalité</button>
           </div>
         </div>
