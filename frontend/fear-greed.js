@@ -150,7 +150,6 @@ function rangeToDays(range) {
 function sentimentElements() {
   return {
     valueEl: document.getElementById('fear-greed-value'),
-    classificationEl: document.getElementById('fear-greed-classification'),
     gaugeContainer: document.getElementById('fear-greed-gauge'),
   };
 }
@@ -188,8 +187,8 @@ function updateSnapshotSummary() {
 }
 
 async function loadLatest(fetchImpl) {
-  const { valueEl, classificationEl, gaugeContainer } = sentimentElements();
-  if (!valueEl || !classificationEl || !gaugeContainer) {
+  const { valueEl, gaugeContainer } = sentimentElements();
+  if (!valueEl || !gaugeContainer) {
     return null;
   }
   const fetcher = getFetch(fetchImpl);
@@ -212,7 +211,6 @@ async function loadLatest(fetchImpl) {
     );
 
     valueEl.textContent = formatSentiment(value);
-    classificationEl.textContent = classification;
 
     latestDatapoint = { timestamp, value, classification };
     updateSnapshotSummary();
@@ -228,7 +226,6 @@ async function loadLatest(fetchImpl) {
   } catch (error) {
     console.error(error);
     valueEl.textContent = '0';
-    classificationEl.textContent = 'Indisponible';
     latestDatapoint = null;
     updateSnapshotSummary();
     if (gaugeChart) {

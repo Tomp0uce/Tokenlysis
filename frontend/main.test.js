@@ -268,7 +268,6 @@ test('loadFearGreedWidget met à jour la jauge et les étiquettes', async (t) =>
             <dd class="sentiment-snapshot-value" data-role="value">—</dd>
           </div>
         </dl>
-        <p id="fear-greed-classification">—</p>
       </a>
     </body></html>`;
   class ApexChartsStub {
@@ -334,7 +333,8 @@ test('loadFearGreedWidget met à jour la jauge et les étiquettes', async (t) =>
 
   await exports.loadFearGreedWidget();
   assert.equal(document.getElementById('fear-greed-value').textContent, '62');
-  assert.equal(document.getElementById('fear-greed-classification').textContent, 'Greed');
+  const classificationEl = document.getElementById('fear-greed-classification');
+  assert.equal(classificationEl, null);
   assert.equal(document.querySelector('.sentiment-updated'), null);
   assert.deepEqual(calls, [
     'https://example.test/api/fng/latest',
@@ -343,6 +343,7 @@ test('loadFearGreedWidget met à jour la jauge et les étiquettes', async (t) =>
   const card = document.getElementById('fear-greed-card');
   assert.ok(card);
   assert.equal(card.getAttribute('href') ?? card.getAttribute('data-href'), './fear-greed.html');
+  assert.match(card.getAttribute('aria-label') ?? '', /Fear & Greed : Greed/);
   const gauge = document.getElementById('fear-greed-gauge');
   assert.ok(gauge);
   assert.equal(gauge.children.length >= 0, true);

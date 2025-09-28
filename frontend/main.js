@@ -700,8 +700,7 @@ export async function loadFearGreedWidget({ fetchImpl } = {}) {
   const card = document.getElementById('fear-greed-card');
   const gaugeContainer = document.getElementById('fear-greed-gauge');
   const valueEl = document.getElementById('fear-greed-value');
-  const classificationEl = document.getElementById('fear-greed-classification');
-  if (!card || !gaugeContainer || !valueEl || !classificationEl) {
+  if (!card || !gaugeContainer || !valueEl) {
     return null;
   }
   const fetcher = typeof fetchImpl === 'function' ? fetchImpl : typeof fetch === 'function' ? fetch : null;
@@ -720,7 +719,6 @@ export async function loadFearGreedWidget({ fetchImpl } = {}) {
     const classification = String(payload?.label || payload?.classification || '').trim() || 'Indéterminé';
     const timestamp = typeof payload?.timestamp === 'string' ? payload.timestamp : new Date().toISOString();
     valueEl.textContent = String(value);
-    classificationEl.textContent = classification;
     widgetLatestDatapoint = { timestamp, value, classification };
     updateWidgetSnapshots();
     const gaugeData = { value, classification };
@@ -759,7 +757,6 @@ export async function loadFearGreedWidget({ fetchImpl } = {}) {
   } catch (error) {
     console.error(error);
     valueEl.textContent = '0';
-    classificationEl.textContent = 'Indisponible';
     widgetLatestDatapoint = null;
     widgetHistoryPoints = [];
     updateWidgetSnapshots();

@@ -81,26 +81,25 @@ function setupDom() {
               </li>
             </ul>
           </div>
-          <dl class="sentiment-snapshots" id="fear-greed-snapshots">
-            <div class="sentiment-snapshot" data-period="today">
-              <dt class="sentiment-snapshot-label">Aujourd'hui</dt>
-              <dd class="sentiment-snapshot-value" data-role="value">—</dd>
-            </div>
-            <div class="sentiment-snapshot" data-period="yesterday">
-              <dt class="sentiment-snapshot-label">Hier</dt>
-              <dd class="sentiment-snapshot-value" data-role="value">—</dd>
-            </div>
-            <div class="sentiment-snapshot" data-period="week">
-              <dt class="sentiment-snapshot-label">Semaine dernière</dt>
-              <dd class="sentiment-snapshot-value" data-role="value">—</dd>
-            </div>
-            <div class="sentiment-snapshot" data-period="month">
-              <dt class="sentiment-snapshot-label">Mois dernier</dt>
-              <dd class="sentiment-snapshot-value" data-role="value">—</dd>
-            </div>
-          </dl>
-          <p id="fear-greed-classification" class="sentiment-classification">—</p>
-        </section>
+        <dl class="sentiment-snapshots" id="fear-greed-snapshots">
+          <div class="sentiment-snapshot" data-period="today">
+            <dt class="sentiment-snapshot-label">Aujourd'hui</dt>
+            <dd class="sentiment-snapshot-value" data-role="value">—</dd>
+          </div>
+          <div class="sentiment-snapshot" data-period="yesterday">
+            <dt class="sentiment-snapshot-label">Hier</dt>
+            <dd class="sentiment-snapshot-value" data-role="value">—</dd>
+          </div>
+          <div class="sentiment-snapshot" data-period="week">
+            <dt class="sentiment-snapshot-label">Semaine dernière</dt>
+            <dd class="sentiment-snapshot-value" data-role="value">—</dd>
+          </div>
+          <div class="sentiment-snapshot" data-period="month">
+            <dt class="sentiment-snapshot-label">Mois dernier</dt>
+            <dd class="sentiment-snapshot-value" data-role="value">—</dd>
+          </div>
+        </dl>
+      </section>
         <section class="panel">
           <div class="panel-header">
             <div>
@@ -185,7 +184,7 @@ test('fear-greed init renders gauge, legend and history chart with neutral scale
 
   await module.init();
   assert.equal(document.getElementById('fear-greed-value').textContent, '58');
-  assert.equal(document.getElementById('fear-greed-classification').textContent, 'Greed');
+  assert.equal(document.getElementById('fear-greed-classification'), null);
   assert.equal(document.getElementById('fear-greed-updated'), null);
   const errorBanner = document.getElementById('fear-greed-error');
   assert.equal(errorBanner.hidden, true);
@@ -323,7 +322,7 @@ test('fear-greed surfaces HTTP errors when latest fetch fails', async (t) => {
   const dom = setupDom();
   mockFetchSequence([
     new Response('', { status: 503 }),
-    new Response('', { status: 200, body: JSON.stringify({ points: [] }) }),
+    createResponse({ points: [] }),
   ]);
 
   const module = await importFresh('./fear-greed.js');
@@ -341,8 +340,7 @@ test('fear-greed surfaces HTTP errors when latest fetch fails', async (t) => {
   assert.match(banner.textContent, /Fear & Greed indisponible \(HTTP 503\)/);
   const valueEl = document.getElementById('fear-greed-value');
   assert.equal(valueEl.textContent, '0');
-  const classificationEl = document.getElementById('fear-greed-classification');
-  assert.equal(classificationEl.textContent, 'Indisponible');
+  assert.equal(document.getElementById('fear-greed-classification'), null);
   const gauge = document.getElementById('fear-greed-gauge');
   assert.equal(gauge.hidden, true);
   const historyContainer = document.getElementById('fear-greed-history');
