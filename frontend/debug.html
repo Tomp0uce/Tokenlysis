@@ -37,6 +37,36 @@
       gap: 1rem;
     }
 
+    .debug-controls {
+      display: flex;
+      gap: 0.75rem;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .debug-button {
+      border: 1px solid var(--border-strong);
+      background: var(--surface-card);
+      color: var(--text-primary);
+      padding: 0.5rem 1rem;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 0.95rem;
+      font-weight: 600;
+      transition: background 0.2s ease;
+    }
+
+    .debug-button:hover,
+    .debug-button:focus {
+      background: var(--surface-subtle, var(--surface-card));
+      outline: none;
+    }
+
+    .debug-button[disabled] {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
     .debug-header-top p {
       margin: 0;
       color: var(--text-secondary);
@@ -234,7 +264,10 @@
           <h1>Diagnostics Tokenlysis</h1>
           <p>Suivez les données clés exposées par l'endpoint <code>/api/diag</code>.</p>
         </div>
-        <button type="button" class="theme-toggle" data-theme-toggle aria-label="Activer le thème sombre">Thème</button>
+        <div class="debug-controls">
+          <button type="button" class="debug-button" data-role="refresh-usage">Mettre à jour les crédits</button>
+          <button type="button" class="theme-toggle" data-theme-toggle aria-label="Activer le thème sombre">Thème</button>
+        </div>
       </div>
       <div id="diag-status" class="diag-status status-warn">Initialisation…</div>
     </header>
@@ -252,6 +285,17 @@
         <div>
           <p class="metric-values">Répartition par catégorie :</p>
           <ul id="budget-breakdown-list" class="metric-list">
+            <li>Aucune donnée catégorisée</li>
+          </ul>
+        </div>
+      </article>
+      <article class="metric-card" aria-labelledby="cmc-budget-title">
+        <h2 id="cmc-budget-title" class="metric-title">Budget CoinMarketCap</h2>
+        <p class="metric-values">Crédits mensuels : <strong id="cmc-budget-count">—</strong> / quota <strong id="cmc-budget-quota">—</strong></p>
+        <p>Ratio : <span id="cmc-budget-ratio" class="status-pill status-unknown">—</span></p>
+        <div>
+          <p class="metric-values">Répartition par catégorie :</p>
+          <ul id="cmc-budget-breakdown-list" class="metric-list">
             <li>Aucune donnée catégorisée</li>
           </ul>
         </div>

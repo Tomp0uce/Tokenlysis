@@ -233,6 +233,15 @@ test('debug page exposes a theme toggle control for accessibility', () => {
   assert.ok(providers, 'providers list placeholder should exist');
 });
 
+test('debug page exposes a refresh button for API usage', () => {
+  const htmlPath = path.join('frontend', 'debug.html');
+  const html = fs.readFileSync(htmlPath, 'utf8');
+  const dom = new JSDOM(html);
+  const refresh = dom.window.document.querySelector('[data-role="refresh-usage"]');
+  assert.ok(refresh, 'refresh usage button should exist');
+  assert.equal(refresh?.getAttribute('type'), 'button');
+});
+
 test('debug initialization reuses stored theme preference', async () => {
   const htmlPath = path.join('frontend', 'debug.html');
   const html = fs.readFileSync(htmlPath, 'utf8');
@@ -391,6 +400,127 @@ test('renderDiag updates optional CoinMarketCap metrics when placeholders exist'
     assert.equal(items.length, 2);
     assert.equal(items[0]?.textContent, 'Latest : 20 — 76,9 %');
     assert.equal(items[1]?.textContent, 'History : 6 — 23,1 %');
+  } finally {
+    delete global.window;
+    delete global.document;
+    delete global.fetch;
+  }
+});
+
+test('usage refresh button fetches live quotas and updates metrics', async () => {
+  const htmlPath = path.join('frontend', 'debug.html');
+  const html = fs.readFileSync(htmlPath, 'utf8');
+  const dom = new JSDOM(html, { url: 'http://localhost' });
+
+  global.window = dom.window;
+  global.document = dom.window.document;
+  global.localStorage = dom.window.localStorage;
+  dom.window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
+
+  const usageCalls = [];
+  const diagPayload = makeDiagPayload();
+  const usagePayload = {
+    coingecko: {
+      monthly_call_count: 120,
+      quota: 1000,
+      plan: 'pro',
+    },
+    coinmarketcap: {
+      monthly_call_count: 320,
+      quota: 5000,
+      monthly: {
+        credits_used: 320,
+        credits_left: 4680,
+        quota: 5000,
+      },
+    },
+  };
+
+  global.fetch = async (url, options = {}) => {
+    if (url.endsWith('/diag')) {
+      return { ok: true, status: 200, json: async () => diagPayload };
+    }
+    if (url.endsWith('/markets/top?limit=1')) {
+      return { ok: true, status: 200, json: async () => ({}) };
+    }
+    if (url.endsWith('/debug/categories')) {
+      return { ok: true, status: 200, json: async () => ({ items: [] }) };
+    }
+    if (url.endsWith('/diag/refresh-usage')) {
+      usageCalls.push(options);
+      return { ok: true, status: 200, json: async () => usagePayload };
+    }
+    throw new Error(`Unexpected fetch ${url}`);
+  };
+
+  try {
+    const module = await import('../frontend/debug.js');
+    await module.initializeDebugPage();
+
+    const refresh = document.querySelector('[data-role="refresh-usage"]');
+    assert.ok(refresh);
+    refresh.click();
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.equal(usageCalls.length, 1);
+    assert.equal(usageCalls[0]?.method ?? 'GET', 'POST');
+    assert.equal(document.getElementById('budget-count')?.textContent, '120');
+    assert.equal(document.getElementById('budget-quota')?.textContent, '1 000');
+    assert.equal(document.getElementById('budget-ratio')?.textContent, '12,0 %');
+    assert.equal(document.getElementById('cmc-budget-count')?.textContent, '320');
+    assert.equal(document.getElementById('cmc-budget-quota')?.textContent, '5 000');
+    assert.equal(document.getElementById('cmc-budget-ratio')?.textContent, '6,4 %');
+    assert.equal(refresh?.disabled, false);
+  } finally {
+    delete global.window;
+    delete global.document;
+    delete global.localStorage;
+    delete global.fetch;
+  }
+});
+
+test('usage refresh button reports errors and re-enables control', async () => {
+  const htmlPath = path.join('frontend', 'debug.html');
+  const html = fs.readFileSync(htmlPath, 'utf8');
+  const dom = new JSDOM(html, { url: 'http://localhost' });
+
+  global.window = dom.window;
+  global.document = dom.window.document;
+  dom.window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
+
+  const diagPayload = makeDiagPayload();
+  let refreshAttempts = 0;
+
+  global.fetch = async (url) => {
+    if (url.endsWith('/diag')) {
+      return { ok: true, status: 200, json: async () => diagPayload };
+    }
+    if (url.endsWith('/markets/top?limit=1')) {
+      return { ok: true, status: 200, json: async () => ({}) };
+    }
+    if (url.endsWith('/debug/categories')) {
+      return { ok: true, status: 200, json: async () => ({ items: [] }) };
+    }
+    if (url.endsWith('/diag/refresh-usage')) {
+      refreshAttempts += 1;
+      return { ok: false, status: 500, json: async () => ({}) };
+    }
+    throw new Error(`Unexpected fetch ${url}`);
+  };
+
+  try {
+    const module = await import('../frontend/debug.js');
+    await module.initializeDebugPage();
+
+    const refresh = document.querySelector('[data-role="refresh-usage"]');
+    refresh?.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const status = document.getElementById('diag-status');
+    assert.ok(status?.textContent?.includes('Erreur lors de la mise à jour des crédits'));
+    assert.equal(refresh?.disabled, false);
+    assert.equal(refreshAttempts, 1);
   } finally {
     delete global.window;
     delete global.document;

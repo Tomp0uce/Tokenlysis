@@ -236,3 +236,254 @@ def test_diag_reports_cmc_budget(monkeypatch, tmp_path):
 
     main_module.app.state.cmc_budget = None
 
+
+def test_refresh_usage_fetches_provider_stats(monkeypatch):
+    import backend.app.main as main_module
+
+    monkeypatch.setattr(main_module.settings, "COINGECKO_PLAN", "pro")
+    monkeypatch.setattr(main_module.settings, "COINGECKO_API_KEY", "cg-live-1234")
+    monkeypatch.setattr(main_module.settings, "coingecko_api_key", None)
+    monkeypatch.setattr(main_module.settings, "CMC_API_KEY", "cmc-live-5678")
+    main_module.app.state.usage_cache = None
+
+    calls: list[tuple[str, dict[str, str] | None, float | None]] = []
+
+    class FakeResponse:
+        def __init__(self, payload: dict[str, object]) -> None:
+            self._payload = payload
+
+        def raise_for_status(self) -> None:  # pragma: no cover - interface stub
+            return None
+
+        def json(self) -> dict[str, object]:
+            return self._payload
+
+    def fake_get(url: str, *, headers=None, timeout=None):
+        calls.append((url, headers, timeout))
+        if "coingecko" in url:
+            return FakeResponse(
+                {
+                    "plan": "pro",
+                    "monthly_call_credit": 1000,
+                    "current_total_monthly_calls": 120,
+                    "current_remaining_monthly_calls": 880,
+                }
+            )
+        if "coinmarketcap" in url:
+            return FakeResponse(
+                {
+                    "data": {
+                        "plan": {"credit_limit_monthly": 5000},
+                        "usage": {
+                            "current_month": {
+                                "credits_used": 320,
+                                "credits_left": 4680,
+                                "quota": 5000,
+                            }
+                        },
+                    }
+                }
+            )
+        raise AssertionError(f"Unexpected URL {url}")
+
+    monkeypatch.setattr(main_module.requests, "get", fake_get)
+
+    client = TestClient(main_module.app)
+    response = client.post("/api/diag/refresh-usage")
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert payload["coingecko"]["monthly_call_count"] == 120
+    assert payload["coingecko"]["quota"] == 1000
+    assert payload["coinmarketcap"]["monthly"]["credits_used"] == 320
+    assert payload["coinmarketcap"]["monthly_call_count"] == 320
+    assert payload["coinmarketcap"]["quota"] == 5000
+
+    assert len(calls) == 2
+    cg_call = next(call for call in calls if "coingecko" in call[0])
+    cmc_call = next(call for call in calls if "coinmarketcap" in call[0])
+    assert cg_call[1]["x-cg-pro-api-key"] == "cg-live-1234"
+    assert cmc_call[1]["X-CMC_PRO_API_KEY"] == "cmc-live-5678"
+    assert cmc_call[1].get("Accept") == "application/json"
+    assert cg_call[2] == cmc_call[2] == 10
+
+
+def test_refresh_usage_requires_api_keys(monkeypatch):
+    import backend.app.main as main_module
+
+    monkeypatch.setattr(main_module.settings, "COINGECKO_API_KEY", None)
+    monkeypatch.setattr(main_module.settings, "coingecko_api_key", None)
+    monkeypatch.setattr(main_module.settings, "CMC_API_KEY", None)
+    main_module.app.state.usage_cache = None
+
+    client = TestClient(main_module.app)
+    response = client.post("/api/diag/refresh-usage")
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert "CoinGecko" in detail
+    assert "CoinMarketCap" in detail
+
+
+def test_refresh_usage_uses_cache(monkeypatch):
+    import backend.app.main as main_module
+
+    monkeypatch.setattr(main_module.settings, "COINGECKO_API_KEY", "cg-cache-1")
+    monkeypatch.setattr(main_module.settings, "coingecko_api_key", None)
+    monkeypatch.setattr(main_module.settings, "CMC_API_KEY", "cmc-cache-1")
+    main_module.app.state.usage_cache = None
+
+    class FakeResponse:
+        def __init__(self, payload: dict[str, object]) -> None:
+            self._payload = payload
+
+        def raise_for_status(self) -> None:  # pragma: no cover - interface stub
+            return None
+
+        def json(self) -> dict[str, object]:
+            return self._payload
+
+    cg_calls = 0
+    cmc_calls = 0
+
+    def fake_get(url: str, *, headers=None, timeout=None):
+        nonlocal cg_calls, cmc_calls
+        if "coingecko" in url:
+            cg_calls += 1
+            return FakeResponse(
+                {
+                    "plan": "pro",
+                    "monthly_call_credit": 1000,
+                    "current_total_monthly_calls": 120,
+                    "current_remaining_monthly_calls": 880,
+                }
+            )
+        if "coinmarketcap" in url:
+            cmc_calls += 1
+            return FakeResponse(
+                {
+                    "data": {
+                        "plan": {"credit_limit_monthly": 5000},
+                        "usage": {
+                            "current_month": {
+                                "credits_used": 320,
+                                "credits_left": 4680,
+                                "quota": 5000,
+                            }
+                        },
+                    }
+                }
+            )
+        raise AssertionError(f"Unexpected URL {url}")
+
+    monkeypatch.setattr(main_module.requests, "get", fake_get)
+
+    client = TestClient(main_module.app)
+    first = client.post("/api/diag/refresh-usage")
+    assert first.status_code == 200
+    second = client.post("/api/diag/refresh-usage")
+    assert second.status_code == 200
+
+    assert first.json() == second.json()
+    assert cg_calls == 1
+    assert cmc_calls == 1
+
+
+def test_refresh_usage_cache_expires(monkeypatch):
+    import backend.app.main as main_module
+
+    monkeypatch.setattr(main_module.settings, "COINGECKO_API_KEY", "cg-cache-2")
+    monkeypatch.setattr(main_module.settings, "coingecko_api_key", None)
+    monkeypatch.setattr(main_module.settings, "CMC_API_KEY", "cmc-cache-2")
+    main_module.app.state.usage_cache = None
+
+    class FakeResponse:
+        def __init__(self, payload: dict[str, object]) -> None:
+            self._payload = payload
+
+        def raise_for_status(self) -> None:  # pragma: no cover - interface stub
+            return None
+
+        def json(self) -> dict[str, object]:
+            return self._payload
+
+    cg_payloads = [
+        {
+            "plan": "pro",
+            "monthly_call_credit": 1000,
+            "current_total_monthly_calls": 120,
+            "current_remaining_monthly_calls": 880,
+        },
+        {
+            "plan": "pro",
+            "monthly_call_credit": 1500,
+            "current_total_monthly_calls": 340,
+            "current_remaining_monthly_calls": 1160,
+        },
+    ]
+
+    cmc_payloads = [
+        {
+            "data": {
+                "plan": {"credit_limit_monthly": 5000},
+                "usage": {
+                    "current_month": {
+                        "credits_used": 320,
+                        "credits_left": 4680,
+                        "quota": 5000,
+                    }
+                },
+            }
+        },
+        {
+            "data": {
+                "plan": {"credit_limit_monthly": 7000},
+                "usage": {
+                    "current_month": {
+                        "credits_used": 540,
+                        "credits_left": 6460,
+                        "quota": 7000,
+                    }
+                },
+            }
+        },
+    ]
+
+    def fake_get(url: str, *, headers=None, timeout=None):
+        if "coingecko" in url:
+            payload = cg_payloads.pop(0)
+            return FakeResponse(payload)
+        if "coinmarketcap" in url:
+            payload = cmc_payloads.pop(0)
+            return FakeResponse(payload)
+        raise AssertionError(f"Unexpected URL {url}")
+
+    monkeypatch.setattr(main_module.requests, "get", fake_get)
+
+    class FakeDateTime(dt.datetime):
+        slots: list[dt.datetime] = []
+
+        @classmethod
+        def now(cls, tz=None):
+            if not cls.slots:
+                raise AssertionError("FakeDateTime.now called too many times")
+            value = cls.slots.pop(0)
+            if tz is None:
+                return value
+            return value.astimezone(tz)
+
+    start = dt.datetime(2025, 1, 1, tzinfo=dt.timezone.utc)
+    later = start + dt.timedelta(seconds=main_module.USAGE_CACHE_TTL_SECONDS + 1)
+    FakeDateTime.slots = [start, later]
+
+    monkeypatch.setattr(main_module.dt, "datetime", FakeDateTime)
+
+    client = TestClient(main_module.app)
+    first = client.post("/api/diag/refresh-usage")
+    assert first.status_code == 200
+    second = client.post("/api/diag/refresh-usage")
+    assert second.status_code == 200
+
+    assert first.json() != second.json()
+    assert first.json()["coingecko"]["monthly_call_count"] == 120
+    assert second.json()["coingecko"]["monthly_call_count"] == 340
+
