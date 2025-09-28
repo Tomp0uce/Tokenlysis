@@ -991,7 +991,6 @@ def refresh_usage() -> dict[str, dict[str, object]]:
         cg_usage = _coingecko_usage_snapshot(budget)
         cached["coingecko"] = cg_usage
         _sync_budget_with_usage(budget, cg_usage)
-        _sync_budget_with_usage(cmc_budget, cached.get("coinmarketcap"))
         cache_store = getattr(app.state, "usage_cache", None)
         if isinstance(cache_store, dict):
             value = cache_store.get("value")
