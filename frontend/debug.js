@@ -15,6 +15,27 @@ const CATEGORY_REASON_LABELS = {
   stale_timestamp: 'Horodatage obsolète',
 };
 
+let lastDiagnostics = null;
+
+function cloneDiagnostics(value) {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  if (typeof structuredClone === 'function') {
+    try {
+      return structuredClone(value);
+    } catch (error) {
+      console.warn('structuredClone failed, falling back to JSON clone', error);
+    }
+  }
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch (error) {
+    console.warn('JSON clone failed, returning shallow copy', error);
+    return { ...value };
+  }
+}
+
 function toFiniteNumber(value) {
   if (value === null || value === undefined) {
     return null;
@@ -498,22 +519,29 @@ function setStatusMessage(message, status) {
 }
 
 function renderDiag(diag) {
-  const etl = diag?.etl ?? {};
-  const cgUsage = diag?.coingecko_usage ?? {};
-  const cmcUsage = diag?.coinmarketcap_usage ?? {};
-  const fngCache = diag?.fng_cache ?? {};
-  const metrics = evaluateRatios(diag);
-  updateNumberElement('etl-count', etl?.last_etl_items ?? diag?.last_etl_items);
-  updateNumberElement('etl-target', etl?.top_n ?? diag?.top_n);
+  if (diag && typeof diag === 'object') {
+    const snapshot = cloneDiagnostics(diag);
+    if (snapshot) {
+      lastDiagnostics = snapshot;
+    }
+  }
+  const current = lastDiagnostics || (diag && typeof diag === 'object' ? diag : {});
+  const etl = current?.etl ?? {};
+  const cgUsage = current?.coingecko_usage ?? {};
+  const cmcUsage = current?.coinmarketcap_usage ?? {};
+  const fngCache = current?.fng_cache ?? {};
+  const metrics = evaluateRatios(current);
+  updateNumberElement('etl-count', etl?.last_etl_items ?? current?.last_etl_items);
+  updateNumberElement('etl-target', etl?.top_n ?? current?.top_n);
   updateRatioElement('etl-ratio', metrics.etl);
 
-  updateNumberElement('budget-count', cgUsage?.monthly_call_count ?? diag?.monthly_call_count);
-  updateNumberElement('budget-quota', cgUsage?.quota ?? diag?.quota);
+  updateNumberElement('budget-count', cgUsage?.monthly_call_count ?? current?.monthly_call_count);
+  updateNumberElement('budget-quota', cgUsage?.quota ?? current?.quota);
   updateRatioElement('budget-ratio', metrics.budget);
   updateBudgetBreakdown({
-    monthly_call_count: cgUsage?.monthly_call_count ?? diag?.monthly_call_count,
+    monthly_call_count: cgUsage?.monthly_call_count ?? current?.monthly_call_count,
     monthly_call_categories:
-      cgUsage?.monthly_call_categories ?? diag?.monthly_call_categories,
+      cgUsage?.monthly_call_categories ?? current?.monthly_call_categories,
   });
 
   updateNumberElement('cmc-budget-count', cmcUsage?.monthly_call_count);
@@ -534,16 +562,72 @@ function renderDiag(diag) {
     'cmc-budget-breakdown-list',
   );
 
-  updateTextElement('diag-source', etl?.data_source ?? diag?.data_source);
-  updateTextElement('diag-plan', cgUsage?.plan ?? diag?.plan);
-  updateTextElement('diag-base-url', diag?.base_url ?? diag?.providers?.coingecko?.base_url);
-  updateTextElement('diag-granularity', etl?.granularity ?? diag?.granularity);
-  updateTimestampElement('diag-last-refresh', etl?.last_refresh_at ?? diag?.last_refresh_at);
+  updateTextElement('diag-source', etl?.data_source ?? current?.data_source);
+  updateTextElement('diag-plan', cgUsage?.plan ?? current?.plan);
+  const baseUrl = current?.base_url ?? current?.providers?.coingecko?.base_url;
+  updateTextElement('diag-base-url', baseUrl);
+  updateTextElement('diag-granularity', etl?.granularity ?? current?.granularity);
+  updateTimestampElement('diag-last-refresh', etl?.last_refresh_at ?? current?.last_refresh_at);
   updateTimestampElement(
     'fear-greed-last-refresh',
-    fngCache?.last_refresh ?? diag?.fear_greed_last_refresh,
+    fngCache?.last_refresh ?? current?.fear_greed_last_refresh,
   );
-  updateNumberElement('fear-greed-count', fngCache?.rows ?? diag?.fear_greed_count);
+  updateNumberElement('fear-greed-count', fngCache?.rows ?? current?.fear_greed_count);
+}
+
+function applyUsageOverrides(payload) {
+  if (!payload || typeof payload !== 'object') {
+    return;
+  }
+  const base = cloneDiagnostics(lastDiagnostics) || {};
+
+  const coingecko = payload.coingecko;
+  if (coingecko && typeof coingecko === 'object') {
+    const usage = { ...(base.coingecko_usage ?? {}) };
+    if (Object.prototype.hasOwnProperty.call(coingecko, 'plan')) {
+      usage.plan = coingecko.plan;
+    }
+    if (Object.prototype.hasOwnProperty.call(coingecko, 'monthly_call_count')) {
+      usage.monthly_call_count = coingecko.monthly_call_count;
+      base.monthly_call_count = coingecko.monthly_call_count;
+    }
+    if (Object.prototype.hasOwnProperty.call(coingecko, 'quota')) {
+      usage.quota = coingecko.quota;
+      base.quota = coingecko.quota;
+    }
+    if (Object.prototype.hasOwnProperty.call(coingecko, 'remaining')) {
+      usage.remaining = coingecko.remaining;
+    }
+    base.coingecko_usage = usage;
+    if (typeof usage.plan === 'string') {
+      base.plan = usage.plan;
+    }
+  }
+
+  const coinmarketcap = payload.coinmarketcap;
+  if (coinmarketcap && typeof coinmarketcap === 'object') {
+    const usage = { ...(base.coinmarketcap_usage ?? {}) };
+    if (Object.prototype.hasOwnProperty.call(coinmarketcap, 'plan')) {
+      usage.plan = coinmarketcap.plan;
+    }
+    if (Object.prototype.hasOwnProperty.call(coinmarketcap, 'monthly_call_count')) {
+      usage.monthly_call_count = coinmarketcap.monthly_call_count;
+    }
+    if (Object.prototype.hasOwnProperty.call(coinmarketcap, 'quota')) {
+      usage.quota = coinmarketcap.quota;
+    }
+    if (Object.prototype.hasOwnProperty.call(coinmarketcap, 'remaining')) {
+      usage.remaining = coinmarketcap.remaining;
+    }
+    if (Object.prototype.hasOwnProperty.call(coinmarketcap, 'monthly')) {
+      usage.monthly = coinmarketcap.monthly;
+    }
+    base.coinmarketcap_usage = usage;
+  }
+
+  const updated = cloneDiagnostics(base) || base;
+  lastDiagnostics = updated;
+  renderDiag(updated);
 }
 
 function renderMarketMeta(market, diag, nowMs = Date.now()) {
@@ -762,6 +846,57 @@ async function fetchCategoryDiagnostics() {
   return response.json();
 }
 
+async function fetchUsageSnapshot() {
+  const prefix = API_BASE || '';
+  const response = await fetch(`${prefix}/diag/refresh-usage`, {
+    method: 'POST',
+    headers: { 'Accept': 'application/json' },
+  });
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+  return response.json();
+}
+
+async function refreshUsage(button) {
+  if (!hasDocument()) {
+    return;
+  }
+  const control = button || document.querySelector('[data-role="refresh-usage"]');
+  if (!control) {
+    return;
+  }
+  control.disabled = true;
+  setStatusMessage('Mise à jour des crédits…', 'warn');
+  try {
+    const payload = await fetchUsageSnapshot();
+    applyUsageOverrides(payload);
+    setStatusMessage('Crédits mis à jour depuis les API.', 'ok');
+  } catch (error) {
+    console.error('refreshUsage failed', error);
+    setStatusMessage('Erreur lors de la mise à jour des crédits', 'error');
+  } finally {
+    control.disabled = false;
+  }
+}
+
+function initUsageButton() {
+  if (!hasDocument()) {
+    return;
+  }
+  const button = document.querySelector('[data-role="refresh-usage"]');
+  if (!button) {
+    return;
+  }
+  if (button.dataset.usageBound === 'true') {
+    return;
+  }
+  button.dataset.usageBound = 'true';
+  button.addEventListener('click', () => {
+    refreshUsage(button);
+  });
+}
+
 export async function loadDiagnostics() {
   if (!hasDocument()) {
     return;
@@ -841,6 +976,7 @@ export function initializeDebugPage() {
     return Promise.resolve();
   }
   ensureThemeInitialized();
+  initUsageButton();
   return loadDiagnostics();
 }
 

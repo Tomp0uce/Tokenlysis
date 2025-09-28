@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+from copy import deepcopy
 import datetime as dt
 import logging
 import math
 import os
 import threading
+import hashlib
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -48,8 +50,14 @@ app = FastAPI(title="Tokenlysis", version=os.getenv("APP_VERSION", "dev"))
 
 ETL_SHUTDOWN_TIMEOUT = 10.0
 MARKETS_CACHE_TTL_SECONDS = 90
+USAGE_TIMEOUT_SECONDS = 10
+USAGE_CACHE_TTL_SECONDS = 90
+
+COINGECKO_USAGE_URL = "https://pro-api.coingecko.com/api/v3/key"
+COINMARKETCAP_USAGE_URL = "https://pro-api.coinmarketcap.com/v1/key/info"
 
 app.state.markets_cache = MarketsCache(ttl_seconds=MARKETS_CACHE_TTL_SECONDS)
+app.state.usage_cache: dict[str, object] | None = None
 
 
 def _repo_root() -> Path:
@@ -133,6 +141,149 @@ def _cmc_spend(budget: CallBudget | None, calls: int, *, category: str) -> None:
         budget.spend(calls, category=category)
     except Exception as exc:  # pragma: no cover - defensive
         _disable_cmc_budget(exc)
+
+
+def _safe_int(value: object) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return int(value)
+    try:
+        number = int(float(value))
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number):
+        return None
+    return max(number, 0)
+
+
+def _coingecko_usage_headers(api_key: str) -> dict[str, str]:
+    header = "x-cg-pro-api-key" if settings.COINGECKO_PLAN == "pro" else "x-cg-demo-api-key"
+    return {header: api_key}
+
+
+def _usage_cache_signature(cg_key: str, cmc_key: str) -> str:
+    digest = hashlib.sha256()
+    digest.update(cg_key.encode("utf-8"))
+    digest.update(b"\0")
+    digest.update(cmc_key.encode("utf-8"))
+    digest.update(b"\0")
+    digest.update(settings.COINGECKO_PLAN.encode("utf-8"))
+    return digest.hexdigest()
+
+
+def _get_cached_usage(signature: str, now: dt.datetime) -> dict[str, dict[str, object]] | None:
+    cache = getattr(app.state, "usage_cache", None)
+    if not isinstance(cache, dict):
+        return None
+    cached_signature = cache.get("signature")
+    expires_at = cache.get("expires_at")
+    value = cache.get("value")
+    if cached_signature != signature:
+        return None
+    if not isinstance(expires_at, dt.datetime):
+        return None
+    if expires_at <= now:
+        return None
+    if not isinstance(value, dict):
+        return None
+    return deepcopy(value)
+
+
+def _fetch_coingecko_usage(api_key: str) -> dict[str, object]:
+    headers = _coingecko_usage_headers(api_key)
+    response = requests.get(COINGECKO_USAGE_URL, headers=headers, timeout=USAGE_TIMEOUT_SECONDS)
+    response.raise_for_status()
+    payload = response.json()
+    plan = payload.get("plan") if isinstance(payload, dict) else None
+    credit = _safe_int(payload.get("monthly_call_credit")) if isinstance(payload, dict) else None
+    used = (
+        _safe_int(payload.get("current_total_monthly_calls"))
+        if isinstance(payload, dict)
+        else None
+    )
+    remaining = (
+        _safe_int(payload.get("current_remaining_monthly_calls"))
+        if isinstance(payload, dict)
+        else None
+    )
+    quota = credit if credit is not None else None
+    if quota is None and used is not None and remaining is not None:
+        quota = used + remaining
+    return {
+        "plan": plan,
+        "monthly_call_credit": credit,
+        "current_total_monthly_calls": used,
+        "current_remaining_monthly_calls": remaining,
+        "monthly_call_count": used,
+        "quota": quota,
+        "remaining": remaining,
+    }
+
+
+def _extract_monthly_usage(candidate: dict[str, object] | None) -> dict[str, int | None]:
+    if not isinstance(candidate, dict):
+        return {"credits_used": None, "credits_left": None, "quota": None}
+    used = _safe_int(
+        candidate.get("credits_used")
+        or candidate.get("used")
+        or candidate.get("credit_usage")
+    )
+    left = _safe_int(
+        candidate.get("credits_left")
+        or candidate.get("left")
+        or candidate.get("credits_remaining")
+    )
+    quota = _safe_int(
+        candidate.get("quota")
+        or candidate.get("credit_limit")
+        or candidate.get("limit")
+    )
+    if quota is None and used is not None and left is not None:
+        quota = used + left
+    if left is None and quota is not None and used is not None:
+        left = max(quota - used, 0)
+    return {"credits_used": used, "credits_left": left, "quota": quota}
+
+
+def _fetch_cmc_usage(api_key: str) -> dict[str, object]:
+    headers = {"X-CMC_PRO_API_KEY": api_key, "Accept": "application/json"}
+    response = requests.get(
+        COINMARKETCAP_USAGE_URL,
+        headers=headers,
+        timeout=USAGE_TIMEOUT_SECONDS,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    data = payload.get("data") if isinstance(payload, dict) else None
+    plan = data.get("plan") if isinstance(data, dict) else None
+    usage = data.get("usage") if isinstance(data, dict) else None
+    monthly_raw = None
+    if isinstance(usage, dict):
+        monthly_raw = usage.get("current_month") or usage.get("monthly")
+    monthly = _extract_monthly_usage(monthly_raw if isinstance(monthly_raw, dict) else None)
+    quota = monthly["quota"]
+    if quota is None and isinstance(plan, dict):
+        quota = _safe_int(
+            plan.get("credit_limit_monthly")
+            or plan.get("credit_limit")
+            or plan.get("quota")
+        )
+        monthly["quota"] = quota
+        if quota is not None and monthly["credits_left"] is None and monthly["credits_used"] is not None:
+            monthly["credits_left"] = max(quota - monthly["credits_used"], 0)
+    used = monthly["credits_used"]
+    remaining = monthly["credits_left"]
+    if remaining is None and quota is not None and used is not None:
+        remaining = max(quota - used, 0)
+    return {
+        "plan": plan,
+        "usage": usage,
+        "monthly": monthly,
+        "monthly_call_count": used,
+        "quota": quota,
+        "remaining": remaining,
+    }
 
 
 def _parse_fng_timestamp(raw: object) -> dt.datetime | None:
@@ -772,6 +923,68 @@ def diag(session: Session = Depends(get_session)) -> dict:
     }
 
     return response
+
+
+def _format_missing_keys(missing: list[str]) -> str:
+    if not missing:
+        return ""
+    if len(missing) == 1:
+        return f"La clé API {missing[0]} est requise pour actualiser les crédits."
+    joined = " et ".join(missing)
+    return f"Les clés API {joined} sont requises pour actualiser les crédits."
+
+
+@app.post("/api/diag/refresh-usage")
+def refresh_usage() -> dict[str, dict[str, object]]:
+    cg_key = settings.COINGECKO_API_KEY or settings.coingecko_api_key
+    cmc_key = settings.CMC_API_KEY
+    missing = []
+    if not cg_key:
+        missing.append("CoinGecko")
+    if not cmc_key:
+        missing.append("CoinMarketCap")
+    if missing:
+        raise HTTPException(status_code=400, detail=_format_missing_keys(missing))
+
+    now = dt.datetime.now(dt.timezone.utc)
+    signature = _usage_cache_signature(str(cg_key), str(cmc_key))
+    cached = _get_cached_usage(signature, now)
+    if cached is not None:
+        return cached
+
+    try:
+        cg_usage = _fetch_coingecko_usage(cg_key)
+    except requests.RequestException as exc:  # pragma: no cover - network error
+        logger.error("CoinGecko usage refresh failed: %s", exc)
+        app.state.usage_cache = None
+        raise HTTPException(
+            status_code=502,
+            detail="Échec de la récupération des crédits CoinGecko.",
+        ) from exc
+
+    try:
+        cmc_usage = _fetch_cmc_usage(cmc_key)
+    except requests.RequestException as exc:  # pragma: no cover - network error
+        logger.error("CoinMarketCap usage refresh failed: %s", exc)
+        app.state.usage_cache = None
+        raise HTTPException(
+            status_code=502,
+            detail="Échec de la récupération des crédits CoinMarketCap.",
+        ) from exc
+
+    result = {
+        "coingecko": cg_usage,
+        "coinmarketcap": cmc_usage,
+    }
+
+    expires_at = now + dt.timedelta(seconds=USAGE_CACHE_TTL_SECONDS)
+    app.state.usage_cache = {
+        "signature": signature,
+        "expires_at": expires_at,
+        "value": deepcopy(result),
+    }
+
+    return result
 
 
 @app.get("/api/last-refresh")
