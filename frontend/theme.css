@@ -255,12 +255,6 @@ a:hover {
   margin: 0 0 0.5rem;
 }
 
-.sentiment-classification {
-  font-size: 1rem;
-  font-weight: 600;
-  color: var(--text-secondary);
-}
-
 .sentiment-snapshots {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
