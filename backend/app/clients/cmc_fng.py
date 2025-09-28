@@ -177,7 +177,12 @@ class CoinMarketCapFearGreedClient:
     ) -> tuple[dict[str, Any], dt.datetime] | None:
         if not isinstance(entry, dict):
             return None
-        timestamp_raw = entry.get("timestamp") or entry.get("time")
+        timestamp_raw = (
+            entry.get("timestamp")
+            or entry.get("time")
+            or entry.get("update_time")
+            or entry.get("updateTime")
+        )
         parsed_timestamp = _parse_timestamp(timestamp_raw)
         if parsed_timestamp is None:
             return None
