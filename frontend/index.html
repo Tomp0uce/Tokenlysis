@@ -5,10 +5,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="api-url" content="/api">
   <title>Tokenlysis – Tableau de bord</title>
+  <link rel="preload" href="./assets/kickmaker-logo.png" as="image">
   <link rel="stylesheet" href="./theme.css">
   <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
 </head>
 <body>
+  <div id="intro" class="intro" aria-hidden="true">
+    <div class="intro__bg"></div>
+    <div class="intro__logo-wrap">
+      <img id="intro-logo" class="intro__logo" src="./assets/kickmaker-logo.png" alt="Kickmaker">
+    </div>
+  </div>
   <main class="dashboard">
     <header class="dashboard-header">
       <div class="brand">
@@ -220,6 +227,7 @@
     </footer>
   </main>
   <script src="./app-version.js"></script>
+  <script defer src="./intro.js"></script>
   <script type="module" src="./main.js"></script>
 </body>
 </html>
