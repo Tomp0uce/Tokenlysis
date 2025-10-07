@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import importlib
+
 import pytest
 
-from backend.app import planner
+planner = importlib.import_module("planner")
 
 
 def _sample_steps() -> list[planner.ReviewStep]:

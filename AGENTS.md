@@ -15,6 +15,7 @@ Tokenlysis is a platform that ranks over 1,000 crypto-assets each day. It comput
 - Python code follows PEP 8 and is formatted with `black` and linted by `ruff`.
 - Use type hints for all functions and prefer pure functions in scoring modules.
 - Commit messages use the Conventional Commits convention (feat, fix, docs, etc.).
+- Toute la logique du planner de design review (hors tests) doit résider dans le fichier `planner.py` à la racine du dépôt.
 
 ## Testing Instructions
 - Add Pytest unit tests for new Python features and keep coverage close to 80%.
