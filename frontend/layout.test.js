@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 const themeCssUrl = new URL('./theme.css', import.meta.url);
+const indexHtmlUrl = new URL('./index.html', import.meta.url);
 
 async function readThemeCss() {
   return readFile(themeCssUrl, 'utf8');
@@ -42,5 +43,25 @@ test('sentiment gauge has increased minimum height for better readability', asyn
     gaugeRule[0],
     /min-height:\s*26\dpx;/,
     'sentiment gauge should allocate at least 260px height',
+  );
+});
+
+test('dashboard does not include Kickmaker intro overlay markup or styles', async () => {
+  const [html, css] = await Promise.all([
+    readFile(indexHtmlUrl, 'utf8'),
+    readThemeCss(),
+  ]);
+
+  assert.ok(
+    !/kickmaker-logo\.png/i.test(html),
+    'index.html should not preload or reference the Kickmaker logo',
+  );
+  assert.ok(
+    !/<div\s+id="intro"/i.test(html),
+    'index.html should not render the Kickmaker intro overlay container',
+  );
+  assert.ok(
+    !/\.intro\b/.test(css),
+    'theme.css should not declare intro overlay styles',
   );
 });
