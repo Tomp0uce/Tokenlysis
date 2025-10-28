@@ -13,7 +13,7 @@ services:
     volumes:
       - /volume1/docker/tokenlysis/data:/data
     environment:
-      DATABASE_URL: sqlite:////data/tokenlysis.db
+      DATABASE_URL: ${DATABASE_URL}
       BUDGET_FILE: /data/budget.json
       COINGECKO_PLAN: demo
       CMC_API_KEY: ${CMC_API_KEY}
