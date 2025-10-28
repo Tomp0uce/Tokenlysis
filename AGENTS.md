@@ -30,3 +30,22 @@ Tokenlysis 2.0 is a single FastAPI + Next.js monolith. The FastAPI backend (Pyda
 - OIDC authentication is mandatory (use placeholder tokens in tests).
 - Casbin drives RBAC; protect every sensitive route.
 - Generate expiring S3 pre-signed URLs only.
+
+## Assistant Responsibilities
+- Preserve the synchronous Alembic bootstrap that now powers SQLite deployments via `ALEMBIC_DATABASE_URL`.
+- Keep test coverage for `backend/alembic/env.py` aligned with `tests/test_alembic_env.py` when the migration flow changes.
+- Update documentation (README, Functional_specs) whenever the database bootstrap or environment contract changes.
+
+## Decision Rules
+- Prefer `ALEMBIC_DATABASE_URL` when present; otherwise fall back to `DATABASE_URL`, and only then to the value in `alembic.ini`.
+- Enable `render_as_batch` automatically for SQLite dialects to ensure ALTER TABLE compatibility.
+- Use synchronous SQLAlchemy engines for Alembic runs unless the configured URL uses an async driver.
+
+## Command / IO Contract
+- `start.sh` must export `ALEMBIC_DATABASE_URL` before executing `alembic upgrade head` and `uvicorn`.
+- Alembic relies on `alembic.ini` resolving `${ALEMBIC_DATABASE_URL}`; deployments must export the variable or supply a fallback.
+
+## Maintenance Notes
+- The Alembic environment module defers automatic execution when imported outside an Alembic run—tests should patch the module-level `context` and `config` accordingly.
+- The regression tests in `tests/test_alembic_env.py` validate env-var precedence, batch mode, and the synchronous engine contract.
+- Additional guards ensure `backend/alembic/env.py` never reintroduces `async_engine_from_config` nor calls `Base.metadata.create_all`; keep those tests green when modifying migration plumbing.

@@ -50,6 +50,9 @@ Apply database migrations:
 ```bash
 alembic upgrade head
 ```
+The Alembic environment reads `ALEMBIC_DATABASE_URL` first, then `DATABASE_URL`, then the value provided in `alembic.ini`. When
+running via `start.sh`, the script exports `ALEMBIC_DATABASE_URL` automatically so SQLite and PostgreSQL deployments stay in
+sync. SQLite connections enable Alembic's `render_as_batch` mode to keep `ALTER TABLE` migrations safe.
 Run the API:
 ```bash
 uvicorn backend.app.main:app --reload
@@ -74,15 +77,20 @@ mypy backend/app
 # Backend tests
 pytest
 
+# Focused Alembic regression
+pytest tests/test_alembic_env.py
+
 # Frontend tests
 npm test
 ```
+Running the focused Alembic regression ensures migrations stay synchronous, avoid duplicate `sqlalchemy.url` entries, and never invoke `Base.metadata.create_all` during the bootstrap phase.
 
 ## Observability & Operations
 - `/metrics` exposes Prometheus counters (via `prometheus_fastapi_instrumentator`).
 - Enable OpenTelemetry OTLP and Sentry via `TOKENLYSIS_OTEL_ENDPOINT` and `TOKENLYSIS_SENTRY_DSN`.
 - SQLAdmin lives on `/admin` (authentication delegated to the OIDC layer in front of FastAPI).
 - Switch Dramatiq to Redis by configuring `dramatiq.set_broker(RedisBroker(...))`.
+- Ensure `ALEMBIC_DATABASE_URL` (or `DATABASE_URL`) is exported before running migrations so Alembic uses the synchronous driver.
 
 ## Authentication & RBAC
 - Use `Authorization: Bearer <token>` headers with OIDC validation (e.g., Keycloak) and Casbin roles defined in `backend/app/core/rbac_policy.csv`.
