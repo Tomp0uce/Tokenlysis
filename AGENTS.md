@@ -1,33 +1,32 @@
 # AGENTS Instructions
 
 ## Project Overview
-Tokenlysis is a platform that ranks over 1,000 crypto-assets each day. It computes thematic scores (Community, Liquidity, Opportunity, Security, Technology, Tokenomics) and a global score. A FastAPI backend serves data to interactive vanilla-JS dashboards (market overview, coin detail and sentiment) rendered with ApexCharts.
+Tokenlysis 2.0 is a single FastAPI + Next.js monolith. The FastAPI backend (Pydantic v2, SQLAlchemy 2, Dramatiq, Casbin, SQLAdmin, MinIO, OpenTelemetry/Sentry/Prometheus) serves REST, SSE, and WebSocket endpoints. The Next.js 14 frontend (TypeScript, Tailwind, shadcn/ui, TanStack Query, React Hook Form + Zod) consumes the OpenAPI specification through Orval-generated hooks.
 
-## Build and Test Commands
+## Build & Test Commands
 - Install backend dependencies: `pip install -r backend/requirements.txt`
-- Install Node test dependencies: `npm install`
-- Run the API locally: `uvicorn backend.app.main:app --reload`
-- Format and lint: `ruff backend && black backend`
-- Run backend tests: `pytest`
-- Run frontend tests: `node --test tests/*.js`
+- Run migrations: `alembic upgrade head`
+- Start the API: `uvicorn backend.app.main:app --reload`
+- Lint & format: `ruff check backend && black backend`
+- Type-check: `mypy backend/app`
+- Backend tests: `pytest`
+- Frontend install: `npm install`
+- Frontend tests: `npm test`
 
-## Code Style Guidelines
-- Python code follows PEP 8 and is formatted with `black` and linted by `ruff`.
-- Use type hints for all functions and prefer pure functions in scoring modules.
-- Commit messages use the Conventional Commits convention (feat, fix, docs, etc.).
+## Code Style
+- Python: PEP 8, formatted with `black` (line length 100), linted with `ruff`, typed with strict `mypy`.
+- TypeScript: follow Next.js/ESLint conventions, functional components, TanStack Query hooks.
+- Never commit secrets; configuration must come from `TOKENLYSIS_*` environment variables.
 
-## Testing Instructions
-- Add Pytest unit tests for new Python features and keep coverage close to 80%.
-- Add Node `node --test` suites (using jsdom) for new frontend utilities and UI logic.
-- Ensure both `pytest` and `node --test tests/*.js` pass before committing.
-
-## Security Considerations
-- Never commit secrets or credentials.
-- Use HTTPS in production and apply rate limiting on public APIs.
-- Store passwords hashed and keep dependencies updated with tools like `pip-audit`.
-- Mask secrets in logs and diagnostic endpoints.
-- Avoid writing empty environment variables; fall back to defaults when values are blank and raise clear errors for invalid entries.
+## Testing & TDD
+- Every new feature starts with a failing Pytest or Vitest specification.
+- Required coverage: RBAC, SSE/WS, Dramatiq tasks, S3 signing, and UI flows backed by React Query.
 
 ## Documentation
-- Update the README and `Functional_specs.md` when the feature scope evolves.
-- Keep roadmap checklists (POC/MVP/EVT) aligned across documentation and actual feature status.
+- Keep `README.md` and `Functional_specs.md` aligned with the active stack.
+- Summarize major architectural or command changes in the PR message.
+
+## Security
+- OIDC authentication is mandatory (use placeholder tokens in tests).
+- Casbin drives RBAC; protect every sensitive route.
+- Generate expiring S3 pre-signed URLs only.

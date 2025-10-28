@@ -1,0 +1,10 @@
+p, admin, users, write
+p, admin, stream, read
+p, admin, tasks, write
+p, admin, files, write
+p, admin, metrics, read
+p, user, stream, read
+
+# role inheritance
+g, admin, admin
+g, analyst, user
