@@ -1,17 +1,13 @@
 from __future__ import annotations
-
 import os
 from logging.config import fileConfig
-
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 from sqlalchemy.engine import Connection
 
-
 config = context.config
 if config and config.config_file_name:
     fileConfig(config.config_file_name)
-
 
 def _get_db_url() -> str:
     return (
@@ -20,24 +16,20 @@ def _get_db_url() -> str:
         or config.get_main_option("sqlalchemy.url")
     )
 
-
 def _is_sqlite(url: str) -> bool:
     return url.startswith("sqlite:")
 
-
+# target_metadata best-effort (OK à None pour 'upgrade'; seul autogenerate en dépend)
 target_metadata = None
 try:
     from backend.app.db.base import Base
-
     target_metadata = Base.metadata
 except Exception:
     try:
         from backend.db.base import Base
-
         target_metadata = Base.metadata
     except Exception:
         target_metadata = None
-
 
 def run_migrations_offline() -> None:
     url = _get_db_url()
@@ -51,7 +43,6 @@ def run_migrations_offline() -> None:
     with context.begin_transaction():
         context.run_migrations()
 
-
 def run_migrations_online() -> None:
     section = config.get_section(config.config_ini_section) or {}
     section["sqlalchemy.url"] = _get_db_url()
@@ -59,6 +50,7 @@ def run_migrations_online() -> None:
     connectable = engine_from_config(
         section, prefix="sqlalchemy.", poolclass=pool.NullPool, future=True
     )
+
     with connectable.connect() as connection:  # type: Connection
         context.configure(
             connection=connection,
@@ -67,7 +59,6 @@ def run_migrations_online() -> None:
         )
         with context.begin_transaction():
             context.run_migrations()
-
 
 if context.is_offline_mode():
     run_migrations_offline()
