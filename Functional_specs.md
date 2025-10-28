@@ -29,6 +29,7 @@ Tokenlysis adopts a "clean" monolithic strategy: a FastAPI/Python backend orches
 - Backend: Pytest + pytest-asyncio + httpx AsyncClient (TDD required).
 - Frontend: Vitest + Testing Library.
 - Local CI: `ruff`, `black`, `mypy`, `pytest`, `npm test`.
+- Regression: `pytest tests/test_alembic_env.py` guards synchronous Alembic migrations, config precedence, and blocks duplicate DSN definitions or accidental `Base.metadata.create_all` calls.
 
 ## 3. Non-Functional Requirements
 - **Performance**: REST endpoints under 100 ms on the demo dataset; SSE/WS loops remain lightweight.
@@ -65,6 +66,7 @@ Tokenlysis adopts a "clean" monolithic strategy: a FastAPI/Python backend orches
 - Environment variables are prefixed with `TOKENLYSIS_` (see `backend/app/core/config.py`).
 - Tests default to SQLite in-memory/temporary databases + StubBroker; production must configure PostgreSQL + Redis.
 - Run `orval --config orval.config.ts` against `/openapi.json` to refresh `frontend/lib/api/generated.ts`.
+- Alembic migrations run synchronously: the environment chooses `ALEMBIC_DATABASE_URL` first, then `DATABASE_URL`, and finally the `alembic.ini` fallback. SQLite URLs automatically enable batch mode to keep schema changes compatible.
 
 ## 8. Compliance
 - Never commit secrets; rely on environment variables.
