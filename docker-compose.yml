@@ -5,7 +5,7 @@ services:
     working_dir: /app
     environment:
       - PYTHONPATH=/app
-      - DATABASE_URL=sqlite:////data/tokenlysis.db
+      - DATABASE_URL=${DATABASE_URL}
       - BUDGET_FILE=/data/budget.json
       - COINGECKO_PLAN=demo
       - COINGECKO_API_KEY=${COINGECKO_API_KEY}
